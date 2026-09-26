@@ -13,7 +13,7 @@ struct UnselectedMailView: View {
           ProgressView().controlSize(.mini)
         } else {
           Image(systemName: store.lastSync == nil ? "tray" : "checkmark.circle")
-            .font(.cove(size: 13)).accessibilityHidden(true)
+            .font(.coveText).accessibilityHidden(true)
         }
         syncStatus.font(.coveMetadata).multilineTextAlignment(.trailing).lineLimit(2)
       }
@@ -27,13 +27,13 @@ struct UnselectedMailView: View {
           .accessibilityHidden(true)
 
         Text("A little space to focus.")
-          .font(.cove(size: 23, weight: .medium)).foregroundStyle(Palette.ink)
+          .font(.coveTitle).foregroundStyle(Palette.ink)
           .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
 
         Text(
           "Select an email to read the conversation,\nsee its key passage, and write your reply."
         )
-        .font(.cove(size: 13)).lineSpacing(6).foregroundStyle(Palette.muted)
+        .font(.coveText).lineSpacing(6).foregroundStyle(Palette.muted)
         .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 390)
 
@@ -79,7 +79,7 @@ struct UnselectedMailView: View {
   }
 
   private func keycap(_ key: String) -> some View {
-    Text(key).font(.cove(size: 12)).frame(width: 24, height: 24)
+    Text(key).font(.coveSecondary).frame(width: 24, height: 24)
       .background(Palette.surface, in: RoundedRectangle(cornerRadius: 4))
       .overlay(RoundedRectangle(cornerRadius: 4).stroke(Palette.line, lineWidth: 1))
   }

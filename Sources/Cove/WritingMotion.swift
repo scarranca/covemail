@@ -119,8 +119,8 @@ struct WritingInkCanvas: NSViewRepresentable {
     }
     let shouldAnimate = animated && !hasSuggestion && !text.isEmpty
     hasSuggestion = true
-    let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 6
-    let font = NSFont(name: "Inter-Regular", size: 14) ?? NSFont.systemFont(ofSize: 14)
+    let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = CoveTypography.bodyLineSpacing
+    let font = CoveTypography.nativeBody
     textStorage?.setAttributedString(NSAttributedString(string: text, attributes: [
       .font: font, .foregroundColor: NSColor(srgbRed: 48/255, green: 48/255, blue: 48/255, alpha: 1),
       .paragraphStyle: paragraph,

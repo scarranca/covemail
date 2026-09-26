@@ -22,7 +22,7 @@ struct SignInLandscape: View {
           startPoint: .top, endPoint: .bottom
         ).accessibilityHidden(true)
         VStack(alignment: .leading, spacing: 15) {
-          Text("LESS NOISE. MORE SPACE.").font(.cove(size: 11, weight: .medium))
+          Text("LESS NOISE. MORE SPACE.").font(.coveCaption)
             .foregroundStyle(Color(white: 0.698))
           Text("Find your focus.\nWe’ll handle the overflow.").font(.cove(size: 32))
             .tracking(-0.6).lineSpacing(2).foregroundStyle(Color(white: 0.957))
@@ -32,7 +32,7 @@ struct SignInLandscape: View {
             Text("A little perspective changes everything.").font(.coveMetadata)
               .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 16)
-            Text("COVE / 001").font(.cove(size: 10)).fixedSize()
+            Text("COVE / 001").font(.coveMetadata).fixedSize()
           }.foregroundStyle(.white)
         }
         .padding(.horizontal, geometry.size.width < 640 ? 36 : 52)
@@ -57,7 +57,7 @@ private struct GmailSignInButtonSurface: View {
   @State private var hovering = false
 
   var body: some View {
-    configuration.label.font(.cove(size: 14, weight: .medium))
+    configuration.label.font(.coveSubheading)
       .foregroundStyle(enabled ? .white : Palette.body)
       .padding(.horizontal, 16).frame(height: 54)
       .background(

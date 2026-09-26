@@ -82,8 +82,8 @@ struct MailTideView: View {
         ForEach(tide.days) { day in
           Button { selectedDay = selectedDay == day.date ? nil : day.date } label: {
             VStack(spacing: 4) {
-              Text("\(day.count)").font(.cove(size: 11, weight: .medium)).monospacedDigit()
-              Text(day.date, format: .dateTime.weekday(.abbreviated)).font(.cove(size: 10)).foregroundStyle(Color(white: 0.83))
+              Text("\(day.count)").font(.coveCaption).monospacedDigit()
+              Text(day.date, format: .dateTime.weekday(.abbreviated)).font(.coveMetadata).foregroundStyle(Color(white: 0.83))
             }.frame(maxWidth: .infinity).padding(.vertical, 3)
               .background(selectedDay == day.date ? .white.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 4))
           }.buttonStyle(.plain)
@@ -94,30 +94,30 @@ struct MailTideView: View {
       Divider().overlay(.white.opacity(0.14))
       if let day = tide.days.first(where: { $0.date == selectedDay }) {
         Text("\(day.date.formatted(date: .abbreviated, time: .omitted)) · \(day.count) received in downloaded mail")
-          .font(.cove(size: 10)).foregroundStyle(Color(white: 0.83))
+          .font(.coveMetadata).foregroundStyle(Color(white: 0.83))
       } else if labels.isEmpty {
-        Text("Downloaded mail · last 7 days").font(.cove(size: 10)).foregroundStyle(Color(white: 0.83))
+        Text("Downloaded mail · last 7 days").font(.coveMetadata).foregroundStyle(Color(white: 0.83))
       } else {
         ViewThatFits(in: .horizontal) {
           HStack(spacing: 12) { legend }
-          Text("Downloaded mail · \(labels.count) agent categories").font(.cove(size: 10))
+          Text("Downloaded mail · \(labels.count) agent categories").font(.coveMetadata)
         }.foregroundStyle(Color(white: 0.83))
       }
     }.foregroundStyle(Color(white: 0.96))
   }
   private var heading: some View {
-    Text("\(tide.total) emails received").font(.cove(size: 15, weight: .medium))
+    Text("\(tide.total) emails received").font(.coveSubheading)
       .help("Received messages downloaded to Cove in the last seven days. Sent mail, drafts, spam, and trash are excluded; this is not a complete Gmail total.")
   }
   private var dateRange: some View {
     Text("\(tide.days.first?.date.formatted(.dateTime.month(.abbreviated).day()) ?? "")–\(tide.days.last?.date.formatted(.dateTime.day()) ?? "") · downloaded")
-      .font(.cove(size: 10)).foregroundStyle(Color(white: 0.83))
+      .font(.coveMetadata).foregroundStyle(Color(white: 0.83))
   }
   private var legend: some View {
     ForEach(Array(labels.prefix(4).enumerated()), id: \.offset) { index, label in
       HStack(spacing: 4) {
         Circle().fill(Self.colors[index]).frame(width: 4, height: 4)
-        Text("\(label.name) \(label.count)").font(.cove(size: 10)).lineLimit(1)
+        Text("\(label.name) \(label.count)").font(.coveMetadata).lineLimit(1)
       }.help("\(label.count) received emails with agent label \(label.name). An email can have multiple labels.")
     }
   }

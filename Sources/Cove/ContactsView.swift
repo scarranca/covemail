@@ -84,12 +84,12 @@ struct ContactsView: View {
   private var toolbar: some View {
     HStack(spacing: 14) {
       Text("Contacts").font(.coveTitle)
-      Text("\(contacts.count) contacts").font(.cove(size: 12)).foregroundStyle(Palette.muted)
+      Text("\(contacts.count) contacts").font(.coveSecondary).foregroundStyle(Palette.muted)
       Spacer(minLength: 8)
       HStack(spacing: 8) {
         Image(systemName: "magnifyingglass").foregroundStyle(Palette.muted)
         TextField("Search people or companies", text: $query).textFieldStyle(.plain)
-          .font(.cove(size: 12)).focused($searchFocused).accessibilityLabel("Search contacts")
+          .font(.coveSecondary).focused($searchFocused).accessibilityLabel("Search contacts")
         if query.isEmpty {
           Text("⌘ K").font(.coveMetadata).foregroundStyle(Palette.muted)
         } else {
@@ -114,7 +114,7 @@ struct ContactsView: View {
       frequentContacts
       VStack(spacing: 0) {
         HStack {
-          Text(store.contactGroup).font(.cove(size: 16, weight: .medium))
+          Text(store.contactGroup).font(.coveSection)
           if !query.isEmpty {
             Text("\(visible.count)").font(.coveMetadata).foregroundStyle(Palette.muted)
           }
@@ -156,13 +156,13 @@ struct ContactsView: View {
   private var frequentContacts: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack {
-        Text("Most messaged").font(.cove(size: 13, weight: .medium))
+        Text("Most messaged").font(.coveLabel)
         Spacer()
-        Text("Last 30 days · downloaded mail").font(.cove(size: 10))
+        Text("Last 30 days · downloaded mail").font(.coveMetadata)
       }.foregroundStyle(.white)
       if frequent.isEmpty {
         Text("Your recent connections will appear as mail arrives.")
-          .font(.cove(size: 12)).foregroundStyle(.white.opacity(0.9)).padding(.vertical, 10)
+          .font(.coveSecondary).foregroundStyle(.white.opacity(0.9)).padding(.vertical, 10)
       } else {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: 8) {
@@ -175,9 +175,9 @@ struct ContactsView: View {
                 HStack(spacing: 8) {
                   CoveAvatar(initials: item.contact.initials, size: 34)
                   VStack(alignment: .leading, spacing: 5) {
-                    Text(item.contact.name).font(.cove(size: 11, weight: .medium)).lineLimit(1)
+                    Text(item.contact.name).font(.coveCaption).lineLimit(1)
                     Text("\(item.count) \(item.count == 1 ? "message" : "messages")")
-                      .font(.cove(size: 10)).foregroundStyle(.white.opacity(0.85))
+                      .font(.coveMetadata).foregroundStyle(.white.opacity(0.85))
                   }
                 }.frame(width: 136, alignment: .leading).padding(8)
                   .background(
@@ -211,21 +211,21 @@ struct ContactsView: View {
         CoveAvatar(initials: contact.initials, size: 32)
         VStack(alignment: .leading, spacing: 4) {
           HStack(spacing: 5) {
-            Text(contact.name).font(.cove(size: 12, weight: .medium)).lineLimit(1)
+            Text(contact.name).font(.coveControl).lineLimit(1)
             if contact.record?.isFavorite == true {
               Image(systemName: "star.fill").font(.cove(size: 9))
             }
           }
-          Text(contact.email).font(.cove(size: 10)).foregroundStyle(Palette.body).lineLimit(1)
+          Text(contact.email).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
         }
       }.frame(maxWidth: .infinity, alignment: .leading)
       if wide {
         Text(contact.record?.company.isEmpty == false ? contact.record!.company : "—")
-          .font(.cove(size: 11)).foregroundStyle(Palette.body).lineLimit(1)
+          .font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
           .frame(width: 120, alignment: .leading)
       }
       Text(contact.lastMessage.map { $0.formatted(.dateTime.month(.abbreviated).day()) } ?? "—")
-        .font(.cove(size: 11)).foregroundStyle(Palette.body).frame(width: 92, alignment: .leading)
+        .font(.coveMetadata).foregroundStyle(Palette.body).frame(width: 92, alignment: .leading)
     }.padding(.horizontal, 12).frame(height: 62)
       .background(store.selectedContactID == contact.id ? Palette.mailSelection : Palette.canvas)
       .overlay(alignment: .bottom) {
@@ -240,7 +240,7 @@ struct ContactsView: View {
       Image(systemName: "person.crop.rectangle").font(.cove(size: 28)).foregroundStyle(
         Palette.muted)
       Text(query.isEmpty ? "Room for your people" : "No matching contacts")
-        .font(.cove(size: 16, weight: .medium))
+        .font(.coveSection)
       Text(
         query.isEmpty
           ? (store.contactGroup == "Favorites"
@@ -248,7 +248,7 @@ struct ContactsView: View {
             : "Add a contact, or find people here as mail is downloaded.")
           : "Try a name, email address, or company."
       )
-      .font(.cove(size: 12)).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
+      .font(.coveSecondary).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
       if query.isEmpty && contacts.isEmpty && !store.isSample {
         Button("Sync Gmail") { Task { await store.sync() } }
           .buttonStyle(PrimaryButton()).disabled(store.busy)
@@ -279,13 +279,13 @@ struct ContactsView: View {
             )
             .accessibilityLabel(
               contact.record?.isFavorite == true ? "Remove from favorites" : "Add to favorites")
-            Button("Edit") { editing = editable(contact) }.buttonStyle(.plain).font(.cove(size: 12))
+            Button("Edit") { editing = editable(contact) }.buttonStyle(.plain).font(.coveSecondary)
           }
           VStack(alignment: .leading, spacing: 12) {
             CoveAvatar(initials: contact.initials, size: 72)
-            Text(contact.name).font(.cove(size: 22, weight: .medium)).textSelection(.enabled)
+            Text(contact.name).font(.coveDetailTitle).textSelection(.enabled)
             if let company = contact.record?.company, !company.isEmpty {
-              Text(company).font(.cove(size: 12)).foregroundStyle(Palette.muted)
+              Text(company).font(.coveSecondary).foregroundStyle(Palette.muted)
             }
             HStack(spacing: 8) {
               Button {
@@ -313,9 +313,9 @@ struct ContactsView: View {
           }
           VStack(alignment: .leading, spacing: 10) {
             Label("A little context", systemImage: "sparkles").font(
-              .cove(size: 12, weight: .medium))
+              .coveControl)
             if let notes = contact.record?.notes, !notes.isEmpty {
-              Text(notes).font(.cove(size: 13)).lineSpacing(5).foregroundStyle(Palette.body)
+              Text(notes).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing).foregroundStyle(Palette.body)
               Text("Your notes · stored locally").font(.coveMetadata).foregroundStyle(Palette.muted)
             } else {
               Text(
@@ -323,17 +323,17 @@ struct ContactsView: View {
                   ? "No downloaded conversations with this contact yet. Add a note to remember what matters."
                   : "\(contact.messages.count) \(contact.messages.count == 1 ? "message" : "messages") in your downloaded mail. Open a conversation below to catch up."
               )
-              .font(.cove(size: 13)).lineSpacing(5).foregroundStyle(Palette.body)
+              .font(.coveText).lineSpacing(5).foregroundStyle(Palette.body)
               Button("Add a note") { editing = editable(contact) }.buttonStyle(.plain).font(
                 .coveMetadata)
             }
           }
           Divider()
           VStack(alignment: .leading, spacing: 16) {
-            Text("Recent conversations").font(.cove(size: 13, weight: .medium))
+            Text("Recent conversations").font(.coveLabel)
             if contact.recentConversations.isEmpty {
               Text("Conversations will appear after mail is downloaded.")
-                .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+                .font(.coveSecondary).foregroundStyle(Palette.muted)
             }
             ForEach(Array(contact.recentConversations.prefix(showAllConversations ? Int.max : 3))) {
               message in
@@ -342,9 +342,9 @@ struct ContactsView: View {
               } label: {
                 VStack(alignment: .leading, spacing: 5) {
                   Text(message.subject.isEmpty ? "No subject" : message.subject)
-                    .font(.cove(size: 12)).lineLimit(2).multilineTextAlignment(.leading)
+                    .font(.coveSecondary).lineLimit(2).multilineTextAlignment(.leading)
                   Text(message.date.formatted(date: .abbreviated, time: .shortened))
-                    .font(.cove(size: 10)).foregroundStyle(Palette.muted)
+                    .font(.coveMetadata).foregroundStyle(Palette.muted)
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
               }.buttonStyle(.plain)
             }
@@ -366,15 +366,15 @@ struct ContactsView: View {
         Text(
           "Select a contact to see their details, catch up on a conversation, or write an email."
         )
-        .font(.cove(size: 13)).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
+        .font(.coveText).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
         .lineSpacing(4)
       }.padding(28).frame(maxHeight: .infinity).background(Palette.surface)
     }
   }
   private func info(_ label: String, _ value: String) -> some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text(label).font(.cove(size: 10)).foregroundStyle(Palette.muted)
-      Text(value).font(.cove(size: 12)).foregroundStyle(Palette.body).textSelection(.enabled)
+      Text(label).font(.coveMetadata).foregroundStyle(Palette.muted)
+      Text(value).font(.coveSecondary).foregroundStyle(Palette.body).textSelection(.enabled)
     }
   }
   private func editable(_ contact: MailContact) -> ContactRecord {
@@ -399,7 +399,7 @@ struct ContactsView: View {
   }
 }
 
-private struct ContactEditor: View {
+struct ContactEditor: View {
   @Bindable var store: AppStore
   @State var record: ContactRecord
   var onSave: (ContactRecord) -> Void
@@ -410,7 +410,7 @@ private struct ContactEditor: View {
     VStack(alignment: .leading, spacing: 20) {
       Text(isExisting ? "Edit contact" : "Save a contact").font(.coveTitle)
       Text("Contact details and notes stay in this account on your Mac.")
-        .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+        .font(.coveSecondary).foregroundStyle(Palette.muted)
       VStack(spacing: 14) {
         field("Name", text: $record.name)
         field("Email", text: $record.email)
@@ -418,14 +418,14 @@ private struct ContactEditor: View {
         field("Phone", text: $record.phone)
         field("Group", text: $record.group)
         VStack(alignment: .leading, spacing: 6) {
-          Text("Notes").font(.coveControl)
-          TextEditor(text: $record.notes).font(.cove(size: 13)).scrollContentBackground(.hidden)
+          Text("Notes").font(.coveLabel)
+          TextEditor(text: $record.notes).font(.coveBody).scrollContentBackground(.hidden)
             .padding(8).frame(height: 88).background(Palette.canvas)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.inputBorder))
             .accessibilityLabel("Contact notes")
         }
       }
-      if let validation { Text(validation).font(.cove(size: 12)).foregroundStyle(Palette.danger) }
+      if let validation { Text(validation).font(.coveSecondary).foregroundStyle(Palette.danger) }
       HStack {
         Spacer()
         Button("Cancel") { dismiss() }.buttonStyle(SecondaryButton()).keyboardShortcut(
@@ -458,7 +458,7 @@ private struct ContactEditor: View {
   }
   private func field(_ label: String, text: Binding<String>) -> some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text(label).font(.coveControl)
+      Text(label).font(.coveLabel)
       TextField(label == "Email" ? "name@example.com" : label, text: text)
         .textFieldStyle(CoveFieldStyle()).accessibilityLabel("Contact \(label.lowercased())")
     }

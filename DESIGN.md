@@ -16,7 +16,7 @@ Source of truth: the user's **Cove Design System · Foundations** and **Componen
 
 The native `Palette` preserves the supplied sRGB values. Darker body text is used when the muted token would fall below 4.5:1 on gray selected/sidebar surfaces.
 
-Typography is bundled **Inter**: display 42 medium, page title 24 regular, section 18 medium, body 14, controls 12 medium, metadata 11. Fonts are registered for the process through CoreText; no system font installation is required. SF Symbols supply native icons.
+Typography is bundled **Inter**: display 42 medium, page title 24 medium, detail title 20 medium, section 16 medium, subheading 14 medium, body 14 regular, text/labels 13 regular/medium, secondary text 12 regular, controls 12 medium, metadata/captions 11 regular/medium. Reading and compose paragraphs use 6-point extra leading; compact metadata stays single-spaced. Fonts are registered for the process through CoreText; no system font installation is required. SF Symbols supply native icons.
 
 Spacing scale: 4, 8, 12, 16, 24, 32, 40, 56. Sidebar width 224. Content insets 28–40. Controls use 6-point radii and a 40-point minimum height; fields use 42 points; panels use 10 points. macOS owns sheet window chrome and presentation.
 
@@ -104,3 +104,8 @@ Keep these task-focused pages in an 800-point reading column. Use 26-point mediu
 
 
 0.1.42 settings density: use Cove’s shared 40-point outlined button for local/cloud removal actions; never leave a native automatic bezel among Cove controls. Retain the existing destructive confirmation. Page titles are 24-point medium, section titles 16-point medium, setting labels 13-point medium, explanatory text 12-point regular. Upcoming integrations and the footer use 12-point rows and 11-point secondary copy. Preserve line wrapping and control hit areas while reducing the visual weight of secondary content. This supersedes the larger 0.1.40 settings typography.
+
+
+### Shared typography (0.1.43)
+
+The role scale in Foundations supersedes the historical per-screen font sizes above. All routes use these shared roles, including compact button labels (12 medium). Compose and the AI preview share native Inter 14 and paragraph spacing. Unread email emphasis, Markdown hierarchy, proportional avatar initials, SF Symbol sizes, native date/menu internals, sign-in branding/artwork, and sender-authored HTML remain intentional exceptions. Settings continues showing one section at a time with 12-point supporting copy. Plain email body width is capped at 660 points; long agent prose columns use the same maximum.

@@ -24,7 +24,7 @@ struct HomeWeatherView: View {
         HStack(alignment: .center, spacing: 12) {
           Image(systemName: symbol(point.symbol)).font(.system(size: 30)).accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
-            Text(temperature(point.celsius)).font(.cove(size: 26, weight: .medium)).monospacedDigit()
+            Text(temperature(point.celsius)).font(.coveTitle).monospacedDigit()
             Text(condition(point.symbol)).font(HomeType.compactBody).foregroundStyle(Palette.body)
           }
           Spacer()

@@ -54,7 +54,7 @@ struct ConnectionStatusTag: View {
       if let issue = store.connectionIssue {
         Button { details.toggle() } label: {
           Label(issue.title, systemImage: "wifi.slash")
-            .font(.cove(size: 12, weight: .medium)).foregroundStyle(Palette.body)
+            .font(.coveControl).foregroundStyle(Palette.body)
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(Palette.sidebar, in: Capsule())
             .overlay(Capsule().stroke(Palette.line))
@@ -62,7 +62,7 @@ struct ConnectionStatusTag: View {
           .accessibilityLabel(issue.title + ". Show connection details")
           .popover(isPresented: $details, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 12) {
-              Text(issue.title).font(.cove(size: 15, weight: .semibold))
+              Text(issue.title).font(.coveSubheading)
               Text(issue.detail).fixedSize(horizontal: false, vertical: true)
               Text(issue.operation.replacingOccurrences(of: "…", with: "") + " didn’t finish.")
                 .foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
@@ -74,8 +74,8 @@ struct ConnectionStatusTag: View {
                 Text(issue.operation == "Marking email as read…" ? "Open the email again to retry when your connection is restored." : "Try the action again when your connection is restored.").foregroundStyle(Palette.body)
               }
               Button("Dismiss") { if store.connectionIssue?.id == issue.id { store.connectionIssue = nil }; details = false }
-                .buttonStyle(.plain).font(.cove(size: 12, weight: .medium))
-            }.font(.cove(size: 12)).foregroundStyle(Palette.ink).padding(18).frame(width: 300)
+                .buttonStyle(.plain).font(.coveControl)
+            }.font(.coveSecondary).foregroundStyle(Palette.ink).padding(18).frame(width: 300)
           }
           .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
       }

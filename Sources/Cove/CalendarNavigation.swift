@@ -10,22 +10,22 @@ struct CalendarNavigation: View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
         Text(month, format: .dateTime.month(.wide).year())
-          .font(.cove(size: 12, weight: .medium))
+          .font(.coveControl)
         Spacer(minLength: 0)
         Button { moveMonth(-1) } label: { Image(systemName: "chevron.left") }
           .accessibilityLabel("Previous month")
         Button { moveMonth(1) } label: { Image(systemName: "chevron.right") }
           .accessibilityLabel("Next month")
-      }.buttonStyle(.plain).font(.cove(size: 11))
+      }.buttonStyle(.plain).font(.coveMetadata)
       LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 7), spacing: 3) {
         ForEach(Array(["M", "T", "W", "T", "F", "S", "S"].enumerated()), id: \.offset) { _, day in
-          Text(day).font(.cove(size: 10)).foregroundStyle(Palette.body).frame(height: 22)
+          Text(day).font(.coveMetadata).foregroundStyle(Palette.body).frame(height: 22)
             .accessibilityHidden(true)
         }
         ForEach(CalendarAgenda.monthDays(containing: month), id: \.self) { day in
           let selected = calendar.isDate(day, inSameDayAs: store.calendarDay)
           Button { store.selectCalendarDay(day) } label: {
-            Text(day, format: .dateTime.day()).font(.cove(size: 11, weight: selected ? .medium : .regular))
+            Text(day, format: .dateTime.day()).font(selected ? .coveCaption : .coveMetadata)
               .frame(maxWidth: .infinity).frame(height: 24)
               .foregroundStyle(selected ? .white : Palette.ink)
               .background(selected ? Palette.ink : .clear, in: Circle())
@@ -37,8 +37,8 @@ struct CalendarNavigation: View {
         }
       }
       Divider()
-      Text("My calendars").font(.cove(size: 12, weight: .medium))
-      Text("On this Mac").font(.cove(size: 10)).foregroundStyle(Palette.muted)
+      Text("My calendars").font(.coveControl)
+      Text("On this Mac").font(.coveMetadata).foregroundStyle(Palette.body)
       ForEach(LocalCalendar.allCases, id: \.self) { calendar in
         Toggle(calendar.title, isOn: Binding(
           get: { store.isLocalCalendarVisible(calendar) },
@@ -48,7 +48,7 @@ struct CalendarNavigation: View {
       if store.calendarConnected && !store.isSample {
         Toggle("Google · primary", isOn: $store.showGoogleCalendar)
       }
-    }.font(.cove(size: 12)).toggleStyle(.checkbox)
+    }.font(.coveSecondary).toggleStyle(.checkbox)
       .onAppear { month = store.calendarDay }
       .onChange(of: store.calendarDay) { _, day in month = day }
   }

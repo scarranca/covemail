@@ -129,13 +129,13 @@ struct AgentHubView: View {
 
   private var toolbar: some View {
     HStack {
-      Text("Agent Hub").font(.cove(size: 15, weight: .medium))
+      Text("Agent Hub").font(.coveSubheading)
       if store.isSample {
         Text("Sample mailbox").font(.coveMetadata).foregroundStyle(Palette.muted)
       }
       Spacer()
       Text(store.now, format: .dateTime.weekday(.wide).month(.wide).day())
-        .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+        .font(.coveSecondary).foregroundStyle(Palette.muted)
       Button { store.showConnections = true } label: {
         Image(systemName: "gearshape").font(.system(size: 16)).frame(width: 28, height: 28)
       }.buttonStyle(.plain).help("Settings").accessibilityLabel("Settings")
@@ -146,9 +146,9 @@ struct AgentHubView: View {
     let layout = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 26)) : AnyLayout(HStackLayout(spacing: 32))
     return layout {
       VStack(alignment: .leading, spacing: 15) {
-        Text(greeting).font(.cove(size: 27, weight: .medium))
+        Text(greeting).font(.coveTitle)
           .foregroundStyle(Color(white: 0.96)).fixedSize(horizontal: false, vertical: true)
-        Text(briefing).font(.cove(size: 13)).foregroundStyle(Color(white: 0.84))
+        Text(briefing).font(.coveText).foregroundStyle(Color(white: 0.84))
           .lineSpacing(6).fixedSize(horizontal: false, vertical: true)
         HStack(spacing: 8) {
           briefingTag("\(priorities.count) \(priorities.count == 1 ? "decision" : "decisions")")
@@ -166,7 +166,7 @@ struct AgentHubView: View {
   }
 
   private func briefingTag(_ text: String, warm: Bool = false) -> some View {
-    Text(text).font(.cove(size: 11, weight: .medium))
+    Text(text).font(.coveCaption)
       .foregroundStyle(warm ? Color(red: 0.94, green: 0.78, blue: 0.64) : Color(white: 0.87))
       .padding(.horizontal, 9).padding(.vertical, 6)
       .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 5))
@@ -212,7 +212,7 @@ struct AgentHubView: View {
         VStack(alignment: .leading, spacing: 11) {
           HStack(alignment: .firstTextBaseline, spacing: 14) {
             Text(message.subject.isEmpty ? "No subject" : message.subject)
-              .font(.cove(size: 15, weight: .semibold)).lineLimit(2)
+              .font(.coveSubheading).lineLimit(2)
               .frame(maxWidth: .infinity, alignment: .leading)
             Text(message.date, format: .dateTime.month(.abbreviated).day())
               .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize()
@@ -273,7 +273,7 @@ struct AgentHubView: View {
         }
       }
       if let event = nextMeeting {
-        Text(event.title).font(.cove(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+        Text(event.title).font(.coveSubheading).fixedSize(horizontal: false, vertical: true)
         Text(event.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) + " · \(max(1, Int(event.end.timeIntervalSince(event.start) / 60))) min")
           .font(.coveMetadata).foregroundStyle(Palette.body)
         let people = (event.attendees ?? []).filter { $0.isSelf != true && $0.response != "declined" }.compactMap { $0.name ?? $0.email }
@@ -323,7 +323,7 @@ struct AgentHubView: View {
             .buttonStyle(.plain).font(HomeType.action).disabled(store.busy)
         }
       }
-      if !waiting.isEmpty { Text("No reply in downloaded mail · last 30 days").font(.cove(size: 10)).foregroundStyle(Palette.muted) }
+      if !waiting.isEmpty { Text("No reply in downloaded mail · last 30 days").font(.coveMetadata).foregroundStyle(Palette.muted) }
     }.padding(.top, 22).overlay(alignment: .top) { Rectangle().fill(Palette.line).frame(height: 1) }
   }
   @ViewBuilder private var invitationSection: some View {

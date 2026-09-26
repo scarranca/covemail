@@ -95,18 +95,18 @@ struct AppUpdateSettings: View {
         if showsHeading { Text("App updates").font(.coveSection) }
         if showsHeading { Spacer() }
         Text("Cove \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development")")
-          .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+          .font(.coveSecondary).foregroundStyle(Palette.muted)
       }
       if updater.isAvailable {
         Toggle("Automatically check for updates", isOn: Binding(get: { updater.automaticChecks }, set: updater.setAutomaticChecks))
           .toggleStyle(CoveToggleStyle())
         Text("Cove checks daily. You choose when to download, install, and restart.")
-          .font(.cove(size: 12)).foregroundStyle(Palette.body)
+          .font(.coveSecondary).foregroundStyle(Palette.body)
         Button(updater.menuTitle, action: updater.checkForUpdates).buttonStyle(SecondaryButton())
           .disabled(!updater.canCheck && !updater.restartPending)
-        if let status = updater.status { Text(status).font(.cove(size: 12)).foregroundStyle(Palette.body) }
+        if let status = updater.status { Text(status).font(.coveSecondary).foregroundStyle(Palette.body) }
       } else {
-        Text("Update checks are available in the installed release of Cove.").font(.cove(size: 12)).foregroundStyle(Palette.body)
+        Text("Update checks are available in the installed release of Cove.").font(.coveSecondary).foregroundStyle(Palette.body)
       }
     }
   }

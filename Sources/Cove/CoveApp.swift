@@ -148,9 +148,9 @@ struct Sidebar: View {
             size: 34)
           VStack(alignment: .leading, spacing: 3) {
             Text(store.isSample ? "Alex Lee" : store.accountEmail).font(
-              .cove(size: 13, weight: .medium)
+              .coveLabel
             ).lineLimit(1)
-            Text(store.isSample ? "Sample mailbox" : "Personal · Gmail").font(.cove(size: 11))
+            Text(store.isSample ? "Sample mailbox" : "Personal · Gmail").font(.coveMetadata)
               .foregroundStyle(Palette.body)
           }
           Spacer(minLength: 0)
@@ -164,7 +164,7 @@ struct Sidebar: View {
           Image(systemName: store.screen == "contacts" || store.screen == "calendar" || store.screen == "agents" ? "plus" : "square.and.pencil")
           Text(store.newItemTitle)
           Spacer()
-          Text("⌘ N").opacity(0.65).font(.cove(size: 11))
+          Text("⌘ N").opacity(0.65).font(.coveMetadata)
         }.frame(maxWidth: .infinity)
       }.buttonStyle(PrimaryButton())
       ScrollView {
@@ -216,21 +216,21 @@ struct Sidebar: View {
       Spacer(minLength: 0)
       if store.screen == "calendar" {
         Button { store.screen = "agents" } label: {
-          Label("Your agents", systemImage: "sparkles").font(.cove(size: 12))
+          Label("Your agents", systemImage: "sparkles").font(.coveSecondary)
         }.buttonStyle(.plain)
       } else {
       Button {
         store.screen = "agents"
       } label: {
         VStack(alignment: .leading, spacing: 8) {
-          Label("Your agents", systemImage: "sparkles").font(.cove(size: 13, weight: .medium))
+          Label("Your agents", systemImage: "sparkles").font(.coveLabel)
           Text(
             store.busy
               ? store.status : "\(store.customAgents.agents.filter { $0.status == .active }.count) active · \(store.customAgents.agents.count) custom agents"
-          ).font(.cove(size: 11)).foregroundStyle(Palette.body).lineLimit(2)
+          ).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(2)
           if store.screen == "home", let lastSync = store.lastSync {
             Text("Last checked \(lastSync.formatted(.relative(presentation: .named)))")
-              .font(.cove(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
+              .font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
           }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(
           RoundedRectangle(cornerRadius: 9).stroke(Palette.line))
@@ -241,12 +241,12 @@ struct Sidebar: View {
         store.screen = "integrations"
       } label: {
         Label("Integrations", systemImage: "square.stack.3d.up")
-          .font(.cove(size: 12, weight: store.screen == "integrations" ? .medium : .regular))
+          .font(.coveLabel)
       }.buttonStyle(.plain).foregroundStyle(store.screen == "integrations" ? Palette.ink : Palette.body)
       Button {
         store.showConnections = true
       } label: {
-        Label("Settings", systemImage: "gearshape").font(.cove(size: 12))
+        Label("Settings", systemImage: "gearshape").font(.coveLabel)
       }.buttonStyle(.plain).foregroundStyle(Palette.body)
       }
     }.padding(.horizontal, 18).padding(.bottom, 20).background(Palette.sidebar)
@@ -271,9 +271,9 @@ struct Sidebar: View {
         Text(name)
         Spacer()
         if name == "Inbox" {
-          Text("\(store.inboxCount)").font(.cove(size: 12)).foregroundStyle(Palette.body)
+          Text("\(store.inboxCount)").font(.coveSecondary).foregroundStyle(Palette.body)
         }
-      }.font(.cove(size: 14, weight: selected ? .medium : .regular)).padding(.horizontal, 10)
+      }.font(.coveLabel).padding(.horizontal, 10)
         .padding(.vertical, 10).background(
           selected ? Palette.selection : .clear, in: RoundedRectangle(cornerRadius: 7)
         ).contentShape(Rectangle())

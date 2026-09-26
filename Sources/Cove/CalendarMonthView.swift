@@ -20,7 +20,7 @@ struct CalendarMonthView: View {
         HStack(spacing: 0) {
           ForEach(Array(days.prefix(7)), id: \.self) { date in
             Text(date, format: .dateTime.weekday(.abbreviated))
-              .font(.cove(size: 11, weight: .medium)).foregroundStyle(Palette.muted)
+              .font(.coveCaption).foregroundStyle(Palette.muted)
               .frame(maxWidth: .infinity).frame(height: 36)
           }
         }
@@ -70,7 +70,7 @@ private struct CalendarMonthDay: View {
       Button(action: selectDay) {
         HStack {
           Text(day, format: .dateTime.day())
-            .font(.cove(size: 12, weight: today || selected ? .semibold : .regular))
+            .font(today || selected ? .coveControl : .coveSecondary)
             .frame(width: 26, height: 26)
             .background(today ? Palette.ink : selected ? Palette.selection : .clear, in: Circle())
             .foregroundStyle(today ? .white : inMonth ? Palette.ink : Palette.muted)
@@ -85,7 +85,7 @@ private struct CalendarMonthDay: View {
       }
       if events.count > limit {
         Button("+\(events.count - limit) more", action: selectDay)
-          .buttonStyle(.plain).font(.cove(size: 10, weight: .medium)).foregroundStyle(Palette.body)
+          .buttonStyle(.plain).font(.coveCaption).foregroundStyle(Palette.body)
           .padding(.horizontal, 4)
           .accessibilityLabel("Show all \(events.count) events on " + day.formatted(date: .complete, time: .omitted))
       }
@@ -120,10 +120,10 @@ private struct CalendarMonthEvent: View {
     Button(action: action) {
       HStack(spacing: 3) {
         if event.allDay != true && showTime {
-          Text(time).font(.cove(size: 9)).monospacedDigit()
+          Text(time).font(.coveMetadata).monospacedDigit()
             .foregroundStyle(selected ? Color.white : Palette.body).fixedSize()
         }
-        Text(event.title).font(.cove(size: 10, weight: .medium)).lineLimit(1)
+        Text(event.title).font(.coveCaption).lineLimit(1)
         Spacer(minLength: 0)
       }.padding(.horizontal, 4).frame(height: 21)
         .foregroundStyle(selected ? Color.white : Palette.ink)

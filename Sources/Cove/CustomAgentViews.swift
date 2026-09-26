@@ -32,7 +32,7 @@ struct CustomAgentsView: View {
             VStack(alignment: .leading, spacing: 24) {
               HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
-                  Text("Your agents").font(.cove(size: 26, weight: .medium))
+                  Text("Your agents").font(.coveTitle)
                   Text("A little help with the things you do every day.").font(.coveBody).foregroundStyle(Palette.body)
                 }
                 Spacer()
@@ -81,7 +81,7 @@ struct CustomAgentsView: View {
               HStack(spacing: 10) {
                 Image(systemName: "shield.lefthalf.filled")
                 Text("You’re in control. Pause an agent anytime without losing its instructions.")
-              }.font(.cove(size: 12)).foregroundStyle(Palette.body).padding(.top, 12)
+              }.font(.coveSecondary).foregroundStyle(Palette.body).padding(.top, 12)
               HStack {
                 Button("Built-in organizer & writing preferences") { store.screen = "agent" }.buttonStyle(.plain)
                 Spacer()
@@ -115,23 +115,23 @@ struct CustomAgentsView: View {
   }
   @ViewBuilder private var notices: some View {
     if let message = store.agentFailure {
-      Text(message).font(.cove(size: 13)).foregroundStyle(Palette.danger).textSelection(.enabled)
+      Text(message).font(.coveText).foregroundStyle(Palette.danger).textSelection(.enabled)
     }
-    if let message = store.agentNotice { Text(message).font(.cove(size: 13)).foregroundStyle(Palette.body) }
+    if let message = store.agentNotice { Text(message).font(.coveText).foregroundStyle(Palette.body) }
   }
   private func agentRow(_ agent: CustomAgent, compact: Bool) -> some View {
     let last = store.customAgents.runs.filter { $0.agentID == agent.id }.max { $0.date < $1.date }
     return HStack(alignment: .center, spacing: 16) {
       Image(systemName: "sparkles").font(.system(size: 18)).frame(width: 40, height: 42).background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
       VStack(alignment: .leading, spacing: 7) {
-        Button(agent.name) { store.agentEditor = agent }.buttonStyle(.plain).font(.cove(size: 14, weight: .semibold))
-        Text(agent.instructions).font(.cove(size: 12)).foregroundStyle(Palette.body).lineLimit(2)
+        Button(agent.name) { store.agentEditor = agent }.buttonStyle(.plain).font(.coveSubheading)
+        Text(agent.instructions).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(2)
         if compact { Text(agent.status.title + " · " + activityTitle(last)).font(.coveMetadata).foregroundStyle(last?.error == nil ? Palette.muted : Palette.danger) }
       }.frame(maxWidth: .infinity, alignment: .leading)
       if !compact {
         Text(agent.status.title).font(.coveControl).frame(width: 85, alignment: .leading)
         VStack(alignment: .leading, spacing: 6) {
-          Button(activityTitle(last)) { store.agentActivityID = agent.id }.buttonStyle(.plain).font(.cove(size: 12)).foregroundStyle(last?.error == nil ? Palette.body : Palette.danger).lineLimit(2)
+          Button(activityTitle(last)) { store.agentActivityID = agent.id }.buttonStyle(.plain).font(.coveSecondary).foregroundStyle(last?.error == nil ? Palette.body : Palette.danger).lineLimit(2)
           if let last { Text(last.date, style: .relative).font(.coveMetadata).foregroundStyle(Palette.muted) }
         }.frame(width: 190, alignment: .leading)
       }
@@ -196,7 +196,7 @@ struct CustomAgentEditor: View {
           VStack(alignment: .leading, spacing: 28) {
             HStack(alignment: .top) {
               VStack(alignment: .leading, spacing: 8) {
-                Text(isNew ? "Create an agent" : "Edit your agent").font(.cove(size: 26, weight: .medium))
+                Text(isNew ? "Create an agent" : "Edit your agent").font(.coveTitle)
                 Text("Tell your agent what to look for. Decide what happens next.").font(.coveBody).foregroundStyle(Palette.body)
               }
               Spacer()
@@ -209,7 +209,7 @@ struct CustomAgentEditor: View {
         }
         Divider()
         VStack(alignment: .leading, spacing: 12) {
-          if let message = store.agentFailure { Text(message).font(.cove(size: 12)).foregroundStyle(Palette.danger) }
+          if let message = store.agentFailure { Text(message).font(.coveSecondary).foregroundStyle(Palette.danger) }
           ViewThatFits(in: .horizontal) {
             HStack { footerText; Spacer(minLength: 24); saveButtons }
             VStack(alignment: .leading, spacing: 12) { footerText; saveButtons }
@@ -235,20 +235,20 @@ struct CustomAgentEditor: View {
         TextField("e.g. Financial agent", text: $agent.name).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Agent name")
       }
       VStack(alignment: .leading, spacing: 10) {
-        Text("When should it run?").font(.cove(size: 16, weight: .medium))
+        Text("When should it run?").font(.coveSection)
         Label("A new email arrives", systemImage: "tray").font(.coveBody)
-        Text("\(store.accountEmail) · Inbox · While Cove is open").font(.cove(size: 12)).foregroundStyle(Palette.body)
-        Toggle("Include readable PDF and text attachments", isOn: $agent.includeAttachments).toggleStyle(CoveToggleStyle()).font(.cove(size: 12))
+        Text("\(store.accountEmail) · Inbox · While Cove is open").font(.coveSecondary).foregroundStyle(Palette.body)
+        Toggle("Include readable PDF and text attachments", isOn: $agent.includeAttachments).toggleStyle(CoveToggleStyle()).font(.coveSecondary)
         Text("Up to 5 files, 5 MB each. Scans and unsupported files go to review.").font(.coveMetadata).foregroundStyle(Palette.muted)
       }
       VStack(alignment: .leading, spacing: 10) {
-        Text(agent.rules == nil ? "What should it look for?" : "Overall task").font(.cove(size: 16, weight: .medium))
-        Text("Describe the task in your own words. Be specific about what counts.").font(.cove(size: 12)).foregroundStyle(Palette.body)
+        Text(agent.rules == nil ? "What should it look for?" : "Overall task").font(.coveSection)
+        Text("Describe the task in your own words. Be specific about what counts.").font(.coveSecondary).foregroundStyle(Palette.body)
         TextField("Look for… Exclude… If uncertain…", text: $agent.instructions, axis: .vertical)
-          .lineLimit(3...8).textFieldStyle(CoveFieldStyle()).font(.coveBody).accessibilityLabel("Classification instructions")
+          .lineLimit(3...8).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Classification instructions")
       }
       VStack(alignment: .leading, spacing: 12) {
-        Text("What happens next?").font(.cove(size: 16, weight: .medium))
+        Text("What happens next?").font(.coveSection)
         if agent.rules == nil {
           Text("If it matches, apply this Gmail label").font(.coveControl)
           TextField("e.g. Finance / Invoices", text: $agent.labelName).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Gmail label for matches")
@@ -256,7 +256,7 @@ struct CustomAgentEditor: View {
             agent.rules = [CustomAgentRule(condition: "Matches the task described above", labelName: agent.labelName)]
           }.buttonStyle(SecondaryButton(compact: true))
         } else {
-          Text("Rules run from top to bottom. Only the first match runs.").font(.cove(size: 12)).foregroundStyle(Palette.body)
+          Text("Rules run from top to bottom. Only the first match runs.").font(.coveSecondary).foregroundStyle(Palette.body)
           ForEach(ruleBinding) { $rule in
             CustomAgentRuleEditor(rule: $rule,
               position: (agent.rules?.firstIndex(where: { $0.id == rule.id }) ?? 0) + 1,
@@ -271,17 +271,17 @@ struct CustomAgentEditor: View {
             .buttonStyle(SecondaryButton(compact: true)).disabled((agent.rules?.count ?? 0) >= 8)
         }
         Text("Existing custom labels are reused. New labels are created when needed.").font(.coveMetadata).foregroundStyle(Palette.muted)
-        Label("If it’s unclear → Review in Activity", systemImage: "list.bullet").font(.cove(size: 13))
-        Text("Otherwise, leave the email as it is.").font(.cove(size: 12)).foregroundStyle(Palette.body)
+        Label("If it’s unclear → Review in Activity", systemImage: "list.bullet").font(.coveText)
+        Text("Otherwise, leave the email as it is.").font(.coveSecondary).foregroundStyle(Palette.body)
       }
-      Label("Replies are saved in Activity for your review. Agents can’t send, delete or pay invoices.", systemImage: "shield.lefthalf.filled").font(.cove(size: 12)).foregroundStyle(Palette.body)
+      Label("Replies are saved in Activity for your review. Agents can’t send, delete or pay invoices.", systemImage: "shield.lefthalf.filled").font(.coveSecondary).foregroundStyle(Palette.body)
         .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
     }
   }
   private var preview: some View {
     VStack(alignment: .leading, spacing: 16) {
       Text("Try it on an email").font(.coveSection)
-      Text("Check your agent’s decisions before turning it on. Tests won’t change your inbox.").font(.cove(size: 12)).foregroundStyle(Palette.body).lineSpacing(4)
+      Text("Check your agent’s decisions before turning it on. Tests won’t change your inbox.").font(.coveSecondary).foregroundStyle(Palette.body).lineSpacing(4)
       Picker("Test source", selection: $sample) { Text("Sample email").tag(true); Text("Choose from inbox").tag(false) }.pickerStyle(.segmented).labelsHidden()
       if !sample {
         TextField("Find an inbox email", text: $mailSearch).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Find a test email")
@@ -289,31 +289,31 @@ struct CustomAgentEditor: View {
           Text("Choose an email…").tag("")
           ForEach(inbox.prefix(50)) { Text($0.subject.isEmpty ? "(No subject)" : $0.subject).tag($0.id) }
         }.labelsHidden().accessibilityLabel("Email to test")
-        if inbox.isEmpty { Text("No matching downloaded inbox emails.").font(.cove(size: 12)).foregroundStyle(Palette.muted) }
+        if inbox.isEmpty { Text("No matching downloaded inbox emails.").font(.coveSecondary).foregroundStyle(Palette.muted) }
       }
       if let selected {
         VStack(alignment: .leading, spacing: 10) {
-          Text(selected.subject).font(.cove(size: 14, weight: .semibold))
-          Text(selected.senderEmail).font(.cove(size: 12)).foregroundStyle(Palette.body)
+          Text(selected.subject).font(.coveSubheading)
+          Text(selected.senderEmail).font(.coveSecondary).foregroundStyle(Palette.body)
           if sample {
             TextField("Sample email text", text: $sampleText, axis: .vertical).lineLimit(5...14)
-              .textFieldStyle(CoveFieldStyle()).font(.cove(size: 13)).accessibilityLabel("Sample email text")
-          } else { Text(String(selected.body.prefix(1800))).font(.cove(size: 13)).lineSpacing(4).textSelection(.enabled) }
+              .textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Sample email text")
+          } else { Text(String(selected.body.prefix(1800))).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing).textSelection(.enabled) }
           ForEach(selected.availableAttachments) { Label($0.filename, systemImage: "paperclip").font(.coveMetadata) }
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
       }
       if testing {
-        HStack(spacing: 10) { ProgressView().controlSize(.small); Text("Jev is checking the evidence…").font(.cove(size: 12)); Spacer(); Button("Cancel") { cancelTest() }.buttonStyle(.plain) }
+        HStack(spacing: 10) { ProgressView().controlSize(.small); Text("Jev is checking the evidence…").font(.coveSecondary); Spacer(); Button("Cancel") { cancelTest() }.buttonStyle(.plain) }
       } else {
         Button(result == nil ? "Run test" : "Run test again") { runTest() }.buttonStyle(SecondaryButton()).disabled(selected == nil)
       }
-      if let testError { Text(testError).font(.cove(size: 12)).foregroundStyle(Palette.danger).textSelection(.enabled) }
+      if let testError { Text(testError).font(.coveSecondary).foregroundStyle(Palette.danger).textSelection(.enabled) }
       if let result {
         Divider()
-        Label(result.outcome.title, systemImage: result.outcome == .review ? "questionmark.circle" : "checkmark.circle").font(.cove(size: 16, weight: .medium))
+        Label(result.outcome.title, systemImage: result.outcome == .review ? "questionmark.circle" : "checkmark.circle").font(.coveSection)
         Text("Confidence · \(Int(result.confidence * 100))%").font(.coveMetadata).foregroundStyle(Palette.body)
-        if let excerpt = result.excerpt { Text(excerpt).font(.cove(size: 13)).lineSpacing(4).textSelection(.enabled) }
-        ForEach(result.warnings, id: \.self) { Text($0).font(.cove(size: 12)).foregroundStyle(Palette.body) }
+        if let excerpt = result.excerpt { Text(excerpt).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing).textSelection(.enabled) }
+        ForEach(result.warnings, id: \.self) { Text($0).font(.coveSecondary).foregroundStyle(Palette.body) }
         if let rule = result.rule(for: agent) {
           Text("Matched: " + rule.condition).font(.coveControl)
           if rule.action.drafts { Label("Would prepare a reply for review", systemImage: "square.and.pencil").font(.coveControl) }
@@ -377,7 +377,7 @@ struct CustomAgentActivity: View {
         Spacer()
         Button("Retry unfinished checks") { Task { await store.runCustomAgents(ignoreCooldown: true, agentID: agent.id) } }.buttonStyle(SecondaryButton()).disabled(store.busy || agent.status != .active)
       }
-      if let failure = store.agentFailure { Text(failure).foregroundStyle(Palette.danger).font(.cove(size: 12)) }
+      if let failure = store.agentFailure { Text(failure).foregroundStyle(Palette.danger).font(.coveSecondary) }
       HStack(spacing: 16) {
         Button("All checks \(allRuns.count)") { reviewOnly = false }.fontWeight(reviewOnly ? .regular : .semibold)
         Button("Needs review \(allRuns.filter { $0.decision?.outcome == .review }.count)") { reviewOnly = true }.fontWeight(reviewOnly ? .semibold : .regular)
@@ -389,19 +389,19 @@ struct CustomAgentActivity: View {
           ForEach(runs) { run in
             VStack(alignment: .leading, spacing: 9) {
               HStack {
-                Text(run.subject.isEmpty ? "(No subject)" : run.subject).font(.cove(size: 14, weight: .semibold))
+                Text(run.subject.isEmpty ? "(No subject)" : run.subject).font(.coveSubheading)
                 Spacer()
                 Text(run.date.formatted(date: .abbreviated, time: .shortened)).font(.coveMetadata).foregroundStyle(Palette.muted)
               }
-              if let error = run.error { Text(error).font(.cove(size: 12)).foregroundStyle(Palette.danger).textSelection(.enabled) }
+              if let error = run.error { Text(error).font(.coveSecondary).foregroundStyle(Palette.danger).textSelection(.enabled) }
               Text(run.appliedLabel.map { "Applied label: " + $0 } ?? (run.completed ? run.decision?.outcome.title ?? "Checked" : "Awaiting retry")).font(.coveControl)
               if run.decision?.outcome == .review {
                 Text(run.decision?.warnings.isEmpty == false ? "Some relevant content could not be fully checked." : "Jev wasn’t confident enough to apply this rule.")
-                  .font(.cove(size: 12)).foregroundStyle(Palette.body)
+                  .font(.coveSecondary).foregroundStyle(Palette.body)
               }
-              if let condition = run.matchedCondition { Text("Matched: " + condition).font(.cove(size: 12)).foregroundStyle(Palette.body) }
+              if let condition = run.matchedCondition { Text("Matched: " + condition).font(.coveSecondary).foregroundStyle(Palette.body) }
               if let reply = run.replySuggestion {
-                Text(run.replyApplied == true ? "Reply added to your draft" : "Reply ready for review").font(.cove(size: 14, weight: .semibold))
+                Text(run.replyApplied == true ? "Reply added to your draft" : "Reply ready for review").font(.coveSubheading)
                 Text(reply).font(.coveBody).lineSpacing(4).textSelection(.enabled)
                   .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
                 if run.replyApplied != true {
@@ -409,8 +409,8 @@ struct CustomAgentActivity: View {
                   Text("Opens the reply in its original conversation. You review and send it yourself.").font(.coveMetadata).foregroundStyle(Palette.muted)
                 }
               }
-              if let excerpt = run.decision?.excerpt { Text(excerpt).font(.cove(size: 13)).foregroundStyle(Palette.body).lineLimit(5).textSelection(.enabled) }
-              ForEach(run.decision?.warnings ?? [], id: \.self) { Text($0).font(.cove(size: 12)).foregroundStyle(Palette.body) }
+              if let excerpt = run.decision?.excerpt { Text(excerpt).font(.coveText).foregroundStyle(Palette.body).lineLimit(5).textSelection(.enabled) }
+              ForEach(run.decision?.warnings ?? [], id: \.self) { Text($0).font(.coveSecondary).foregroundStyle(Palette.body) }
               if store.mails.contains(where: { $0.id == run.mailID }) {
                 Button("Open email") { store.chooseFolder("All mail"); store.selectedID = run.mailID }.buttonStyle(.plain).font(.coveControl)
               }
@@ -432,15 +432,15 @@ private struct CustomAgentRuleEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text("Rule \(position)").font(.cove(size: 14, weight: .semibold))
+        Text("Rule \(position)").font(.coveSubheading)
         Spacer()
         Button { move(-1) } label: { Image(systemName: "arrow.up") }.disabled(position == 1).accessibilityLabel("Move rule up")
         Button { move(1) } label: { Image(systemName: "arrow.down") }.disabled(position == count).accessibilityLabel("Move rule down")
         Button("Remove", action: remove).disabled(count <= 1)
-      }.buttonStyle(.plain).font(.cove(size: 12))
+      }.buttonStyle(.plain).font(.coveSecondary)
       Text("When").font(.coveControl)
       TextField("e.g. The buyer is Happy Finances for All or Cherry", text: $rule.condition, axis: .vertical)
-        .lineLimit(2...5).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Rule \(position) condition")
+        .lineLimit(2...5).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Rule \(position) condition")
       Picker("Then", selection: $rule.action) {
         ForEach(CustomAgentAction.allCases, id: \.self) { Text($0.title).tag($0) }
       }.font(.coveControl)
@@ -449,7 +449,7 @@ private struct CustomAgentRuleEditor: View {
       }
       if rule.action.drafts {
         TextField("What should the reply say? e.g. Acknowledge the invoice and ask for the missing purchase order.", text: $rule.replyInstructions, axis: .vertical)
-          .lineLimit(3...8).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Rule \(position) reply instructions")
+          .lineLimit(3...8).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Rule \(position) reply instructions")
         Text("Your writing model prepares a suggestion. You decide whether to use and send it.").font(.coveMetadata).foregroundStyle(Palette.body)
       }
     }.padding(16).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))

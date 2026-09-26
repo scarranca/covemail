@@ -26,7 +26,11 @@ struct ComposeTextEditor: NSViewRepresentable {
     editor.autoresizingMask = [.width]
     editor.textContainer?.widthTracksTextView = true
     editor.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-    editor.font = NSFont(name: "Inter-Regular", size: 15) ?? .systemFont(ofSize: 15)
+    editor.font = CoveTypography.nativeBody
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineSpacing = CoveTypography.bodyLineSpacing
+    editor.defaultParagraphStyle = paragraph
+    editor.typingAttributes = [.font: CoveTypography.nativeBody, .paragraphStyle: paragraph]
     editor.textColor = NSColor(Palette.ink)
     editor.backgroundColor = NSColor(Palette.canvas)
     editor.textContainerInset = NSSize(width: 22, height: 18)

@@ -74,9 +74,9 @@ struct CalendarView: View {
           Text(
             store.calendarConnected && !store.isSample
               ? "Google Calendar + local" : "Local calendar"
-          ).font(.cove(size: 11))
+          ).font(.coveMetadata)
         }
-      }.font(.cove(size: 13)).foregroundStyle(Palette.muted).padding(20).background(
+      }.font(.coveText).foregroundStyle(Palette.muted).padding(20).background(
         Palette.surface)
       CalendarRule()
       GeometryReader { geometry in
@@ -101,19 +101,19 @@ struct CalendarView: View {
                   store.calendarEventID = nil
                 } label: {
                   Label("Day agenda", systemImage: "chevron.left")
-                }.buttonStyle(.plain).font(.cove(size: 12))
-                Text(event.title).font(.cove(size: 21, weight: .medium))
+                }.buttonStyle(.plain).font(.coveSecondary)
+                Text(event.title).font(.coveDetailTitle)
                 Label(event.calendarTitle, systemImage: "calendar")
-                  .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+                  .font(.coveMetadata).foregroundStyle(Palette.muted)
                 Text(event.start, format: .dateTime.weekday().month().day())
-                  .font(.cove(size: 13)).foregroundStyle(Palette.muted)
+                  .font(.coveText).foregroundStyle(Palette.muted)
                 Text(event.allDay == true ? "All day" : timeRange(event.start, event.end))
-                  .font(.cove(size: 13))
+                  .font(.coveText)
                 if let location = event.location, !location.isEmpty {
-                  Label(location, systemImage: "mappin.and.ellipse").font(.cove(size: 12))
+                  Label(location, systemImage: "mappin.and.ellipse").font(.coveSecondary)
                 }
                 if let details = event.details, !details.isEmpty {
-                  Text(details).font(.cove(size: 13)).foregroundStyle(Palette.body)
+                  Text(details).font(.coveText).foregroundStyle(Palette.body)
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 }
                 if event.ownResponse != nil && event.isOrganizer != true {
@@ -122,10 +122,10 @@ struct CalendarView: View {
                   if let notice = store.invitationNotice { Text(notice).font(.coveMetadata).foregroundStyle(Palette.body) }
                 }
                 if let attendees = event.attendees, !attendees.isEmpty {
-                  Text("Guests · \(attendees.count)").font(.cove(size: 13, weight: .medium))
+                  Text("Guests · \(attendees.count)").font(.coveLabel)
                   ForEach(Array(attendees.enumerated()), id: \.offset) { _, attendee in
                     VStack(alignment: .leading, spacing: 4) {
-                      Text(attendee.name ?? attendee.email ?? "Guest").font(.cove(size: 12))
+                      Text(attendee.name ?? attendee.email ?? "Guest").font(.coveSecondary)
                       Text(
                         attendee.response == "accepted"
                           ? "Accepted"
@@ -133,7 +133,7 @@ struct CalendarView: View {
                             ? "Declined"
                             : attendee.response == "tentative" ? "Tentative" : "Awaiting response"
                       )
-                      .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+                      .font(.coveMetadata).foregroundStyle(Palette.muted)
                     }
                   }
                 }
@@ -169,7 +169,7 @@ struct CalendarView: View {
               }
               if store.calendarConnected && !store.isSample {
                 if let error = store.calendarSyncError {
-                  Text("Calendar couldn’t sync. " + error).font(.cove(size: 12))
+                  Text("Calendar couldn’t sync. " + error).font(.coveSecondary)
                     .foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
                 }
                 Button(store.calendarSyncing ? "Syncing calendar…" : "Sync calendar") {
@@ -177,7 +177,7 @@ struct CalendarView: View {
                 }.buttonStyle(SecondaryButton()).disabled(store.calendarSyncing)
               }
               Label("Your time. Your call.", systemImage: "checkmark.shield")
-                .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+                .font(.coveMetadata).foregroundStyle(Palette.muted)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
           }.frame(width: agendaWidth)
             .accessibilityLabel("Day agenda")
@@ -227,7 +227,7 @@ struct CalendarView: View {
   private var weekGrid: some View {
     VStack(spacing: 0) {
       HStack(spacing: 0) {
-        Text(TimeZone.current.abbreviation() ?? "").font(.cove(size: 9)).foregroundStyle(
+        Text(TimeZone.current.abbreviation() ?? "").font(.coveMetadata).foregroundStyle(
           Palette.muted
         ).frame(width: 52)
         ForEach(week, id: \.self) { day in
@@ -235,9 +235,9 @@ struct CalendarView: View {
             store.selectCalendarDay(day)
           } label: {
             VStack(spacing: 10) {
-              Text(day, format: .dateTime.weekday(.abbreviated)).font(.cove(size: 11))
+              Text(day, format: .dateTime.weekday(.abbreviated)).font(.coveMetadata)
                 .foregroundStyle(Palette.muted)
-              Text(day, format: .dateTime.day()).font(.cove(size: 20, weight: .medium)).frame(
+              Text(day, format: .dateTime.day()).font(.coveDetailTitle).frame(
                 width: 34, height: 34
               ).background(
                 Calendar.current.isDateInToday(day) ? Palette.ink : .clear, in: Circle()
@@ -252,7 +252,7 @@ struct CalendarView: View {
       }
       CalendarRule()
       HStack(spacing: 0) {
-        Text("all-day").font(.cove(size: 9)).foregroundStyle(Palette.muted).frame(width: 52)
+        Text("all-day").font(.coveMetadata).foregroundStyle(Palette.muted).frame(width: 52)
         ForEach(week, id: \.self) { day in
           VStack(spacing: 4) {
             ForEach(
@@ -280,7 +280,7 @@ struct CalendarView: View {
                   hour == 0
                     ? "12 AM"
                     : hour < 12 ? "\(hour) AM" : hour == 12 ? "12 PM" : "\(hour-12) PM"
-                ).font(.cove(size: 10)).foregroundStyle(Palette.muted).frame(
+                ).font(.coveMetadata).foregroundStyle(Palette.muted).frame(
                   width: 52, height: CalendarEventLayout.hourHeight, alignment: .top
                 ).offset(y: 5).id(hour)
               }
@@ -314,7 +314,7 @@ struct CalendarView: View {
       Text(
         store.calendarConnected && !store.isSample
           ? "Google Calendar · primary calendar" : "Calendar events stay on this Mac"
-      ).font(.cove(size: 11)).foregroundStyle(Palette.muted).frame(
+      ).font(.coveMetadata).foregroundStyle(Palette.muted).frame(
         maxWidth: .infinity, alignment: .leading
       ).padding(18)
     }
@@ -323,7 +323,7 @@ struct CalendarView: View {
   private var calendarHeading: some View {
     HStack(spacing: 20) {
       Text("Calendar").font(.coveTitle)
-      Text(store.calendarDay, format: .dateTime.month(.wide).year()).font(.cove(size: 16))
+      Text(store.calendarDay, format: .dateTime.month(.wide).year()).font(.coveSection)
         .foregroundStyle(Palette.muted)
     }
   }
@@ -393,14 +393,14 @@ struct CalendarView: View {
   private var agenda: some View {
     VStack(alignment: .leading, spacing: 16) {
       Text(store.calendarDay, format: .dateTime.weekday(.wide).month(.abbreviated).day())
-        .font(.cove(size: 18, weight: .medium))
+        .font(.coveSection)
       let minutes = CalendarAgenda.scheduledMinutes(dayEvents, on: store.calendarDay)
       Text(
         "\(dayEvents.count) \(dayEvents.count == 1 ? "event" : "events") · \(minutes / 60)h \(minutes % 60)m scheduled"
       )
-      .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+      .font(.coveMetadata).foregroundStyle(Palette.muted)
       if dayEvents.isEmpty {
-        Text("No events in your visible calendars.").font(.cove(size: 13))
+        Text("No events in your visible calendars.").font(.coveText)
           .foregroundStyle(Palette.muted)
       }
       VStack(spacing: 0) {
@@ -414,15 +414,15 @@ struct CalendarView: View {
         }
       }
       CalendarRule()
-      Text("Make room to focus").font(.cove(size: 15, weight: .medium))
+      Text("Make room to focus").font(.coveSubheading)
       if let focus {
-        Text(timeRange(focus.start, focus.end)).font(.cove(size: 13, weight: .medium))
+        Text(timeRange(focus.start, focus.end)).font(.coveLabel)
         Text(
           store.calendarConnected && !store.isSample
             ? "Available in your last sync of Google’s primary calendar and local events."
             : "Available in your saved local events."
         )
-        .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+        .font(.coveSecondary).foregroundStyle(Palette.muted)
         Button("Block focus time") {
           reviewFocus(focus)
         }.buttonStyle(SecondaryButton())
@@ -432,7 +432,7 @@ struct CalendarView: View {
             ? "No hour-long opening left between 9 AM and 5 PM on this day."
             : "Sync this week to check availability in your primary Google calendar."
         )
-        .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+        .font(.coveSecondary).foregroundStyle(Palette.muted)
       }
     }
   }
@@ -572,16 +572,16 @@ struct CalendarTimedEvent: View {
   var body: some View {
     Button(action: action) {
       VStack(alignment: .leading, spacing: 3) {
-        Text(event.title).font(.cove(size: 11, weight: .medium))
+        Text(event.title).font(.coveCaption)
           .lineLimit(height < 64 ? 1 : 2).multilineTextAlignment(.leading)
         if !compact {
           Text("\(event.start.formatted(date: .omitted, time: .shortened)) – \(event.end.formatted(date: .omitted, time: .shortened))")
-            .font(.cove(size: 10)).foregroundStyle(selected ? Color.white.opacity(0.85) : Palette.body)
+            .font(.coveMetadata).foregroundStyle(selected ? Color.white.opacity(0.85) : Palette.body)
             .lineLimit(height >= 72 ? 2 : 1)
         }
         if suggested && height >= 76 {
-          Text("Suggested").font(.cove(size: 10))
-            .foregroundStyle(selected ? Color.white.opacity(0.85) : Palette.muted)
+          Text("Suggested").font(.coveMetadata)
+            .foregroundStyle(selected ? Color.white.opacity(0.85) : Palette.body)
         }
       }
       .padding(.horizontal, 8).padding(.vertical, compact ? 5 : 7)
@@ -609,7 +609,7 @@ struct CalendarAllDayEvent: View {
   let action: () -> Void
   var body: some View {
     Button(action: action) {
-      Text(event.title).font(.cove(size: 11, weight: .medium)).lineLimit(1)
+      Text(event.title).font(.coveCaption).lineLimit(1)
         .padding(.horizontal, 8).frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
         .foregroundStyle(selected ? Color.white : Palette.ink)
         .background(selected ? Palette.ink : Palette.sidebar, in: RoundedRectangle(cornerRadius: 5))
@@ -630,9 +630,9 @@ struct CalendarAgendaEvent: View {
   var body: some View {
     Button(action: action) {
       VStack(alignment: .leading, spacing: 6) {
-        if let status { Text(status).font(.cove(size: 11, weight: .medium)) }
-        Text(time).font(.cove(size: 11)).monospacedDigit().foregroundStyle(Palette.body)
-        Text(event.title).font(.cove(size: 13, weight: .medium))
+        if let status { Text(status).font(.coveCaption) }
+        Text(time).font(.coveMetadata).monospacedDigit().foregroundStyle(Palette.body)
+        Text(event.title).font(.coveLabel)
           .lineLimit(3).multilineTextAlignment(.leading)
       }
       .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -753,7 +753,7 @@ struct CalendarEventEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
       Text(reviewingProposal ? "Review your event" : draft.editing == nil ? "Make a little space" : "Edit event")
-        .font(.cove(size: 24, weight: .medium))
+        .font(.coveTitle)
       TextField(
         "Event title", text: $draft.title,
         prompt: Text("Event title").foregroundStyle(Palette.muted)
@@ -783,7 +783,7 @@ struct CalendarEventEditor: View {
             ? "Creates an event in your primary Google Calendar."
             : "Updates this event in your Google Calendar.")
           : "Saved to \(draft.localCalendar.title) on this Mac."
-      ).font(.cove(size: 12)).foregroundStyle(Palette.muted)
+      ).font(.coveSecondary).foregroundStyle(Palette.muted)
       if let saveError {
         Text(saveError).font(.coveMetadata).foregroundStyle(Palette.danger)
           .fixedSize(horizontal: false, vertical: true)

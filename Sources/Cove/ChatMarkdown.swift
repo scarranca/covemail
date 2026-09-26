@@ -105,7 +105,7 @@ struct ChatMarkdownDocument {
 struct ChatMarkdown: View {
   private let document: ChatMarkdownDocument
   private let fontSize: CGFloat
-  init(_ source: String, fontSize: CGFloat = 15) { document = ChatMarkdownDocument(source); self.fontSize = fontSize }
+  init(_ source: String, fontSize: CGFloat = CoveTypography.bodySize) { document = ChatMarkdownDocument(source); self.fontSize = fontSize }
   var body: some View {
     ChatMarkdownBlock(node: document.root)
       .font(.cove(size: fontSize)).foregroundStyle(Palette.body).tint(Palette.ink)
@@ -129,7 +129,7 @@ private struct ChatMarkdownBlock: View {
     case .paragraph, .cell:
       prose(node.text)
     case .heading(let level):
-      Text(node.text).font(.cove(size: level == 1 ? 22 : level == 2 ? 19 : 16, weight: .semibold))
+      Text(node.text).font(level == 1 ? .coveDetailTitle : level == 2 ? .coveSection : .coveSubheading)
         .foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
         .accessibilityAddTraits(.isHeader).padding(.top, level <= 2 ? 4 : 0)
     case .list(let ordered):
@@ -178,7 +178,7 @@ private struct ChatCodeBlock: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text(language?.isEmpty == false ? language! : "Code").font(.cove(size: 11, weight: .medium))
+        Text(language?.isEmpty == false ? language! : "Code").font(.coveCaption)
           .foregroundStyle(Palette.muted)
         Spacer()
         Button {
@@ -187,7 +187,7 @@ private struct ChatCodeBlock: View {
           copied = true
         } label: {
           Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-            .font(.cove(size: 11))
+            .font(.coveMetadata)
         }.buttonStyle(.plain).accessibilityLabel(copied ? "Code copied" : "Copy code")
       }
       Text(code.hasSuffix("\n") ? String(code.dropLast()) : code)
@@ -208,7 +208,7 @@ private struct ChatMarkdownTable: View {
       VStack(alignment: .leading, spacing: 6) {
         ScrollView(.horizontal) { grid }.fixedSize(horizontal: false, vertical: true)
         Label("Scroll to see more columns", systemImage: "arrow.left.and.right")
-          .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+          .font(.coveMetadata).foregroundStyle(Palette.muted)
       }
     }.frame(maxWidth: .infinity, alignment: .leading).accessibilityLabel("Table")
   }
@@ -219,7 +219,7 @@ private struct ChatMarkdownTable: View {
           GridRow(alignment: .top) {
             ForEach(0..<columns, id: \.self) { column in
               let content = row.children.first { $0.kind == .cell(column) }?.text ?? AttributedString("")
-              Text(content).font(.cove(size: 13, weight: header ? .semibold : .regular))
+              Text(content).font(header ? .coveLabel : .coveText)
                 .lineSpacing(4).frame(width: 160, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true).padding(10)
                 .frame(maxHeight: .infinity, alignment: .topLeading)

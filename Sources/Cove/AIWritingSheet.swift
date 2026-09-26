@@ -97,7 +97,7 @@ struct AIWritingPanel: View {
       ScrollView {
       VStack(alignment: .leading, spacing: 22) {
         Label(task != nil ? (suggestion == nil ? "Writing your draft" : "Updating your draft") : (suggestion == nil ? "Make it sound like you." : "Your draft is ready"), systemImage: "sparkles")
-          .font(.cove(size: 17, weight: .medium))
+          .font(.coveSection)
         if suggestion == nil { voiceSummary }
         else { Label("Your voice · \(voice)", systemImage: "waveform").font(.coveMetadata).foregroundStyle(Palette.body) }
         if let suggestion {

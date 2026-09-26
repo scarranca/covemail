@@ -35,11 +35,11 @@ struct EmailBodyView: View {
               )
           }
           Spacer()
-        }.buttonStyle(SecondaryButton()).font(.cove(size: 11)).foregroundStyle(Palette.body)
+        }.buttonStyle(SecondaryButton()).font(.coveMetadata).foregroundStyle(Palette.body)
         if showPlainText || renderingFailed {
           if renderingFailed && !showPlainText {
             Text("Formatting couldn’t load. Showing plain text.")
-              .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+              .font(.coveMetadata).foregroundStyle(Palette.muted)
           }
           plainText
         } else {
@@ -71,8 +71,9 @@ struct EmailBodyView: View {
   }
 
   private var plainText: some View {
-    Text(mail.body).font(.coveBody).foregroundStyle(Palette.body).lineSpacing(6)
-      .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+    Text(mail.body).font(.coveBody).foregroundStyle(Palette.body).lineSpacing(CoveTypography.bodyLineSpacing)
+      .textSelection(.enabled).frame(maxWidth: 660, alignment: .leading)
+      .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 

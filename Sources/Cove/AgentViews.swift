@@ -21,7 +21,7 @@ struct AgentView: View {
           Text("Make Cove work like you, and remember what matters.").foregroundStyle(Palette.muted)
         }
         Spacer()
-        Label("Saved on this Mac", systemImage: "checkmark").font(.cove(size: 11))
+        Label("Saved on this Mac", systemImage: "checkmark").font(.coveMetadata)
           .foregroundStyle(Palette.muted)
       }.padding(32).padding(.top, 22)
       Divider()
@@ -40,12 +40,12 @@ struct AgentView: View {
               .accessibilityLabel("Organize new mail with Jev")
             Text(
               "When enabled, new incoming mail is sent to TypeSafe for categorization, action and urgency scores, and a key passage. Low-confidence categories stay in Other for review. Background Gmail sync is controlled separately in Settings."
-            ).font(.cove(size: 12)).foregroundStyle(Palette.muted).lineSpacing(4)
+            ).font(.coveSecondary).foregroundStyle(Palette.muted).lineSpacing(4)
             if let started = store.preferences.autoClassifySince, store.preferences.autoClassify {
               Text(
                 "New mail received since \(started.formatted(date: .abbreviated, time: .shortened))"
               )
-              .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+              .font(.coveMetadata).foregroundStyle(Palette.muted)
             }
             Button {
               Task { await store.classifyInbox() }
@@ -55,7 +55,7 @@ struct AgentView: View {
             Text(
               "Use this to organize older downloaded mail too. Emails already assessed are skipped."
             )
-            .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+            .font(.coveMetadata).foregroundStyle(Palette.muted)
             Divider().padding(.vertical, 10)
             section("Reply templates", subtitle: "A starting point for replies you write yourself.")
             CoveSegmentedPicker(
@@ -70,22 +70,22 @@ struct AgentView: View {
                 Label("Sounds like you", systemImage: "sparkles")
                 Spacer()
                 Text("Sample template").foregroundStyle(Palette.muted)
-              }.font(.cove(size: 11))
+              }.font(.coveMetadata)
               Text(
                 ReplyTemplates.reply(
                   to: "Maya", voice: store.preferences.voice, signoff: store.preferences.signoff)
-              ).font(.cove(size: 13)).lineSpacing(5)
+              ).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(18).background(
               Palette.surface, in: RoundedRectangle(cornerRadius: 9))
             Text(
               "Replies are written by you, with optional starting templates. Jev selects and scores; it does not generate prose."
-            ).font(.cove(size: 12)).foregroundStyle(Palette.muted)
+            ).font(.coveSecondary).foregroundStyle(Palette.muted)
             Divider().padding(.vertical, 10)
             section("Teach your agent", subtitle: "A few clear instructions go a long way.")
             VStack(alignment: .trailing, spacing: 12) {
               TextField(
                 "A preference, a rule, or something about you…", text: $instruction, axis: .vertical
-              ).lineLimit(3...5).textFieldStyle(.plain)
+              ).lineLimit(3...5).textFieldStyle(.plain).font(.coveBody)
                 .accessibilityLabel("New instruction")
               Button("Add instruction") {
                 store.preferences.instructions.append(
@@ -99,7 +99,7 @@ struct AgentView: View {
               index, text in
               HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "checkmark.circle").foregroundStyle(Palette.muted)
-                Text(text).font(.cove(size: 13)).frame(maxWidth: .infinity, alignment: .leading)
+                Text(text).font(.coveBody).frame(maxWidth: .infinity, alignment: .leading)
                 Button {
                   store.preferences.instructions.remove(at: index)
                   store.persistPreferences()
@@ -109,7 +109,7 @@ struct AgentView: View {
                   .accessibilityLabel("Remove instruction \(index + 1)")
               }
             }
-          }.frame(maxWidth: .infinity, alignment: .leading)
+          }.frame(maxWidth: 660, alignment: .leading)
           Divider()
           VStack(alignment: .leading, spacing: 24) {
             section("Memories", subtitle: "What Cove knows about you. Edit or forget anything.")
@@ -124,11 +124,11 @@ struct AgentView: View {
             if store.preferences.memories.isEmpty {
               Text(
                 "A little context helps. Add your role, your priorities, or the people you work with."
-              ).font(.cove(size: 13)).foregroundStyle(Palette.muted).lineSpacing(5).padding(
+              ).font(.coveText).foregroundStyle(Palette.muted).lineSpacing(5).padding(
                 .vertical, 20)
             }
             if !store.preferences.memories.isEmpty && visibleMemoryIndices.isEmpty {
-              Text("No matching memories.").font(.cove(size: 13)).foregroundStyle(Palette.muted)
+              Text("No matching memories.").font(.coveText).foregroundStyle(Palette.muted)
             }
             ForEach(visibleMemoryIndices, id: \.self) { index in
               HStack(alignment: .top) {
@@ -155,7 +155,7 @@ struct AgentView: View {
                   Image(systemName: "trash")
                 }.buttonStyle(.plain).help("Forget memory")
                   .accessibilityLabel("Forget memory \(index + 1)")
-              }.font(.cove(size: 13))
+              }.font(.coveBody)
               Divider()
             }
             TextField(
@@ -163,7 +163,7 @@ struct AgentView: View {
               prompt: Text("Add something to remember…").foregroundStyle(Palette.muted),
               axis: .vertical
             ).lineLimit(2...4)
-              .textFieldStyle(CoveFieldStyle())
+              .textFieldStyle(CoveFieldStyle(font: .coveBody))
               .accessibilityLabel("New memory")
             Button {
               store.preferences.memories.append(
@@ -176,8 +176,8 @@ struct AgentView: View {
               memory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Text(
               "Stored locally. Enabled memories are shared with TypeSafe only when you run your agent."
-            ).font(.cove(size: 11)).foregroundStyle(Palette.muted).lineSpacing(4)
-          }.frame(maxWidth: .infinity, alignment: .leading)
+            ).font(.coveMetadata).foregroundStyle(Palette.muted).lineSpacing(4)
+          }.frame(maxWidth: 660, alignment: .leading)
         }.padding(32)
       }
     }
@@ -185,7 +185,7 @@ struct AgentView: View {
       if store.removedMemory != nil {
         HStack(spacing: 12) {
           Image(systemName: "checkmark.circle").foregroundStyle(Palette.muted)
-          Text("Memory removed").font(.cove(size: 13)).foregroundStyle(Palette.body)
+          Text("Memory removed").font(.coveText).foregroundStyle(Palette.body)
           Button("Undo") { store.undoForgetMemory() }.buttonStyle(.plain).font(.coveControl)
             .accessibilityLabel("Undo forgetting memory")
           Button {
@@ -205,8 +205,8 @@ struct AgentView: View {
   }
   func section(_ title: String, subtitle: String) -> some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text(title).font(.cove(size: 18, weight: .medium))
-      Text(subtitle).font(.cove(size: 12)).foregroundStyle(Palette.muted)
+      Text(title).font(.coveSection)
+      Text(subtitle).font(.coveSecondary).foregroundStyle(Palette.muted)
     }
   }
 }

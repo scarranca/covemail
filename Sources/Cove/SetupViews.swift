@@ -35,7 +35,7 @@ struct WelcomeView: View {
       Text(
         "Meet the email client that makes room for you.\nLet Jev help you find what needs your attention."
       )
-      .font(.cove(size: 15)).lineSpacing(7).foregroundStyle(Color(white: 0.408))
+      .font(.coveBody).lineSpacing(7).foregroundStyle(Color(white: 0.408))
       .fixedSize(horizontal: false, vertical: true).padding(.top, 16)
       Button {
         let clientID = store.auth.clientID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,7 +66,7 @@ struct WelcomeView: View {
       HStack(spacing: 10) {
         Image(systemName: "checkmark.shield").font(.cove(size: 17))
         Text("Your agents help. You always have the final say.")
-          .font(.cove(size: 12)).fixedSize(horizontal: false, vertical: true)
+          .font(.coveSecondary).fixedSize(horizontal: false, vertical: true)
       }.foregroundStyle(Color(white: 0.404)).padding(.top, 40)
     }
   }
@@ -184,7 +184,7 @@ struct ComposerView: View {
 
   private var header: some View {
     HStack(spacing: 14) {
-      Text("New message").font(.cove(size: 18, weight: .medium))
+      Text("New message").font(.coveSection)
       Text("Draft saved on this Mac").font(.coveMetadata).foregroundStyle(Palette.body)
       Spacer()
       Button {

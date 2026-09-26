@@ -113,7 +113,7 @@ struct AssistantView: View {
         .frame(width: 32, height: 32)
         .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityHidden(true)
-      Text("Cove assistant").font(.cove(size: 16, weight: .semibold))
+      Text("Cove assistant").font(.coveSection)
       Spacer()
       Menu {
         if exchanges.isEmpty {
@@ -161,7 +161,7 @@ struct AssistantView: View {
                   + (mail.subject.isEmpty ? "(No subject)" : mail.subject),
                 systemImage: scope == .thread ? "envelope.stack" : "envelope"
               )
-              .font(.cove(size: 12)).lineLimit(1).foregroundStyle(Palette.body)
+              .font(.coveSecondary).lineLimit(1).foregroundStyle(Palette.body)
               .padding(.vertical, 4).contentShape(Rectangle())
             }.buttonStyle(.plain).help("Choose an email or its whole thread").disabled(working)
           } else {
@@ -171,7 +171,7 @@ struct AssistantView: View {
                 : (store.isSample ? "Mailbox · sample data on this Mac" : "Downloaded passages · live Gmail counts"),
               systemImage: exchanges.last?.isCalendar == true ? "calendar" : "tray.full"
             )
-            .font(.cove(size: 12)).foregroundStyle(Palette.body)
+            .font(.coveSecondary).foregroundStyle(Palette.body)
             .padding(.vertical, 4)
           }
           if exchanges.isEmpty { introduction }
@@ -214,7 +214,7 @@ struct AssistantView: View {
       Image(systemName: "sparkles").font(.cove(size: 25)).foregroundStyle(Palette.muted)
         .accessibilityHidden(true)
       Text(context == nil ? "A little perspective on your inbox." : "A little clarity, right here.")
-        .font(.cove(size: 25, weight: .medium))
+        .font(.coveTitle)
       Text(
         context == nil
           ? (store.isSample
@@ -241,7 +241,7 @@ struct AssistantView: View {
     VStack(alignment: .leading, spacing: 22) {
       HStack {
         Spacer(minLength: 32)
-        Text(exchange.question).font(.cove(size: 15)).lineSpacing(6)
+        Text(exchange.question).font(.coveBody).lineSpacing(6)
           .padding(.horizontal, 14).padding(.vertical, 10)
           .frame(maxWidth: 464, alignment: .leading)
           .background(Palette.summary, in: RoundedRectangle(cornerRadius: 10))
@@ -298,7 +298,7 @@ struct AssistantView: View {
                   ? "Reading the conversation and finding passages…"
                   : "Finding the relevant passage…")
             )
-            .font(.cove(size: 12)).foregroundStyle(
+            .font(.coveSecondary).foregroundStyle(
               Palette.muted)
           }.padding(.vertical, 10)
         }
@@ -319,12 +319,12 @@ struct AssistantView: View {
             Image(systemName: "text.magnifyingglass")
             Text(expandedSources.contains(exchange.id) ? "Hide sources" : "View sources")
             Image(systemName: expandedSources.contains(exchange.id) ? "chevron.up" : "chevron.down")
-          }.font(.cove(size: 12))
+          }.font(.coveSecondary)
         }.buttonStyle(.plain).foregroundStyle(Palette.body)
           .accessibilityValue(expandedSources.contains(exchange.id) ? "Expanded" : "Collapsed")
           .help(exchange.source ?? exchange.groundingLabel)
       } else {
-        Text(exchange.groundingLabel).font(.cove(size: 12)).foregroundStyle(Palette.body)
+        Text(exchange.groundingLabel).font(.coveSecondary).foregroundStyle(Palette.body)
       }
       Spacer(minLength: 8)
       Button {
@@ -341,7 +341,7 @@ struct AssistantView: View {
           actionNotice = exchanges[index].feedback == nil ? nil : "Feedback noted for this conversation."
         } label: {
           Image(systemName: feedback.symbol + (exchange.feedback == feedback ? ".fill" : ""))
-            .font(.cove(size: 15)).frame(width: 24, height: 28)
+            .font(.coveBody).frame(width: 24, height: 28)
         }.buttonStyle(.plain).foregroundStyle(exchange.feedback == feedback ? Palette.ink : Palette.muted)
           .accessibilityLabel(feedback == .helpful ? "Helpful answer" : "Not helpful")
           .accessibilityValue(exchange.feedback == feedback ? "Selected" : "Not selected")
@@ -377,7 +377,7 @@ struct AssistantView: View {
         }
       } label: {
         Label("Remind me", systemImage: "clock")
-          .font(.cove(size: 13, weight: .medium)).padding(.horizontal, 12).frame(height: 40)
+          .font(.coveControl).padding(.horizontal, 12).frame(height: 40)
           .foregroundStyle(Palette.body)
       }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .help("Snooze this email and return it to your inbox later on this Mac")
@@ -392,7 +392,7 @@ struct AssistantView: View {
     Button { showingModels.toggle() } label: {
       HStack(spacing: 7) {
         Text(useAI ? modelChoice.map { aiSettings.modelLabel($0.model, provider: $0.provider) } ?? "Choose model" : "Jev passages")
-          .font(.cove(size: 12, weight: .medium)).lineLimit(1)
+          .font(.coveControl).lineLimit(1)
         Image(systemName: "chevron.down").font(.cove(size: 10, weight: .medium))
       }.foregroundStyle(Palette.ink).padding(.horizontal, 8).frame(height: 32)
     }.buttonStyle(.plain)
@@ -425,7 +425,7 @@ struct AssistantView: View {
           prompt: Text(exchanges.isEmpty
             ? (context == nil ? "Ask about your mailbox…" : scope == .thread ? "Ask about this thread…" : "Ask about this email…")
             : "Ask a follow-up…").foregroundStyle(Palette.body), axis: .vertical
-        ).font(.cove(size: 15)).lineLimit(1...4).textFieldStyle(.plain)
+        ).font(.coveBody).lineLimit(1...4).textFieldStyle(.plain)
           .accessibilityLabel("Question for Cove")
           .focused($composerFocused).onSubmit { ask(query) }
         HStack(spacing: 12) {
@@ -462,19 +462,19 @@ struct AssistantView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(composerFocused ? Palette.inputBorder : Palette.line, lineWidth: 1))
       HStack(spacing: 7) {
         Label(actionNotice ?? "Nothing is sent without your approval.", systemImage: "checkmark.shield")
-          .font(.cove(size: 11)).foregroundStyle(Palette.body)
+          .font(.coveMetadata).foregroundStyle(Palette.body)
         Button { showingPrivacy.toggle() } label: {
           Image(systemName: "info.circle").font(.cove(size: 11)).frame(width: 22, height: 22)
         }.buttonStyle(.plain).foregroundStyle(Palette.muted)
           .help("How Cove uses your email context").accessibilityLabel("AI privacy and context details")
           .popover(isPresented: $showingPrivacy) {
             VStack(alignment: .leading, spacing: 12) {
-              Text("Your context, your control").font(.cove(size: 16, weight: .semibold))
+              Text("Your context, your control").font(.coveSection)
               Text(useAI
                 ? "Your requests and up to 20 relevant emails are sent to \(writingProvider?.title ?? "your chosen provider"). Calendar requests use your connected calendar. Adding an event requires review."
                 : "Jev finds original passages in your email context. It does not generate replies. Mailbox counts are checked with Gmail.")
               Text("Mail search prepares a query for you to review. Feedback stays in this conversation; it is not sent to a provider.")
-            }.font(.cove(size: 12)).foregroundStyle(Palette.body).lineSpacing(4)
+            }.font(.coveSecondary).foregroundStyle(Palette.body).lineSpacing(4)
               .padding(20).frame(width: 330)
           }
       }
@@ -500,7 +500,7 @@ struct AssistantView: View {
       Text(
         "Across conversations saved on this Mac. Drafts, Spam and Trash are excluded. Count questions still check Gmail directly."
       )
-      .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+      .font(.coveSecondary).foregroundStyle(Palette.muted)
       Picker("Read from", selection: $scope) {
         ForEach(AssistantScope.allCases, id: \.self) { value in
           Text(value.rawValue).tag(value)
@@ -517,7 +517,7 @@ struct AssistantView: View {
           ? "Choose an email to read its Gmail conversation. Drafts, Spam and Trash are excluded."
           : "Choose one email for source-passage questions."
       )
-      .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+      .font(.coveSecondary).foregroundStyle(Palette.muted)
 
       TextField(
         "Search downloaded mail", text: $contextSearch,
@@ -545,7 +545,7 @@ struct AssistantView: View {
                     Spacer(minLength: 4)
                     Text(mail.date, format: .dateTime.month(.abbreviated).day().hour().minute())
                       .lineLimit(1)
-                  }.font(.cove(size: 11)).foregroundStyle(Palette.muted)
+                  }.font(.coveMetadata).foregroundStyle(Palette.muted)
                 }
                 Spacer()
                 if mail.id == context?.id { Image(systemName: "checkmark").font(.coveControl) }
@@ -762,14 +762,14 @@ struct AssistantSourcePassage: View {
       HStack(alignment: .firstTextBaseline, spacing: 10) {
         Image(systemName: "text.alignleft").font(.cove(size: 18))
         Text(mail.subject.isEmpty ? "Original email" : mail.subject)
-          .font(.cove(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+          .font(.coveSubheading).fixedSize(horizontal: false, vertical: true)
       }
       Text(answer).font(.coveBody).foregroundStyle(Palette.body).lineSpacing(6)
         .lineLimit(expanded ? nil : 3)
         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
       if answer.count > 120 || answer.components(separatedBy: .newlines).count > 3 {
         Button(expanded ? "Show less" : "Show full passage") { expanded.toggle() }
-          .buttonStyle(.plain).font(.cove(size: 12, weight: .medium))
+          .buttonStyle(.plain).font(.coveControl)
           .accessibilityLabel(
             expanded ? "Collapse passage from \(mail.sender)" : "Expand passage from \(mail.sender)"
           )
@@ -783,7 +783,7 @@ struct AssistantSourcePassage: View {
           Text("·")
           Text(mail.date, format: .dateTime.month(.abbreviated).day().hour().minute())
           Image(systemName: "arrow.up.right")
-        }.font(.cove(size: 12)).foregroundStyle(Palette.body)
+        }.font(.coveSecondary).foregroundStyle(Palette.body)
       }.buttonStyle(.plain).help("Read the original email")
     }.frame(maxWidth: .infinity, alignment: .leading)
   }

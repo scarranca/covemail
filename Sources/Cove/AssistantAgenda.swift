@@ -98,10 +98,10 @@ struct AssistantAgendaView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       VStack(alignment: .leading, spacing: 6) {
-        Text(agenda.title).font(.cove(size: 21, weight: .semibold)).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
-        Text(agenda.dateLabel + " · " + agenda.zoneLabel).font(.cove(size: 13)).foregroundStyle(Palette.body)
-        if let range = agenda.rangeLabel { Text(range).font(.cove(size: 12)).foregroundStyle(Palette.body) }
-        Text(agenda.summary).font(.cove(size: 12)).foregroundStyle(Palette.muted)
+        Text(agenda.title).font(.coveDetailTitle).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
+        Text(agenda.dateLabel + " · " + agenda.zoneLabel).font(.coveText).foregroundStyle(Palette.body)
+        if let range = agenda.rangeLabel { Text(range).font(.coveSecondary).foregroundStyle(Palette.body) }
+        Text(agenda.summary).font(.coveSecondary).foregroundStyle(Palette.muted)
       }
       if agenda.events.isEmpty {
         Label("No events found in this range.", systemImage: "calendar")
@@ -110,7 +110,7 @@ struct AssistantAgendaView: View {
       ForEach(agenda.days) { day in
         VStack(alignment: .leading, spacing: 0) {
           if !agenda.singleDay {
-            Text(agenda.format(day.date, template: "EEEE MMM d")).font(.cove(size: 15, weight: .semibold))
+            Text(agenda.format(day.date, template: "EEEE MMM d")).font(.coveSubheading)
               .padding(.bottom, 10).accessibilityAddTraits(.isHeader)
           }
           ForEach(day.events) { event in
@@ -124,7 +124,7 @@ struct AssistantAgendaView: View {
           .font(.coveMetadata).foregroundStyle(Palette.body)
       }
       Label(agenda.coverage, systemImage: "checkmark.circle")
-        .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+        .font(.coveMetadata).foregroundStyle(Palette.muted)
     }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
   }
   private func eventRow(_ event: LocalEvent, day: AssistantAgenda.Day) -> some View {
@@ -137,16 +137,16 @@ struct AssistantAgendaView: View {
     }.padding(.vertical, 13).frame(maxWidth: .infinity, alignment: .leading)
   }
   private func time(_ event: LocalEvent, day: AssistantAgenda.Day) -> some View {
-    Text(agenda.timeLabel(event, on: day.date)).font(.cove(size: 12, weight: .medium)).monospacedDigit()
+    Text(agenda.timeLabel(event, on: day.date)).font(.coveControl).monospacedDigit()
       .foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
   }
   private func details(_ event: LocalEvent, day: AssistantAgenda.Day) -> some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text(event.title.isEmpty ? "Untitled event" : event.title).font(.cove(size: 14, weight: .medium))
+      Text(event.title.isEmpty ? "Untitled event" : event.title).font(.coveSubheading)
         .foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
       if agenda.overlaps(event, on: day) {
         Label("Overlaps another event", systemImage: "rectangle.on.rectangle")
-          .font(.cove(size: 11)).foregroundStyle(Palette.body)
+          .font(.coveMetadata).foregroundStyle(Palette.body)
       }
       if event.ownResponse == "needsAction" { Text("Awaiting your response").font(.coveMetadata).foregroundStyle(Palette.muted) }
       if event.ownResponse == "declined" { Text("Declined").font(.coveMetadata).foregroundStyle(Palette.muted) }

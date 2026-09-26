@@ -55,7 +55,7 @@ struct MailCategoriesView: View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(alignment: .top, spacing: 24) {
         VStack(alignment: .leading, spacing: 8) {
-          Text("Categories").font(.cove(size: 28, weight: .medium))
+          Text("Categories").font(.coveTitle)
           Text("The labels your agents organize mail into.")
             .font(.coveBody).foregroundStyle(Palette.body)
         }
@@ -115,7 +115,7 @@ struct MailCategoriesView: View {
     return HStack(spacing: 16) {
       Image(systemName: "tag").font(.cove(size: 19)).foregroundStyle(Palette.body).frame(width: 28)
       VStack(alignment: .leading, spacing: 6) {
-        Text(category.name).font(.cove(size: 15, weight: .medium)).lineLimit(2)
+        Text(category.name).font(.coveSubheading).lineLimit(2)
         Text(category.agents.joined(separator: " · ")).font(.coveControl).foregroundStyle(Palette.body).lineLimit(2)
         if category.label == nil {
           Text("Waiting for this label to appear in Gmail").font(.coveMetadata).foregroundStyle(Palette.muted)

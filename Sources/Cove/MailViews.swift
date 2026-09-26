@@ -23,7 +23,7 @@ struct MailboxView: View {
                 } else if store.selectedJevFlag != nil {
                   Label("Jev flags", systemImage: "sparkles").font(.coveMetadata).foregroundStyle(Palette.body)
                 }
-                Text(store.folderTitle).font(.cove(size: 23, weight: .medium)).lineLimit(2)
+                Text(store.folderTitle).font(.coveTitle).lineLimit(2)
               }
               Spacer()
               Button {
@@ -34,7 +34,7 @@ struct MailboxView: View {
             }
             if store.isFocusedMailView {
               Text("\(store.focusedMails.count) downloaded · \(store.focusedMails.filter(\.isUnread).count) unread")
-                .font(.cove(size: 12)).foregroundStyle(Palette.body)
+                .font(.coveSecondary).foregroundStyle(Palette.body)
             }
             HStack {
               Image(systemName: "magnifyingglass")
@@ -43,8 +43,8 @@ struct MailboxView: View {
                 prompt: Text(store.isFocusedMailView ? "Search within this view" : "Search your mail").foregroundStyle(Palette.muted)
               ).textFieldStyle(.plain).focused(
                 $searching)
-              Text("⌘ K").font(.cove(size: 11))
-            }.font(.cove(size: 12)).foregroundStyle(Palette.muted)
+              Text("⌘ K").font(.coveMetadata)
+            }.font(.coveSecondary).foregroundStyle(Palette.muted)
               .padding(.horizontal, 12).padding(.vertical, 10).background(
                 .white, in: RoundedRectangle(cornerRadius: 7)
               ).overlay(
@@ -62,7 +62,7 @@ struct MailboxView: View {
                 } label: { Image(systemName: "line.3.horizontal.decrease") }
                   .menuStyle(.borderlessButton).frame(width: 24).help("Sort emails")
                   .accessibilityLabel("Sort emails")
-              }.buttonStyle(.plain).font(.cove(size: 12)).foregroundStyle(Palette.body)
+              }.buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body)
             } else {
             HStack(spacing: 20) {
               Button {
@@ -82,15 +82,15 @@ struct MailboxView: View {
                   .foregroundStyle(!store.priorityOnly ? Palette.body : Palette.muted)
               }
               Spacer()
-            }.buttonStyle(.plain).font(.cove(size: 13)).foregroundStyle(Palette.muted)
+            }.buttonStyle(.plain).font(.coveText).foregroundStyle(Palette.muted)
             }
           }.padding(.horizontal, 22).padding(.top, 24).padding(.bottom, 18)
           Divider()
           if !store.isFocusedMailView {
           HStack(spacing: 10) {
-            Text("\(store.attentionCount) need attention").font(.cove(size: 12, weight: .medium))
+            Text("\(store.attentionCount) need attention").font(.coveControl)
             Text("·").foregroundStyle(Palette.muted)
-            Text("\(draftCount) \(draftCount == 1 ? "draft" : "drafts") ready").font(.cove(size: 12)).foregroundStyle(Palette.muted)
+            Text("\(draftCount) \(draftCount == 1 ? "draft" : "drafts") ready").font(.coveSecondary).foregroundStyle(Palette.muted)
             Spacer(minLength: 0)
           }.foregroundStyle(Palette.body).lineLimit(1)
             .padding(.horizontal, 22).frame(height: 40)
@@ -117,7 +117,7 @@ struct MailboxView: View {
                     if !store.isFocusedMailView && (index == 0
                       || daySection(mail.date) != daySection(mailList[index - 1].date))
                     {
-                      Text(daySection(mail.date)).font(.cove(size: 12, weight: .medium))
+                      Text(daySection(mail.date)).font(.coveControl)
                         .foregroundStyle(Palette.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 22).padding(.top, 19).padding(.bottom, 9)
@@ -140,7 +140,7 @@ struct MailboxView: View {
           }
           if store.isFocusedMailView {
             Text(store.selectedJevFlag != nil ? "Jev assessments · downloaded mail" : store.folder == "Flagged" ? "Follow-up flags sync with Gmail’s stars." : "Includes inbox and archived emails.")
-              .font(.cove(size: 11)).foregroundStyle(Palette.body).padding(.horizontal, 12).padding(.vertical, 10)
+              .font(.coveMetadata).foregroundStyle(Palette.body).padding(.horizontal, 12).padding(.vertical, 10)
           }
           Divider()
           HStack(spacing: 6) {
@@ -151,7 +151,7 @@ struct MailboxView: View {
             ).lineLimit(2)
             Spacer()
             Text("↑ ↓ emails · Esc back").fixedSize().help("Up and Down select emails. Escape or Left returns to the list. Shortcuts pause while you type.")
-          }.font(.cove(size: 10)).foregroundStyle(Palette.muted).padding(12)
+          }.font(.coveMetadata).foregroundStyle(Palette.muted).padding(12)
         }.frame(width: min(392, max(300, geometry.size.width * 0.328))).background(Palette.surface)
           .focusable().focusEffectDisabled().focused($listFocused)
         Divider()
@@ -208,11 +208,11 @@ struct MailRow: View {
     VStack(alignment: .leading, spacing: 6) {
       senderLine
       Text(mail.subject.isEmpty ? "New message" : mail.subject).fontWeight(titleWeight).lineLimit(1)
-      Text(mail.body.replacingOccurrences(of: "\n", with: " ")).font(.cove(size: 12))
-        .foregroundStyle(selected ? Palette.body : Palette.muted).lineLimit(1)
+      Text(mail.body.replacingOccurrences(of: "\n", with: " ")).font(.coveSecondary)
+        .foregroundStyle(Palette.body).lineLimit(1)
       badges
       JevMailFlagBadges(mail: mail, isSample: isSample)
-    }.font(.cove(size: 13)).foregroundStyle(titleColor)
+    }.font(.coveText).foregroundStyle(titleColor)
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, 22).padding(.vertical, 12).frame(minHeight: 106, alignment: .top)
       .background(rowColor).contentShape(Rectangle())
@@ -224,7 +224,7 @@ struct MailRow: View {
       if mail.isStarred { Image(systemName: "flag.fill").font(.system(size: 11)).foregroundStyle(Palette.ink).help("Flagged for follow-up · starred in Gmail") }
       Text(mail.sender).fontWeight(titleWeight).lineLimit(1)
       Spacer(minLength: 5)
-      Text(mail.date, style: .time).font(.cove(size: 11, weight: mail.isUnread ? .medium : .regular))
+      Text(mail.date, style: .time).font(mail.isUnread ? .coveCaption : .coveMetadata)
         .foregroundStyle(mail.isUnread || selected ? Palette.body : Palette.muted)
         .frame(width: 114, alignment: .trailing).opacity(actionsVisible ? 0 : 1)
     }
@@ -236,7 +236,7 @@ struct MailRow: View {
       }
       if !mail.draft.isEmpty {
         Label("Draft ready", systemImage: "square.and.pencil")
-          .font(.cove(size: 10, weight: .medium)).foregroundStyle(Palette.body)
+          .font(.coveCaption).foregroundStyle(Palette.body)
           .padding(.horizontal, 6).padding(.vertical, 3)
           .background(selected ? Palette.selection : Palette.sidebar, in: RoundedRectangle(cornerRadius: 4))
       } else if !labelView, let label = categoryLabels.first {
@@ -245,7 +245,7 @@ struct MailRow: View {
       }
       if mail.isUnread {
         Spacer(minLength: 0)
-        Text("Unread").font(.cove(size: 10, weight: .medium)).foregroundStyle(Palette.ink)
+        Text("Unread").font(.coveCaption).foregroundStyle(Palette.ink)
       }
     }
   }
@@ -310,7 +310,7 @@ private struct MailRowAction: View {
 }
 extension View {
   func badgeStyle() -> some View {
-    self.font(.cove(size: 10, weight: .medium)).foregroundStyle(Palette.body).padding(
+    self.font(.coveCaption).foregroundStyle(Palette.body).padding(
       .horizontal, 7
     ).padding(.vertical, 3).background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 4))
   }
@@ -359,7 +359,7 @@ struct ReaderView: View {
         }.disabled(current.labels.contains("DRAFT"))
         Spacer()
         if let position {
-          Text("\(position + 1) of \(store.visible.count)").font(.cove(size: 12)).fixedSize()
+          Text("\(position + 1) of \(store.visible.count)").font(.coveSecondary).fixedSize()
         }
         tool("Previous email (↑)", icon: "chevron.up", navigation: true) { navigate(-1) }
           .disabled(position == nil || position == 0)
@@ -376,21 +376,21 @@ struct ReaderView: View {
             }.buttonStyle(.plain).font(.coveControl).disabled(store.busy)
           }
           Text(current.subject.isEmpty ? "New message" : current.subject).font(
-            .cove(size: 25, weight: .semibold)
+            .coveTitle
           ).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
           HStack(spacing: 12) {
-            Text(current.initials).font(.cove(size: 13, weight: .medium))
+            Text(current.initials).font(.coveLabel)
               .foregroundStyle(Palette.body).frame(width: 40, height: 40)
               .background(Palette.selection, in: Circle()).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-              Text(current.sender).font(.cove(size: 14, weight: .medium))
+              Text(current.sender).font(.coveSubheading)
               Text("to \(current.to.isEmpty ? "me" : current.to) · \(current.senderEmail)").font(
-                .cove(size: 12)
+                .coveSecondary
               ).foregroundStyle(Palette.muted).textSelection(.enabled).lineLimit(2)
             }
             Spacer()
             Text(current.date, format: .dateTime.month(.abbreviated).day().hour().minute()).font(
-              .cove(size: 11)
+              .coveMetadata
             ).foregroundStyle(Palette.muted)
             Menu {
               Button(
@@ -413,7 +413,7 @@ struct ReaderView: View {
               .help("More message options").accessibilityLabel("More message options")
           }
           if let attribution = store.labelAttribution(for: current) {
-            Label(attribution, systemImage: "sparkles").font(.cove(size: 12)).foregroundStyle(Palette.body)
+            Label(attribution, systemImage: "sparkles").font(.coveSecondary).foregroundStyle(Palette.body)
           }
           JevMailFlagBadges(mail: current, isSample: store.isSample)
           if let decision = current.decision {
@@ -422,11 +422,11 @@ struct ReaderView: View {
           if let excerpt = current.decision?.excerpt {
             VStack(alignment: .leading, spacing: 8) {
               Label("The key passage", systemImage: "sparkles").font(
-                .cove(size: 12, weight: .medium))
-              Text(excerpt).font(.cove(size: 13)).lineSpacing(5).foregroundStyle(Palette.body)
+                .coveControl)
+              Text(excerpt).font(.coveText).lineSpacing(5).foregroundStyle(Palette.body)
                 .textSelection(.enabled)
-              Text("Selected from the original email").font(.cove(size: 10)).foregroundStyle(
-                Palette.muted)
+              Text("Selected from the original email").font(.coveMetadata).foregroundStyle(
+                Palette.body)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(
               Palette.summary, in: RoundedRectangle(cornerRadius: 8))
           }
@@ -457,7 +457,7 @@ struct ReaderView: View {
           }
           Label(
             "You have the final say. Nothing sends without you.", systemImage: "checkmark.shield"
-          ).font(.cove(size: 11)).foregroundStyle(Palette.muted)
+          ).font(.coveMetadata).foregroundStyle(Palette.muted)
         }.padding(.horizontal, 40).padding(.top, 30).padding(.bottom, 20)
           .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity)
       }
@@ -469,7 +469,7 @@ struct ReaderView: View {
       let opened = current
       Task { await store.markViewed(opened) }
     }
-    .task { await AIProviderSettings.shared.restoreWritingConnection() }
+    .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
     .sheet(isPresented: $showAIWriting) {
       AIWritingSheet(context: [current], initialText: reply, onInsert: { value in
         reply = value
@@ -481,13 +481,13 @@ struct ReaderView: View {
   private var attachmentList: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text(current.availableAttachments.count == 1 ? "Attachment" : "Attachments")
-        .font(.cove(size: 12, weight: .medium))
+        .font(.coveControl)
       ForEach(current.availableAttachments) { attachment in
         HStack(spacing: 12) {
           Image(systemName: "paperclip").foregroundStyle(Palette.muted)
             .accessibilityHidden(true)
           VStack(alignment: .leading, spacing: 4) {
-            Text(attachment.filename).font(.cove(size: 13, weight: .medium))
+            Text(attachment.filename).font(.coveLabel)
               .lineLimit(2).textSelection(.enabled)
             if let byteCount = attachment.byteCount {
               Text(ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file))
@@ -510,14 +510,14 @@ struct ReaderView: View {
     VStack(alignment: .leading, spacing: 0) {
       HStack {
         Label("A reply, ready for your review", systemImage: "square.and.pencil").font(
-          .cove(size: 13, weight: .medium))
+          .coveLabel)
         Spacer()
-        Text("Not sent").font(.cove(size: 11)).foregroundStyle(Palette.muted)
+        Text("Not sent").font(.coveMetadata).foregroundStyle(Palette.muted)
       }.padding(.horizontal, 17).padding(.vertical, 13).background(Palette.sidebar)
       Divider()
       VStack(alignment: .leading, spacing: 14) {
-        Text("To  \(current.replyRecipient)").font(.cove(size: 12)).foregroundStyle(Palette.muted)
-        TextEditor(text: $reply).font(.cove(size: 14)).lineSpacing(6).scrollContentBackground(
+        Text("To  \(current.replyRecipient)").font(.coveSecondary).foregroundStyle(Palette.muted)
+        TextEditor(text: $reply).font(.coveBody).lineSpacing(6).scrollContentBackground(
           .hidden
         ).accessibilityLabel("Reply body").frame(
           minHeight: 118

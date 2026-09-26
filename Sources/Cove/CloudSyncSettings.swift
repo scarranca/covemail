@@ -34,12 +34,12 @@ struct CloudSyncSettings: View {
   private var content: some View {
       VStack(alignment: .leading, spacing: 16) {
         Text("Keep a recent cloud copy for future mobile access. Sync runs while Cove is open on this Mac.")
-          .font(.coveBody).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         Label(store.cloudStatus, systemImage: store.cloudSyncing ? "arrow.triangle.2.circlepath" : "icloud")
-          .font(.cove(size: 13, weight: .medium)).accessibilityAddTraits(.updatesFrequently)
+          .font(.coveLabel).accessibilityAddTraits(.updatesFrequently)
         if let lastSync = store.cloudMirror.lastSync {
           Text("Last synced \(lastSync.formatted(date: .abbreviated, time: .shortened))")
-            .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+            .font(.coveSecondary).foregroundStyle(Palette.muted)
         }
         HStack(spacing: 12) {
           if store.cloudSyncing { ProgressView().controlSize(.small) }
@@ -61,9 +61,9 @@ struct CloudSyncSettings: View {
             .buttonStyle(SecondaryButton()).disabled(store.cloudSyncing || store.busy)
         }
         Text("Private pilot · one Mac uploads up to 1,000 downloaded emails from the last 30 days, including labels and Jev results. Drafts, Spam, Trash and attachments are excluded. Large bodies are shortened. Google credentials stay on this Mac.")
-          .font(.cove(size: 12)).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         Text("Cove stores encrypted mail headers and Jev results in PlanetScale, and encrypted bodies in Google Cloud. Cove’s server holds the decryption keys. Pausing keeps the existing cloud copy; removing local data does not remove it.")
-          .font(.cove(size: 12)).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       }
   }
 

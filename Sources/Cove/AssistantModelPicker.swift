@@ -107,7 +107,7 @@ struct AssistantModelPicker: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text("Choose a model").font(.cove(size: 13, weight: .semibold))
+        Text("Choose a model").font(.coveLabel)
         Spacer()
         Button { refreshID += 1 } label: { Image(systemName: "arrow.clockwise") }
           .buttonStyle(.plain).disabled(!catalog.loading.isEmpty)
@@ -132,7 +132,7 @@ struct AssistantModelPicker: View {
                     Text(settings.modelLabel(choice.model, provider: provider)).lineLimit(2).multilineTextAlignment(.leading)
                     Spacer(minLength: 8)
                     if settings.model(provider) == choice.model {
-                      Text("Default").font(.cove(size: 10)).foregroundStyle(Palette.muted)
+                      Text("Default").font(.coveMetadata).foregroundStyle(Palette.muted)
                     }
                     if useAI && selected == choice { Image(systemName: "checkmark") }
                   }.padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -153,7 +153,7 @@ struct AssistantModelPicker: View {
         }
       }.frame(height: 280)
       Text("For this conversation. Your default stays in Settings.")
-        .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+        .font(.coveMetadata).foregroundStyle(Palette.muted)
       Divider()
       Button(action: choosePassages) {
         HStack {
@@ -163,7 +163,7 @@ struct AssistantModelPicker: View {
         }.contentShape(Rectangle())
       }.buttonStyle(.plain).padding(.vertical, 4)
       Button("Manage models…", action: manage).buttonStyle(SecondaryButton(compact: true))
-    }.padding(16).frame(width: 340).font(.cove(size: 12))
+    }.padding(16).frame(width: 340).font(.coveSecondary)
       .foregroundStyle(Palette.ink).background(Palette.canvas)
       .task(id: loadID) { await catalog.refresh(providers: providers, fetch: fetchModels ?? settings.models) }
   }

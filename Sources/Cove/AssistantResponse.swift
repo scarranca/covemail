@@ -80,7 +80,7 @@ struct AssistantResponseView: View {
       ChatMarkdown(response.summary)
       if let primary = response.primary {
         VStack(alignment: .leading, spacing: 12) {
-          Text(primary.title).font(.cove(size: 17, weight: .semibold)).accessibilityAddTraits(.isHeader)
+          Text(primary.title).font(.coveSection).accessibilityAddTraits(.isHeader)
           ChatMarkdown(primary.detail)
           if !primary.comparison.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
@@ -88,10 +88,10 @@ struct AssistantResponseView: View {
               ForEach(Array(primary.comparison.enumerated()), id: \.offset) { _, row in
                 ViewThatFits(in: .horizontal) {
                   HStack(alignment: .top, spacing: 16) {
-                    Text(row.label).font(.cove(size: 13)).frame(width: 80, alignment: .leading)
+                    Text(row.label).font(.coveText).frame(width: 80, alignment: .leading)
                     quote(row).frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
                   }
-                  VStack(alignment: .leading, spacing: 4) { Text(row.label).font(.cove(size: 12)); quote(row) }
+                  VStack(alignment: .leading, spacing: 4) { Text(row.label).font(.coveSecondary); quote(row) }
                 }.padding(.vertical, 4)
               }
               Divider()
@@ -108,17 +108,17 @@ struct AssistantResponseView: View {
       if !response.checks.isEmpty {
         VStack(alignment: .leading, spacing: 14) {
           Divider()
-          Text("Also worth checking").font(.cove(size: 14, weight: .semibold)).padding(.top, 4).accessibilityAddTraits(.isHeader)
+          Text("Also worth checking").font(.coveSubheading).padding(.top, 4).accessibilityAddTraits(.isHeader)
           ForEach(Array(response.checks.enumerated()), id: \.offset) { _, check in
             VStack(alignment: .leading, spacing: 5) {
               ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
-                  Text(check.title).font(.cove(size: 14, weight: .semibold)).fixedSize()
+                  Text(check.title).font(.coveSubheading).fixedSize()
                   Spacer(minLength: 8)
                   if let source = mail(check.source) { sourceLink(source, compact: true) }
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                  Text(check.title).font(.cove(size: 14, weight: .semibold))
+                  Text(check.title).font(.coveSubheading)
                   if let source = mail(check.source) { sourceLink(source, compact: true) }
                 }
               }
@@ -130,7 +130,7 @@ struct AssistantResponseView: View {
     }.foregroundStyle(Palette.ink).textSelection(.enabled)
   }
   private func quote(_ row: AssistantResponse.Comparison) -> some View {
-    Text(row.quote).font(.cove(size: 14)).fixedSize(horizontal: false, vertical: true)
+    Text(row.quote).font(.coveBody).fixedSize(horizontal: false, vertical: true)
       .help("Quoted from source [\(row.source)]")
   }
   private func sourceLink(_ mail: Mail, compact: Bool = false) -> some View {
@@ -139,14 +139,14 @@ struct AssistantResponseView: View {
         if !compact { Image(systemName: "envelope") }
         Text(compact ? mail.subject : "\(mail.sender) · \(mail.subject)").lineLimit(1)
         Image(systemName: "arrow.up.right")
-      }.font(.cove(size: 12)).foregroundStyle(Palette.body)
+      }.font(.coveSecondary).foregroundStyle(Palette.body)
     }.buttonStyle(.plain).help("Open \(mail.subject) from \(mail.sender)").accessibilityLabel("Open source: \(mail.subject)")
   }
   @ViewBuilder private func replyButton(_ primary: AssistantResponse.Recommendation, source: Mail) -> some View {
     if primary.reply {
       Button { draft(source, primary.title + "\n" + primary.detail) } label: {
         Label(source.draft.isEmpty ? "Draft reply" : "Review draft", systemImage: "arrowshape.turn.up.left")
-          .font(.cove(size: 12, weight: .medium)).padding(.horizontal, 12).frame(height: 34)
+          .font(.coveControl).padding(.horizontal, 12).frame(height: 34)
           .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 6))
           .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.line))
       }.buttonStyle(.plain).disabled(!canReply).help("Open an editable reply. Nothing is sent.")

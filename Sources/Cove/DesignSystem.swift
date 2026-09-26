@@ -44,12 +44,28 @@ extension Font {
   static func cove(size: CGFloat, weight: Font.Weight = .regular) -> Font {
     .custom("Inter-Regular", fixedSize: size).weight(weight)
   }
-  static let coveDisplay = Font.cove(size: 42, weight: .medium)
-  static let coveTitle = Font.cove(size: 24)
-  static let coveSection = Font.cove(size: 18, weight: .medium)
-  static let coveBody = Font.cove(size: 14)
+  // Shared roles across every destination. Prose, controls and metadata retain distinct sizes.
+  static let coveDisplay = Font.cove(size: 42, weight: .medium) // Sign-in artwork only.
+  static let coveTitle = Font.cove(size: 24, weight: .medium)
+  static let coveDetailTitle = Font.cove(size: 20, weight: .medium)
+  static let coveSection = Font.cove(size: 16, weight: .medium)
+  static let coveSubheading = Font.cove(size: 14, weight: .medium)
+  static let coveBody = Font.cove(size: CoveTypography.bodySize)
+  static let coveText = Font.cove(size: 13)
+  static let coveLabel = Font.cove(size: 13, weight: .medium)
+  static let coveSecondary = Font.cove(size: 12)
   static let coveControl = Font.cove(size: 12, weight: .medium)
   static let coveMetadata = Font.cove(size: 11)
+  static let coveCaption = Font.cove(size: 11, weight: .medium)
+
+}
+/// Shared metrics for SwiftUI prose and native TextKit editors/previews.
+enum CoveTypography {
+  static let bodySize: CGFloat = 14
+  static let bodyLineSpacing: CGFloat = 6
+  static var nativeBody: NSFont {
+    NSFont(name: "Inter-Regular", size: bodySize) ?? .systemFont(ofSize: bodySize)
+  }
 }
 enum DesignAssets {
   static let dottedWave: NSImage? = Bundle.module.url(
@@ -91,7 +107,7 @@ private struct CoveButtonSurface: View {
     return configuration.isPressed ? Palette.pressed : hovering ? Palette.hover : Palette.ink
   }
   var body: some View {
-    configuration.label.font(compact ? .coveMetadata : .coveControl)
+    configuration.label.font(.coveControl)
       .foregroundStyle(!enabled ? Palette.disabledText : secondary ? Palette.ink : .white)
       .padding(.horizontal, compact ? 12 : 16).frame(minHeight: compact ? 30 : 40)
       .background(fill, in: RoundedRectangle(cornerRadius: 6))
@@ -114,10 +130,13 @@ private struct CoveButtonSurface: View {
 struct CoveFieldStyle: TextFieldStyle {
   @FocusState private var focused: Bool
   var focus: FocusState<Bool>.Binding?
-  init(focus: FocusState<Bool>.Binding? = nil) { self.focus = focus }
+  var font: Font
+  init(focus: FocusState<Bool>.Binding? = nil, font: Font = .coveSecondary) {
+    self.focus = focus; self.font = font
+  }
   @Environment(\.isEnabled) private var enabled
   func _body(configuration: TextField<_Label>) -> some View {
-    configuration.font(.cove(size: 12)).textFieldStyle(.plain).focused(focus ?? $focused)
+    configuration.font(font).textFieldStyle(.plain).focused(focus ?? $focused)
       .foregroundStyle(Palette.body).padding(.horizontal, 12).padding(.vertical, 10).frame(
         minHeight: 42
       )
@@ -264,7 +283,7 @@ private struct CoveToggleSurface: View {
       configuration.isOn.toggle()
     } label: {
       HStack(spacing: 12) {
-        configuration.label.font(.cove(size: 12)).foregroundStyle(
+        configuration.label.font(.coveLabel).foregroundStyle(
           enabled ? Palette.ink : Palette.disabledText
         )
         .multilineTextAlignment(.leading)

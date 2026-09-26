@@ -21,7 +21,7 @@ struct MailDeletionToast: View {
                 Circle().stroke(.white.opacity(0.25), lineWidth: 2)
                 Circle().trim(from: 0, to: min(1, max(0, deadline.timeIntervalSince(context.date) / 5)))
                   .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round)).rotationEffect(.degrees(-90))
-                Text("\(remaining)").font(.cove(size: 10, weight: .medium)).monospacedDigit()
+                Text("\(remaining)").font(.coveCaption).monospacedDigit()
               }.frame(width: 25, height: 25).accessibilityLabel("\(remaining) seconds to undo") }
               else { ProgressView().controlSize(.small).colorScheme(.dark) }
               Button("Undo") { store.undoQueuedTrash() }

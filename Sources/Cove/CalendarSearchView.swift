@@ -12,7 +12,7 @@ struct CalendarSearchView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      Text("Find an event").font(.cove(size: 19, weight: .medium))
+      Text("Find an event").font(.coveSection)
       TextField(
         "Search saved events", text: $query,
         prompt: Text("Title, guest, location or notes").foregroundStyle(Palette.muted)
@@ -31,7 +31,7 @@ struct CalendarSearchView: View {
           ? "Saved events on this Mac, including Google weeks you’ve synced."
           : "Saved calendar events on this Mac."
       )
-      .font(.cove(size: 12)).foregroundStyle(Palette.muted)
+      .font(.coveSecondary).foregroundStyle(Palette.muted)
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 4) {
           if results.isEmpty {
@@ -47,7 +47,7 @@ struct CalendarSearchView: View {
               select(event)
             } label: {
               VStack(alignment: .leading, spacing: 6) {
-                Text(event.title).font(.cove(size: 13, weight: .medium)).lineLimit(2)
+                Text(event.title).font(.coveLabel).lineLimit(2)
                 Text(event.start, format: .dateTime.month(.abbreviated).day().year())
                   + Text(
                     event.allDay == true
@@ -57,7 +57,7 @@ struct CalendarSearchView: View {
                   hidden
                     ? event.calendarTitle + " · Hidden; selecting reveals it"
                     : event.calendarTitle)
-              }.font(.cove(size: 11)).foregroundStyle(Palette.body)
+              }.font(.coveMetadata).foregroundStyle(Palette.body)
                 .multilineTextAlignment(.leading).padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 6))
@@ -71,7 +71,7 @@ struct CalendarSearchView: View {
           ? "Showing 50 of \(results.count) matches. Refine your search to see more."
           : "\(results.count) \(results.count == 1 ? "event" : "events") · upcoming first"
       )
-      .font(.cove(size: 11)).foregroundStyle(Palette.muted)
+      .font(.coveMetadata).foregroundStyle(Palette.muted)
     }.padding(20).frame(width: 390).background(Palette.canvas)
       .task {
         await Task.yield()

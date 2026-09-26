@@ -41,8 +41,8 @@ struct SettingsView: View {
       VStack(alignment: .leading, spacing: 0) {
         VStack(alignment: .leading, spacing: 6) {
           Text(selectedSection == "Privacy" ? "Privacy & local data" : selectedSection)
-            .font(.cove(size: 24, weight: .medium))
-          Text(sectionDescription).font(.cove(size: 13)).foregroundStyle(Palette.body)
+            .font(.coveTitle)
+          Text(sectionDescription).font(.coveSecondary).foregroundStyle(Palette.body)
         }.padding(.horizontal, 32).padding(.vertical, 24)
         Divider()
         ScrollView {
@@ -50,7 +50,7 @@ struct SettingsView: View {
             sectionContent
             if saved && (selectedSection == "Gmail" || selectedSection == "Jev · Mail agent") {
               Label("Credentials saved", systemImage: "checkmark.circle")
-                .font(.cove(size: 12)).foregroundStyle(Palette.body)
+                .font(.coveSecondary).foregroundStyle(Palette.body)
             }
           }.frame(maxWidth: 800, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading).padding(32)
@@ -98,7 +98,7 @@ struct SettingsView: View {
             Button("Sync now") { Task { await store.sync() } }
             Button("Reconnect Gmail") { connect() }
             Button("Disconnect") { store.disconnect() }
-          }.menuStyle(.borderlessButton).fixedSize().disabled(store.busy)
+          }.menuStyle(.borderlessButton).font(.coveControl).fixedSize().disabled(store.busy)
         } else {
           Button("Connect Gmail") { connect() }.buttonStyle(PrimaryButton())
             .disabled(store.busy || !selectedGoogleConfiguration.isConfigured)
@@ -111,9 +111,9 @@ struct SettingsView: View {
       DisclosureGroup("Google connection settings", isExpanded: $showAdvancedGoogle) {
         VStack(alignment: .leading, spacing: 16) {
           Toggle("Also connect Google Calendar", isOn: $includeCalendar).toggleStyle(CoveToggleStyle())
-          Text("Calendar access is applied the next time you connect Gmail.").font(.cove(size: 12)).foregroundStyle(Palette.body)
+          Text("Calendar access is applied the next time you connect Gmail.").font(.coveSecondary).foregroundStyle(Palette.body)
           Text("Optional: use your own Desktop OAuth client. Leave the client ID blank to use Cove’s included configuration. Disconnect before changing the client for an existing connection.")
-            .font(.cove(size: 12)).foregroundStyle(Palette.body)
+            .font(.coveSecondary).foregroundStyle(Palette.body)
           TextField("Custom Google OAuth client ID", text: $clientID).textFieldStyle(CoveFieldStyle())
           SecureField("Custom desktop client secret", text: $secret).textFieldStyle(CoveFieldStyle())
           HStack {
@@ -122,11 +122,11 @@ struct SettingsView: View {
               .buttonStyle(PrimaryButton()).disabled(store.busy || !selectedGoogleConfiguration.isConfigured)
           }
         }.padding(.top, 16)
-      }.font(.cove(size: 13, weight: .medium)).disclosureGroupStyle(CoveDisclosureStyle())
+      }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle())
       if store.busy {
         HStack {
           ProgressView().controlSize(.small)
-          Text(store.status).font(.cove(size: 12))
+          Text(store.status).font(.coveSecondary)
           if store.status.contains("Connecting") { Button("Cancel sign-in") { store.auth.cancel() }.buttonStyle(SecondaryButton(compact: true)) }
         }
       }
@@ -143,16 +143,16 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 14) {
           SecureField("TypeSafe API key", text: $key).textFieldStyle(CoveFieldStyle())
           Text("Running Jev sends email content and enabled preferences to TypeSafe. TypeSafe states it does not train on inputs; zero data retention is not established.")
-            .font(.cove(size: 12)).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+            .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
           HStack {
             Button("Save credentials") { save() }.buttonStyle(SecondaryButton()).disabled(store.busy)
-            if saved { Label("Credentials saved", systemImage: "checkmark").font(.cove(size: 12)) }
+            if saved { Label("Credentials saved", systemImage: "checkmark").font(.coveSecondary) }
             Spacer()
             Link("Get a key ↗", destination: URL(string: "https://console.typesafe.ai")!)
           }
           Link("TypeSafe privacy ↗", destination: URL(string: "https://typesafe.ai/legal/privacy-policy")!)
         }.padding(.top, 16)
-      }.font(.cove(size: 13, weight: .medium)).disclosureGroupStyle(CoveDisclosureStyle())
+      }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle())
       Divider()
       HStack(spacing: 16) {
         copy("Writing voice", "The tone of your reply templates.")
@@ -163,11 +163,11 @@ struct SettingsView: View {
           .disabled(!store.entered)
       }
       VStack(alignment: .leading, spacing: 10) {
-        Text("Instructions for Jev").font(.cove(size: 13, weight: .medium))
+        Text("Instructions for Jev").font(.coveLabel)
         TextField("One instruction per line", text: Binding(
           get: { store.preferences.instructions.joined(separator: "\n") },
           set: { store.preferences.instructions = $0.components(separatedBy: "\n"); store.persistPreferences() }
-        ), axis: .vertical).lineLimit(2...6).textFieldStyle(.plain).disabled(!store.entered)
+        ), axis: .vertical).lineLimit(2...6).textFieldStyle(.plain).font(.coveBody).disabled(!store.entered)
           .accessibilityLabel("Instructions for Jev")
       }.padding(14).overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line))
       Button { store.screen = "integrations" } label: {
@@ -179,7 +179,7 @@ struct SettingsView: View {
   private var privacySection: some View {
     VStack(alignment: .leading, spacing: 16) {
       Label("Credentials and mailbox keys stay in macOS Keychain. Real-account mail is encrypted on this Mac. Disconnect keeps the local cache.", systemImage: "lock.shield")
-        .font(.cove(size: 12)).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+        .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       if store.entered {
         Button("Remove local data and disconnect…", role: .destructive) { confirmErasure = true }
           .buttonStyle(SecondaryButton()).disabled(store.busy)
@@ -192,8 +192,9 @@ struct SettingsView: View {
   }
   private func copy(_ title: String, _ help: String) -> some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text(title).font(.cove(size: 13, weight: .medium))
-      Text(help).font(.cove(size: 12)).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      Text(title).font(.coveLabel)
+      Text(help).font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: 580, alignment: .leading)
     }
   }
   private func connect() {

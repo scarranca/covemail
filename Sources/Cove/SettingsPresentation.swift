@@ -9,7 +9,7 @@ struct SettingsSectionDisclosureStyle: DisclosureGroupStyle {
           configuration.label
           Spacer(minLength: 0)
           Image(systemName: configuration.isExpanded ? "chevron.up" : "chevron.down")
-            .font(.cove(size: 12, weight: .medium)).foregroundStyle(Palette.body)
+            .font(.coveControl).foregroundStyle(Palette.body)
             .accessibilityHidden(true)
         }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
           .contentShape(Rectangle())
@@ -36,8 +36,8 @@ struct SettingsSectionHeading: View {
       Image(systemName: icon).font(.cove(size: 18)).frame(width: 24, height: 24)
         .foregroundStyle(Palette.body).accessibilityHidden(true)
       VStack(alignment: .leading, spacing: 6) {
-        Text(title).font(.cove(size: 16, weight: .medium)).foregroundStyle(Palette.ink)
-        Text(subtitle).font(.cove(size: 12)).foregroundStyle(Palette.body)
+        Text(title).font(.coveSection).foregroundStyle(Palette.ink)
+        Text(subtitle).font(.coveSecondary).foregroundStyle(Palette.body)
           .fixedSize(horizontal: false, vertical: true)
       }
     }

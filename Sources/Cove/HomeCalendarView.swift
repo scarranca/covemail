@@ -109,18 +109,23 @@ struct InvitationResponseButtons: View {
   let event: LocalEvent
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 8) {
-        ForEach(CalendarRSVP.allCases, id: \.rawValue) { response in
-          Button(response.title) {
-            Task { await store.respondToInvitation(event, response: response) }
-          }.buttonStyle(SecondaryButton(compact: true))
-            .disabled(store.busy || store.calendarSyncing || event.ownResponse == response.rawValue)
-            .accessibilityLabel("\(response.title) invitation: \(event.title)")
-        }
-        if store.respondingEventID == event.id { ProgressView().controlSize(.small) }
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 8) { responses }.fixedSize(horizontal: true, vertical: false)
+        VStack(alignment: .leading, spacing: 8) { responses }
       }
+      if store.respondingEventID == event.id { ProgressView().controlSize(.small) }
       Text(store.isSample ? "Sample response · stays on this Mac" : event.recurringEventID == nil ? "Your response is sent through Google Calendar." : "Responds to this occurrence. Google Calendar sends your response.")
         .font(HomeType.metadata).foregroundStyle(Palette.muted)
+    }
+  }
+
+  private var responses: some View {
+    ForEach(CalendarRSVP.allCases, id: \.rawValue) { response in
+      Button(response.title) {
+        Task { await store.respondToInvitation(event, response: response) }
+      }.buttonStyle(SecondaryButton(compact: true))
+        .disabled(store.busy || store.calendarSyncing || event.ownResponse == response.rawValue)
+        .accessibilityLabel("\(response.title) invitation: \(event.title)")
     }
   }
 }

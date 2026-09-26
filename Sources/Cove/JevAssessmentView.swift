@@ -8,7 +8,7 @@ struct JevAssessmentView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Text(isSample ? "Sample assessment" : "Jev’s assessment")
-        .font(.cove(size: 11, weight: .medium)).foregroundStyle(Palette.muted)
+        .font(.coveCaption).foregroundStyle(Palette.muted)
       ViewThatFits(in: .horizontal) {
         HStack(alignment: .top, spacing: 28) {
           action
@@ -43,9 +43,9 @@ struct JevAssessmentView: View {
 
   private func assessment(_ title: String, icon: String, detail: String) -> some View {
     VStack(alignment: .leading, spacing: 6) {
-      Label(title, systemImage: icon).font(.cove(size: 12, weight: .medium))
+      Label(title, systemImage: icon).font(.coveControl)
         .foregroundStyle(Palette.ink)
-      Text(detail).font(.cove(size: 11)).foregroundStyle(Palette.muted)
+      Text(detail).font(.coveMetadata).foregroundStyle(Palette.muted)
     }.fixedSize(horizontal: true, vertical: false)
   }
 }

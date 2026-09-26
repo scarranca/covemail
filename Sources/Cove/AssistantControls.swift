@@ -6,7 +6,7 @@ struct AssistantActionButton: ButtonStyle {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var hovering = false
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label.font(.cove(size: 13, weight: .medium))
+    configuration.label.font(.coveControl)
       .foregroundStyle(enabled ? Palette.ink : Palette.disabledText)
       .padding(.horizontal, 14).frame(minHeight: 40)
       .background(configuration.isPressed ? Palette.selection : hovering ? Palette.surface : Palette.canvas,
@@ -25,7 +25,7 @@ struct AssistantMailSearchStyle: ToggleStyle {
     Button { configuration.isOn.toggle() } label: {
       HStack(spacing: 8) {
         Image(systemName: "magnifyingglass").font(.cove(size: 14))
-        if !compact { configuration.label.font(.cove(size: 12)) }
+        if !compact { configuration.label.font(.coveSecondary) }
         Capsule().fill(configuration.isOn && enabled ? Palette.ink : Palette.toggleOff)
           .frame(width: 30, height: 18)
           .overlay(alignment: configuration.isOn ? .trailing : .leading) {
