@@ -22,7 +22,7 @@ struct CloudSyncSettings: View {
       Button("Cancel", role: .cancel) {}
       Button("Connect Google and enable") { Task { await store.enableCloudSync() } }
     } message: {
-      Text("Your recent downloaded mail, labels and Jev results will be sent to Cove’s servers on PlanetScale and Google Cloud. Sign in with the same Gmail account. Use only one Mac as the uploader during this pilot. This does not enable background mail retrieval when the Mac is closed.")
+      Text("Your recent downloaded mail, labels, Jev results and snooze times will be sent to Cove’s servers on PlanetScale and Google Cloud. Sign in with the same Gmail account. Use only one Mac as the uploader during this pilot. This does not enable background mail retrieval when the Mac is closed.")
     }
     .alert("Remove the cloud copy?", isPresented: $confirmRemove) {
       Button("Cancel", role: .cancel) {}
@@ -33,7 +33,7 @@ struct CloudSyncSettings: View {
   }
   private var content: some View {
       VStack(alignment: .leading, spacing: 16) {
-        Text("Keep a recent cloud copy for future mobile access. Sync runs while Cove is open on this Mac.")
+        Text("Keep recent mail and reminders in sync for future mobile access. Sync runs while Cove is open on this Mac. Notifications are not available yet.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         Label(store.cloudStatus, systemImage: store.cloudSyncing ? "arrow.triangle.2.circlepath" : "icloud")
           .font(.coveLabel).accessibilityAddTraits(.updatesFrequently)
@@ -60,9 +60,9 @@ struct CloudSyncSettings: View {
           Button("Reconnect Google…") { Task { await store.enableCloudSync(resume: false) } }
             .buttonStyle(SecondaryButton()).disabled(store.cloudSyncing || store.busy)
         }
-        Text("Private pilot · one Mac uploads up to 1,000 downloaded emails from the last 30 days, including labels and Jev results. Drafts, Spam, Trash and attachments are excluded. Large bodies are shortened. Google credentials stay on this Mac.")
+        Text("Private pilot · one Mac uploads up to 1,000 downloaded emails from the last 30 days, including labels and Jev results. Snooze times sync separately, including for older mail. Drafts, Spam, Trash and attachments are excluded. Large bodies are shortened. Google credentials stay on this Mac.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
-        Text("Cove stores encrypted mail headers and Jev results in PlanetScale, and encrypted bodies in Google Cloud. Cove’s server holds the decryption keys. Pausing keeps the existing cloud copy; removing local data does not remove it.")
+        Text("Cove stores encrypted mail headers and Jev results in PlanetScale, and encrypted bodies in Google Cloud. Reminder dates and message IDs are stored in PlanetScale so the server can find due reminders. Cove’s server holds the decryption keys. Pausing keeps the existing cloud copy; removing local data does not remove it.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       }
   }

@@ -106,12 +106,14 @@ struct RootView: View {
     .task {
       if store.needsContentRefresh { await store.sync() }
       await store.pollMailbox()
+      store.pollCloud()
       await store.refreshLabels(force: false)
       while !Task.isCancelled {
         do {
           try await Task.sleep(for: .seconds(30))
           store.now = Date()
           await store.pollMailbox()
+          store.pollCloud()
           await store.refreshLabels(force: false)
         } catch { break }
       }

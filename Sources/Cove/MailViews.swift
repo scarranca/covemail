@@ -5,6 +5,8 @@ struct MailboxView: View {
   @Bindable var store: AppStore
   @FocusState private var searching: Bool
   @FocusState private var listFocused: Bool
+  @State private var pageLoader = MailPageLoader()
+  @State private var atListEnd = false
   var body: some View {
     GeometryReader { geometry in
       let mailList = store.visible
@@ -111,32 +113,39 @@ struct MailboxView: View {
             ).frame(maxHeight: .infinity)
           } else {
             ScrollViewReader { proxy in
-              ScrollView {
-                LazyVStack(spacing: 0) {
-                  ForEach(Array(mailList.enumerated()), id: \.element.id) { index, mail in
-                    if !store.isFocusedMailView && (index == 0
-                      || daySection(mail.date) != daySection(mailList[index - 1].date))
-                    {
-                      Text(daySection(mail.date)).font(.coveControl)
-                        .foregroundStyle(Palette.muted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 22).padding(.top, 19).padding(.bottom, 9)
+              GeometryReader { viewport in
+                ScrollView {
+                  LazyVStack(spacing: 0) {
+                    ForEach(Array(mailList.enumerated()), id: \.element.id) { index, mail in
+                      if !store.isFocusedMailView && (index == 0
+                        || daySection(mail.date) != daySection(mailList[index - 1].date))
+                      {
+                        Text(daySection(mail.date)).font(.coveControl)
+                          .foregroundStyle(Palette.muted)
+                          .frame(maxWidth: .infinity, alignment: .leading)
+                          .padding(.horizontal, 22).padding(.top, 19).padding(.bottom, 9)
+                      }
+                      MailListRow(store: store, mail: mail) { listFocused = true }.id(mail.id)
+                      Divider()
                     }
-                    MailListRow(store: store, mail: mail) { listFocused = true }.id(mail.id)
-                    Divider()
+                    paginationFooter
+                      .background(GeometryReader { end in
+                        Color.clear.preference(key: MailListEndKey.self,
+                          value: end.frame(in: .named("mail-list-viewport")).minY)
+                      })
                   }
                 }
-              }
-              .onChange(of: store.selectedID) { _, id in
-                if let id { proxy.scrollTo(id) }
+                .coordinateSpace(name: "mail-list-viewport")
+                .onPreferenceChange(MailListEndKey.self) { y in
+                  let visible = y.map { $0 >= 0 && $0 <= viewport.size.height } ?? false
+                  if !visible { pageLoader.leftEnd() }
+                  atListEnd = visible
+                }
+                .onChange(of: store.selectedID) { _, id in
+                  if let id { proxy.scrollTo(id) }
+                }
               }
             }
-          }
-          if (store.mailScopeLabelID.map { store.labelNextPages[$0] != nil } ?? (store.nextPage != nil)) && !store.isSample {
-            Button("Load older mail") { Task {
-              if store.mailScopeLabelID != nil { await store.loadLabelMail(older: true) }
-              else { await store.sync(older: true) }
-            } }.buttonStyle(SecondaryButton()).padding().disabled(store.busy)
           }
           if store.isFocusedMailView {
             Text(store.selectedJevFlag != nil ? "Jev assessments · downloaded mail" : store.folder == "Flagged" ? "Follow-up flags sync with Gmail’s stars." : "Includes inbox and archived emails.")
@@ -174,9 +183,52 @@ struct MailboxView: View {
       } catch {}
     }
     .onAppear { listFocused = true }
-    .onChange(of: store.search) { _, _ in store.reconcileSelection() }
-    .onChange(of: store.folder) { _, _ in listFocused = true }
+    .onChange(of: store.search) { _, _ in store.reconcileSelection(); resetPaginationEnd() }
+    .onChange(of: store.folder) { _, _ in listFocused = true; resetPaginationEnd() }
+    .onChange(of: store.accountEmail) { _, _ in resetPaginationEnd() }
+    .onChange(of: [store.priorityOnly, store.labelUnreadOnly, store.labelOldestFirst]) { _, _ in resetPaginationEnd() }
+    .onChange(of: paginationTrigger) { _, _ in
+      Task { await loadNextPage() }
+    }
 
+  }
+
+  private func resetPaginationEnd() {
+    atListEnd = false
+    pageLoader.leftEnd()
+  }
+
+  private struct PaginationTrigger: Equatable {
+    let request: MailPageRequest?
+    let atEnd: Bool
+    let allowed: Bool
+    let loading: Bool
+  }
+  private var paginationTrigger: PaginationTrigger {
+    .init(request: store.nextMailPageRequest, atEnd: atListEnd,
+      allowed: store.canLoadNextMailPage && !store.visible.isEmpty, loading: pageLoader.loading)
+  }
+  private func loadNextPage(retry: Bool = false) async {
+    let request = store.nextMailPageRequest
+    await pageLoader.load(request, atEnd: atListEnd,
+      allowed: store.canLoadNextMailPage && !store.visible.isEmpty, retry: retry) {
+        guard let request else { return nil }
+        return await store.loadNextMailPage(request)
+      }
+  }
+  private var paginationFooter: some View {
+    VStack(spacing: 8) {
+      if pageLoader.loading {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text("Loading more mail…").font(.coveSecondary).foregroundStyle(Palette.muted)
+        }.padding(12)
+      } else if let failed = pageLoader.failed, failed == store.nextMailPageRequest {
+        Text("Couldn’t load more mail.").font(.coveSecondary).foregroundStyle(Palette.body)
+        Button("Try again") { Task { await loadNextPage(retry: true) } }
+          .buttonStyle(SecondaryButton(compact: true)).disabled(!store.canLoadNextMailPage)
+      }
+    }.frame(maxWidth: .infinity, minHeight: 1)
   }
 
   private var draftCount: Int {

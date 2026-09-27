@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.45</title>
+            <pubDate>Sat, 26 Sep 2026 22:14:27 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>47</sparkle:version>
+            <sparkle:shortVersionString>0.1.45</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.45</title></head><body><h1>Smoother scrolling and synced reminders</h1><ul><li>Older mail loads automatically when you reach the end of the list, with an inline retry if loading fails.</li><li>With the optional cloud pilot enabled, snooze times sync to Cove independently of the recent-mail copy, including reminders for older emails.</li><li>Offline snooze changes, rescheduling and cancellations are saved and retried safely. The snooze menu shows whether a reminder is local, pending or synced.</li><li>Tomorrow morning now means the following calendar day at 9 a.m. in your local time zone.</li></ul><p>Cloud sync remains off by default. Mobile access and push notifications are not available yet; snoozed mail returns in Cove when due while the app is open, or when you reopen it.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.45.dmg" length="17009984" type="application/octet-stream" sparkle:edSignature="aKjSekrvho5WLF5kDpUjP2vvCXTN3Hqedr5BH5m7DptohRI9LQPqCM+AeKuh2ZyM0xUtDCPZyxTI4u8CvV2ZBQ=="/>
+        </item>
+        <item>
             <title>0.1.44</title>
             <pubDate>Sat, 26 Sep 2026 21:23:36 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -26,21 +37,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.43</title></head><body><h1>A clearer, more consistent Cove</h1><ul><li>Consistent titles, labels, and supporting text across Home, Mail, Calendar, Contacts, Agents, chat, Settings, and Integrations.</li><li>Compact settings copy and Cove’s outlined action buttons give each section more breathing room.</li><li>Compose and AI suggestions now share the same reading size and line spacing.</li><li>Clearer small calendar text and invitation buttons that fit narrow panes.</li></ul></body></html>]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.43.dmg" length="16810400" type="application/octet-stream" sparkle:edSignature="YCXY3Jpv3RUTm5B8MMPCGm6E1r1VCfGhndtgxL4cqEbKMPDr9w/gznaKfJyL2jbGUK8DfvQN54+dJswoI71gDw=="/>
         </item>
-        <item>
-            <title>0.1.42</title>
-            <pubDate>Sat, 26 Sep 2026 00:06:29 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>44</sparkle:version>
-            <sparkle:shortVersionString>0.1.42</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>A lighter settings interface</h2>
-<ul><li>Data removal actions now use Cove’s standard outlined buttons, with the same confirmation before deleting anything.</li><li>Smaller supporting text and clearer type hierarchy give Settings and Integrations more breathing room.</li><li>Upcoming integrations and connection notes stay visually secondary.</li></ul>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.42.dmg" length="16815155" type="application/octet-stream" sparkle:edSignature="m5w1d7ElKpyOV+yiw2/X95j1AvYVOyljlfTccRihiDP0Tcckx0vaocWTOEaH/nx7oAHCi1G5EGKCiaiuPM+sBg=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: DX1pFCe0Ztt24uxFZa/l4NhrHGH7tycB9XyGXNzVqP/6T6rgwmxPV64xiUpJhFjZUNXMXAS8IPpsf4ap2GXWDA==
-length: 3983
+edSignature: rJxednpooVqf8T+WfGyKwAQZXCWj8KtjdfsvkfwbrUD+ALY1RMCTu6f254o+V9CMw6uR2Jm8iBCbGew8M2Y6AQ==
+length: 4501
 -->

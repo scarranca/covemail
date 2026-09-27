@@ -118,9 +118,14 @@ struct ReaderView: View {
     Menu {
       Button("In one hour") { store.snooze(current, until: Date().addingTimeInterval(3600)) }
       Button("Tomorrow morning") {
-        store.snooze(current, until: Calendar.current.nextDate(after: Date(), matching: DateComponents(hour: 9), matchingPolicy: .nextTime))
+        store.snoozeUntilTomorrowMorning(current)
       }
-      if current.snoozedUntil != nil { Button("Return to inbox") { store.snooze(current, until: nil) } }
+      if current.snoozedUntil != nil || store.cloudSnoozes.pending[current.id] != nil {
+        Button("Return to inbox") { store.snooze(current, until: nil) }
+      }
+      Divider()
+      Text(store.snoozeSyncDetail(for: current))
+      Text("Notifications are not available yet")
     } label: { actionLabel(title, icon: "clock", compact: compact) }
       .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
       .padding(.horizontal, title == "Remind me" ? 12 : 0).frame(height: 40)

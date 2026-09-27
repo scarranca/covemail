@@ -25,6 +25,7 @@ before(async () => {
   await admin.query('DROP ROLE IF EXISTS cove_test_api');
   await admin.query('DROP ROLE IF EXISTS cove_sync_runtime');
   await admin.query(await readFile(new URL('../migrations/001_sync.sql', import.meta.url),'utf8'));
+  await admin.query(await readFile(new URL('../migrations/002_snoozes.sql', import.meta.url),'utf8'));
   await admin.query("CREATE ROLE cove_test_api LOGIN PASSWORD 'synthetic-api-only' NOSUPERUSER NOBYPASSRLS; GRANT cove_sync_runtime TO cove_test_api");
   pool = createPool('postgres://cove_test_api:synthetic-api-only@127.0.0.1:55439/postgres',{local:true});
   await assertRuntimeRole(pool);
@@ -145,4 +146,84 @@ test('Swift uppercase UUID encoding is normalized for uploads, reads and removal
   assert.equal((await request(owner,'GET',`/v1/messages/changes?accountID=${payload.accountID}`)).json().messages.length,1);
   assert.equal((await request(owner,'GET',`/v1/messages/abc/body?accountID=${payload.accountID}`)).statusCode,200);
   assert.equal((await request(owner,'DELETE','/v1/connection',{accountID:payload.accountID})).statusCode,200);
+});
+
+const snoozeInput = (a, overrides={}) => ({accountID:a.accountID,requestID:randomUUID(),baseRevision:'0',
+  threadID:'old-thread',wakeAt:'2026-11-01T17:00:00Z',...overrides});
+test('snoozes outlive the mail mirror, cancellation is explicit, due dates remain server-readable', async () => {
+  const owner='fixture-snooze'; const a=await connect(owner);
+  const input=snoozeInput(a);
+  const first=await request(owner,'PUT','/v1/snoozes/oldmail',input);
+  assert.equal(first.statusCode,200,first.body);
+  assert.equal((await admin.query('SELECT count(*) FROM cove_sync.messages WHERE owner_sub=$1',[owner])).rows[0].count,'0');
+  let feed=(await request(owner,'GET',`/v1/snoozes/changes?accountID=${a.accountID}`)).json();
+  assert.equal(feed.snoozes[0].wakeAt,'2026-11-01T17:00:00.000Z');
+  assert.deepEqual(Object.keys(feed.snoozes[0]).sort(),['id','revision','threadID','wakeAt']);
+  // Mail-mirror removals cannot remove a reminder, including for an unmirrored old message.
+  assert.equal((await request(owner,'POST','/v1/messages/batch',inputForRemoval(a))).statusCode,200);
+  function inputForRemoval(a) { return {accountID:a.accountID,requestID:randomUUID(),baseRevision:a.revision,messages:[],deletedIDs:['oldmail']}; }
+  const cancel=await request(owner,'PUT','/v1/snoozes/oldmail',snoozeInput(a,{baseRevision:first.json().revision,wakeAt:null}));
+  assert.equal(cancel.statusCode,200,cancel.body);
+  feed=(await request(owner,'GET',`/v1/snoozes/changes?accountID=${a.accountID}&after=${first.json().revision}`)).json();
+  assert.equal(feed.snoozes[0].wakeAt,null);assert.equal(feed.cursor,cancel.json().revision);
+  // Offline changes can arrive after their due date; don't drop these timestamps.
+  const past=await request(owner,'PUT','/v1/snoozes/pastmail',snoozeInput(a,{wakeAt:'2020-01-01T09:00:00Z'}));
+  assert.equal(past.statusCode,200,past.body);
+  const due=await transaction(pool,owner,c=>c.query('SELECT message_id FROM cove_sync.snoozes WHERE wake_at <= now()'));
+  assert.deepEqual(due.rows.map(r=>r.message_id),['pastmail']);
+});
+test('snooze retries are idempotent and stale writes cannot restore a cancelled reminder', async () => {
+  const owner='fixture-snooze-retry'; const a=await connect(owner); const input=snoozeInput(a);
+  const first=await request(owner,'PUT','/v1/snoozes/abc',input);assert.equal(first.statusCode,200,first.body);
+  const cancel=await request(owner,'PUT','/v1/snoozes/abc',snoozeInput(a,{baseRevision:first.json().revision,wakeAt:null}));
+  assert.equal(cancel.statusCode,200,cancel.body);
+  const retry=await request(owner,'PUT','/v1/snoozes/abc',input);assert.deepEqual(retry.json(),first.json());
+  assert.equal((await request(owner,'PUT','/v1/snoozes/abc',{...input,wakeAt:null})).json().error,'request_id_reused');
+  assert.equal((await request(owner,'PUT','/v1/snoozes/abc',snoozeInput(a))).json().error,'snooze_conflict');
+  const feed=(await request(owner,'GET',`/v1/snoozes/changes?accountID=${a.accountID}`)).json();
+  assert.equal(feed.snoozes[0].wakeAt,null);
+  // Old clients' mail uploads do not affect snooze revisions or state.
+  assert.equal((await request(owner,'POST','/v1/messages/batch',inputMail(a))).statusCode,200);
+  function inputMail(a) { return {accountID:a.accountID,requestID:randomUUID(),baseRevision:a.revision,messages:[mail()],deletedIDs:[]}; }
+});
+test('snooze authentication, strict validation, forced RLS and connection fencing', async () => {
+  const owner='fixture-snooze-owner';const a=await connect(owner);const b=await connect('fixture-snooze-other');
+  assert.equal((await app.inject({method:'PUT',url:'/v1/snoozes/abc',payload:snoozeInput(a)})).statusCode,401);
+  for(const change of [{wakeAt:undefined},{wakeAt:'tomorrow'},{owner_sub:'victim'},{body:'private email'}]) {
+    assert.equal((await request(owner,'PUT','/v1/snoozes/abc',snoozeInput(a,change))).statusCode,400);
+  }
+  assert.equal((await request('fixture-snooze-other','PUT','/v1/snoozes/abc',snoozeInput(a))).statusCode,409);
+  assert.equal((await request(owner,'PUT','/v1/snoozes/abc',snoozeInput(a))).statusCode,200);
+  await transaction(pool,'fixture-snooze-other',async c => {
+    assert.equal((await c.query('SELECT * FROM cove_sync.snoozes')).rowCount,0);
+    await assert.rejects(c.query('INSERT INTO cove_sync.snoozes(owner_sub,message_id,thread_id,revision) VALUES($1,$2,$3,1)',[owner,'intruder','thread']));
+  });
+  assert.equal((await pool.query('SELECT * FROM cove_sync.snoozes')).rowCount,0);
+  assert.equal((await request('fixture-snooze-other','GET',`/v1/snoozes/changes?accountID=${b.accountID}`)).json().snoozes.length,0);
+  assert.equal((await request(owner,'GET',`/v1/snoozes/changes?accountID=${a.accountID}&after=100`)).statusCode,400);
+  assert.equal((await request(owner,'DELETE','/v1/connection',{accountID:a.accountID})).statusCode,200);
+  const fresh=await connect(owner);assert.notEqual(fresh.accountID,a.accountID);
+  assert.equal((await request(owner,'PUT','/v1/snoozes/abc',snoozeInput(a))).statusCode,409);
+  assert.equal((await request(owner,'GET',`/v1/snoozes/changes?accountID=${fresh.accountID}`)).json().snoozes.length,0);
+});
+test('concurrent snooze edits serialize per record while different messages can both succeed', async () => {
+  const owner='fixture-snooze-concurrent';const a=await connect(owner);
+  const responses=await Promise.all([request(owner,'PUT','/v1/snoozes/abc',snoozeInput(a)),request(owner,'PUT','/v1/snoozes/abc',snoozeInput(a,{wakeAt:null}))]);
+  assert.deepEqual(responses.map(r=>r.statusCode).sort(),[200,409]);
+  const independent=await Promise.all([request(owner,'PUT','/v1/snoozes/def',snoozeInput(a)),request(owner,'PUT','/v1/snoozes/fed',snoozeInput(a))]);
+  assert.deepEqual(independent.map(r=>r.statusCode),[200,200]);
+  assert.notEqual(independent[0].json().revision,independent[1].json().revision);
+});
+test('snooze change feed paginates cancelled and active records; storage quota preserves existing edits', async () => {
+  const owner='fixture-snooze-pages';const a=await connect(owner);
+  await admin.query(`INSERT INTO cove_sync.snoozes(owner_sub,message_id,thread_id,wake_at,revision)
+    SELECT $1,'msg'||n,'thread',CASE WHEN n%2=0 THEN NULL ELSE now()+interval '1 day' END,n FROM generate_series(1,5000) n`,[owner]);
+  await admin.query('UPDATE cove_sync.accounts SET snooze_revision=5000 WHERE owner_sub=$1',[owner]);
+  const first=(await request(owner,'GET',`/v1/snoozes/changes?accountID=${a.accountID}`)).json();
+  assert.equal(first.snoozes.length,100);assert.equal(first.hasMore,true);assert.equal(first.cursor,'100');
+  const last=(await request(owner,'GET',`/v1/snoozes/changes?accountID=${a.accountID}&after=4900`)).json();
+  assert.equal(last.snoozes.length,100);assert.equal(last.hasMore,false);assert.equal(last.cursor,'5000');
+  assert.equal(last.snoozes.at(-1).wakeAt,null);
+  assert.equal((await request(owner,'PUT','/v1/snoozes/new',snoozeInput(a))).json().error,'snooze_storage_limit');
+  assert.equal((await request(owner,'PUT','/v1/snoozes/msg1',snoozeInput(a,{baseRevision:'1',wakeAt:null}))).statusCode,200);
 });

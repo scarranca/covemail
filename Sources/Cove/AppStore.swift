@@ -8,10 +8,12 @@ import SwiftUI
 @MainActor @Observable final class AppStore {
   var mails: [Mail] = [] { didSet { scheduleCloudSync() } }
   var cloudMirror = CloudMirrorState()
+  var cloudSnoozes = CloudSnoozeState()
   var cloudStatus = "Cloud sync is off"
   var cloudSyncing = false
   private var cloudTask: Task<Void, Never>?
   private var cloudNeedsSync = false
+  private var lastCloudAttempt = Date.distantPast
   var gmailLabels: [GmailLabel] = []
   var labelsRefreshing = false
   private var lastLabelsRefresh = Date.distantPast
@@ -238,6 +240,7 @@ import SwiftUI
   private struct MailboxSnapshot {
     let database: Database
     let mails: [Mail]
+    let cloudSnoozes: CloudSnoozeState
     let preferences: Preferences
     let events: [LocalEvent]
     let contacts: [ContactRecord]
@@ -273,6 +276,7 @@ import SwiftUI
     return try MailboxSnapshot(
       database: db,
       mails: db.loadMail(),
+      cloudSnoozes: db.load(CloudSnoozeState.self, key: "cloudSnoozes") ?? CloudSnoozeState(),
       preferences: loadedPreferences,
       events: db.load([LocalEvent].self, key: "events") ?? [],
       contacts: db.load([ContactRecord].self, key: "contacts") ?? [],
@@ -286,12 +290,14 @@ import SwiftUI
   private func activateMailbox(_ snapshot: MailboxSnapshot) {
     mailboxGeneration = UUID()
     lastMailboxPoll = .distantPast
+    lastCloudAttempt = .distantPast
     automaticRetryAfter = [:]
     cloudTask?.cancel(); cloudTask = nil; cloudSyncing = false; cloudNeedsSync = false
     cloudMirror = (try? snapshot.database.load(CloudMirrorState.self, key: "cloudMirror")) ?? CloudMirrorState()
     cloudStatus = cloudMirror.enabled ? "Ready to sync" : "Cloud sync is off"
     database = snapshot.database
-    mails = snapshot.mails
+    cloudSnoozes = snapshot.cloudSnoozes
+    mails = snapshot.mails.map { cloudSnoozes.applying(to: $0) }
     preferences = snapshot.preferences
     customAgents = snapshot.customAgents
     gmailLabels = snapshot.gmailLabels
@@ -356,6 +362,7 @@ import SwiftUI
       self.error = error.localizedDescription
       mailboxGeneration = UUID()
       database = nil
+      cloudSnoozes = CloudSnoozeState()
       mails = []
       gmailLabels = []
       events = []
@@ -541,7 +548,7 @@ import SwiftUI
 
   private func resetDisconnectedMailbox() {
     cloudTask?.cancel(); cloudTask = nil; cloudSyncing = false; cloudNeedsSync = false
-    cloudMirror = CloudMirrorState(); cloudStatus = "Cloud sync is off"
+    cloudMirror = CloudMirrorState(); cloudSnoozes = CloudSnoozeState(); cloudStatus = "Cloud sync is off"
     mailboxGeneration = UUID()
     entered = false
     mails = []
@@ -612,7 +619,11 @@ import SwiftUI
       }
       try Task.checkCancellation()
       guard generation == self.mailboxGeneration, !self.isSample else { throw CancellationError() }
-      var merged = result.applying(to: self.mails)
+      var snoozes = self.cloudSnoozes
+      snoozes.cancelDeleted(result.deletedIDs)
+      try self.database?.save(snoozes, key: "cloudSnoozes")
+      self.cloudSnoozes = snoozes
+      var merged = result.applying(to: self.mails).map { self.cloudSnoozes.applying(to: $0) }
       // A history/page request started before the reader update can still contain UNREAD.
       // Keep changes made during this request, and any update still awaiting Gmail.
       for index in merged.indices {
@@ -698,7 +709,7 @@ import SwiftUI
     let known = Dictionary(uniqueKeysWithValues: mails.map { ($0.id, $0) })
     let additions = found.filter { known[$0.id] == nil }
     if !additions.isEmpty {
-      let merged = (mails + additions).sorted { $0.date > $1.date }
+      let merged = (mails + additions).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
       try database.saveMailSnapshot(merged)
       mails = merged
     }
@@ -909,10 +920,25 @@ import SwiftUI
   }
   func snooze(_ mail: Mail, until: Date?) {
     guard let index = mails.firstIndex(where: { $0.id == mail.id }) else { return }
-    mails[index].snoozedUntil = until
-    persistMessage(mails[index])
-    reconcileSelection()
-    status = until == nil ? "Returned to your inbox" : "Snoozed on this Mac"
+    guard let database else { error = "Open a mailbox before setting a reminder."; return }
+    var updated = mails[index]; updated.snoozedUntil = until
+    var state = cloudSnoozes
+    if !isSample { state.set(updated, until: until) }
+    do {
+      try database.transaction {
+        try database.saveMessage(updated)
+        try database.save(state, key: "cloudSnoozes")
+      }
+      cloudSnoozes = state
+      mails[index] = updated
+      reconcileSelection()
+      status = until == nil ? "Returned to your inbox · \(snoozeSyncDetail(for: updated))" : snoozeSyncDetail(for: updated)
+    } catch { self.error = error.localizedDescription }
+  }
+  func snoozeUntilTomorrowMorning(_ mail: Mail, from date: Date = Date(), calendar: Calendar = .current) {
+    guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date)),
+      let morning = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) else { return }
+    snooze(mail, until: morning)
   }
   func classifyInbox() async {
     await organizeMail(automatically: false)
@@ -1147,7 +1173,7 @@ import SwiftUI
         try Task.checkCancellation()
         guard generation == mailboxGeneration, let database else { throw CancellationError() }
         if let fetched {
-          let merged = GmailSyncResult(messages: fetched, historyID: "").applying(to: mails)
+          let merged = GmailSyncResult(messages: fetched, historyID: "").applying(to: mails).map { cloudSnoozes.applying(to: $0) }
           try database.saveMailSnapshot(merged)
           mails = merged
           let ids = Set(fetched.map(\.id))
@@ -1931,7 +1957,7 @@ extension AppStore {
       if let next = page.next, visited.contains(next) { throw CoveError.message("Gmail repeated a page. Refresh this view to continue.") }
       try Task.checkCancellation()
       guard generation == mailboxGeneration else { return }
-      var merged = GmailSyncResult(messages: page.messages, historyID: "").applying(to: mails)
+      var merged = GmailSyncResult(messages: page.messages, historyID: "").applying(to: mails).map { cloudSnoozes.applying(to: $0) }
       for index in merged.indices {
         if let change = readChanges[merged[index].id], change.revision > readRevisionAtStart || pendingAtStart.contains(merged[index].id) || pendingReadTasks[merged[index].id] != nil {
           if change.unread { merged[index].labels.insert("UNREAD") } else { merged[index].labels.remove("UNREAD") }
@@ -2020,13 +2046,19 @@ extension AppStore {
       do { try await client.remove(accountID: id, token: auth.cloudToken(for: email)) }
       catch let failure as CloudSyncFailure where failure.code == "cloud_not_connected" { }
       guard generation == mailboxGeneration, email == accountEmail else { throw CancellationError() }
-      cloudMirror = CloudMirrorState(); try saveCloudState()
+      cloudMirror = CloudMirrorState()
+      cloudSnoozes = CloudSnoozeState()
+      try database?.transaction {
+        try saveCloudState()
+        try database?.save(cloudSnoozes, key: "cloudSnoozes")
+      }
       cloudStatus = "Cloud copy removed · Gmail and this Mac are unchanged"
     } catch { if generation == mailboxGeneration { cloudStatus = error.localizedDescription } }
   }
   func syncCloud() async {
     guard !cloudSyncing, cloudMirror.enabled, entered, !isSample, let cloudURL,
       let id = cloudMirror.accountID else { return }
+    lastCloudAttempt = syncClock()
     cloudSyncing = true
     let generation = mailboxGeneration; let email = accountEmail
     func ensureCurrent() throws {
@@ -2043,6 +2075,11 @@ extension AppStore {
         let connection = try await client.connection(token: auth.cloudToken(for: email))
         try ensureCurrent()
         guard connection.accountID == id else { throw CloudSyncFailure(code: "connection_changed") }
+        var snoozeFailure: Error?
+        do { try await syncCloudSnoozes(client: client, accountID: id, token: { try await self.auth.cloudToken(for: email) }) }
+        catch is CancellationError { throw CancellationError() }
+        catch { snoozeFailure = error }
+        try ensureCurrent()
         var revision = connection.revision
         // Reconcile a lost upload response or a missing device checkpoint against the server inventory.
         if cloudMirror.revision != connection.revision {
@@ -2078,6 +2115,13 @@ extension AppStore {
         var uploaded = 0
         while !removals.isEmpty || !changed.isEmpty {
           try ensureCurrent()
+          // Don't hold a new reminder behind a long initial mail upload.
+          if snoozeFailure == nil && !cloudSnoozes.pending.isEmpty {
+            do { try await syncCloudSnoozes(client: client, accountID: id, token: { try await self.auth.cloudToken(for: email) }) }
+            catch is CancellationError { throw CancellationError() }
+            catch { snoozeFailure = error }
+            try ensureCurrent()
+          }
           let batchRecords = Array(changed.prefix(4)); let batchRemovals = Array(removals.prefix(25))
           cloudStatus = "Syncing recent mail · \(uploaded) updated"
           let token = try await auth.cloudToken(for: email)
@@ -2095,12 +2139,119 @@ extension AppStore {
           try await Task.sleep(for: .seconds(2))
         }
         cloudMirror.lastSync = Date(); try saveCloudState()
-        cloudStatus = "Up to date · \(cloudMirror.fingerprints.count) recent emails"
+        cloudStatus = snoozeFailure.map { "Mail synced · reminders pending. " + $0.localizedDescription }
+          ?? "Up to date · \(cloudMirror.fingerprints.count) recent emails and reminders"
       } while cloudNeedsSync
     } catch is CancellationError {
       if generation == mailboxGeneration, !cloudMirror.enabled { cloudStatus = "Paused · your existing cloud copy is kept" }
     } catch {
       if generation == mailboxGeneration { cloudStatus = error.localizedDescription }
     }
+  }
+}
+
+extension AppStore {
+  func pollCloud() {
+    guard cloudMirror.enabled, cloudConfigured, entered, !isSample, !busy, !cloudSyncing else { return }
+    let elapsed = syncClock().timeIntervalSince(lastCloudAttempt)
+    guard elapsed >= 120 || elapsed < 0 else { return }
+    scheduleCloudSync()
+  }
+  func snoozeSyncDetail(for mail: Mail) -> String {
+    if isSample || !CloudSnoozeState.supports(mail) { return "Saved on this Mac" }
+    if mail.snoozedUntil == nil && cloudSnoozes.pending[mail.id] == nil && cloudSnoozes.records[mail.id] == nil {
+      return cloudMirror.enabled ? "Reminders sync to Cove" : "Enable cloud sync to sync reminders"
+    }
+    if cloudSnoozes.conflicts.contains(mail.id) {
+      return "Reminder conflict · choose a snooze time again"
+    }
+    if !cloudMirror.enabled { return "Saved on this Mac · enable cloud sync to sync reminders" }
+    if cloudSnoozes.pending[mail.id] != nil { return "Saved on this Mac · waiting for cloud sync" }
+    if cloudSnoozes.records[mail.id] != nil { return "Reminder synced to Cove" }
+    return "Saved on this Mac · waiting for cloud sync"
+  }
+
+  // Separate from mail uploads so reminders survive the recent-mail window. Test callers inject
+  // the transport and token; production always uses the signed-in account's Google ID token.
+  func syncCloudSnoozes(client: CloudMailClient, accountID: UUID,
+                       token: () async throws -> String, pace: Bool = true) async throws {
+    let generation = mailboxGeneration
+    func ensureCurrent() throws {
+      try Task.checkCancellation()
+      guard generation == mailboxGeneration, cloudMirror.enabled, cloudMirror.accountID == accountID,
+        entered, !isSample else { throw CancellationError() }
+    }
+    func commit(_ state: CloudSnoozeState) throws {
+      try ensureCurrent()
+      guard let database else { throw CancellationError() }
+      let updated = mails.map { state.applying(to: $0) }
+      try database.transaction {
+        try database.save(state, key: "cloudSnoozes")
+        for (old, new) in zip(mails, updated) where old != new { try database.saveMessage(new) }
+      }
+      cloudSnoozes = state
+      if updated != mails { mails = updated; reconcileSelection() }
+    }
+    func receive() async throws {
+      for pageNumber in 0..<51 {
+        try ensureCurrent()
+        let bearer = try await token()
+        try ensureCurrent()
+        let cursor = cloudSnoozes.cursor
+        let page = try await client.snoozes(accountID: accountID, after: cursor, token: bearer)
+        try ensureCurrent()
+        guard page.accountID == accountID else { throw CloudSyncFailure(code: "connection_changed") }
+        guard !page.hasMore || (page.cursor != cursor && pageNumber < 50) else {
+          throw CloudSyncFailure(code: "temporarily_unavailable")
+        }
+        var state = cloudSnoozes
+        for record in page.snoozes {
+          guard record.wakeAt == nil || record.until != nil else { throw CloudSyncFailure(code: "temporarily_unavailable") }
+          state.records[record.id] = record
+        }
+        state.cursor = page.cursor
+        try commit(state)
+        if !page.hasMore { return }
+        if pace { try await Task.sleep(for: .seconds(2)) }
+      }
+    }
+    try ensureCurrent()
+    var state = cloudSnoozes
+    state.connect(accountID)
+    try commit(state)
+    try await receive()
+    state = cloudSnoozes
+    state.seed(mails)
+    // Trash/Spam must cancel a previously scheduled reminder. Mail-mirror evictions do not.
+    for mail in mails where !mail.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"]) {
+      if state.pending[mail.id]?.wakeAt != nil || (state.pending[mail.id] == nil && state.records[mail.id]?.wakeAt != nil) {
+        state.set(mail, until: nil)
+      }
+    }
+    try commit(state)
+    while true {
+      try ensureCurrent()
+      state = cloudSnoozes
+      guard let upload = state.beginUpload() else { break }
+      try commit(state) // Durable request UUID and payload before any network request.
+      let bearer = try await token()
+      try ensureCurrent()
+      do {
+        let revision = try await client.uploadSnooze(upload, accountID: accountID, token: bearer)
+        try ensureCurrent()
+        state = cloudSnoozes // A user may have rescheduled/cancelled during the request.
+        state.acknowledge(upload, revision: revision)
+        try commit(state)
+      } catch let failure as CloudSyncFailure where failure.code == "snooze_conflict" {
+        try ensureCurrent()
+        state = cloudSnoozes
+        state.uploading = nil
+        state.conflicts.insert(upload.intent.id)
+        try commit(state)
+      }
+      if pace { try await Task.sleep(for: .seconds(2)) }
+    }
+    try await receive()
+    if !cloudSnoozes.conflicts.isEmpty { throw CloudSyncFailure(code: "snooze_conflict") }
   }
 }

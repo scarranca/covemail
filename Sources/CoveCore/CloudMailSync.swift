@@ -115,6 +115,8 @@ public struct CloudSyncFailure: LocalizedError {
     case "authentication_required": return "Reconnect Google for cloud sync. This account must be included in the private pilot."
     case "cloud_not_connected", "connection_changed": return "The cloud copy was disconnected. Enable cloud sync again to reconnect."
     case "revision_conflict": return "The cloud copy changed. Retry sync; use one Mac as the uploader during this pilot."
+    case "snooze_conflict": return "A reminder changed on another device. Choose its snooze time again, or Return to inbox, to resolve it."
+    case "snooze_storage_limit": return "The cloud pilot’s reminder storage is full. This reminder is saved only on this Mac."
     case "pilot_storage_limit": return "The cloud pilot has reached its storage limit. Remove the cloud copy before starting a new mirror."
     case "rate_limited": return "Cloud sync is taking a short break. Try again in a minute."
     default: return "Cloud sync couldn’t finish. Your mail is still on this Mac. Try again."
@@ -169,5 +171,27 @@ public struct CloudMailClient {
     struct Result: Decodable { let deleted: Bool }
     let _: Result = try await request("v1/connection", method: "DELETE", token: token,
       body: JSONEncoder().encode(["accountID": accountID.uuidString]), as: Result.self)
+  }
+  public func snoozes(accountID: UUID, after: String, token: String) async throws -> CloudSnoozePage {
+    try await request("v1/snoozes/changes", token: token,
+      query: [URLQueryItem(name: "accountID", value: accountID.uuidString), URLQueryItem(name: "after", value: after)],
+      as: CloudSnoozePage.self)
+  }
+  public func uploadSnooze(_ upload: CloudSnoozeUpload, accountID: UUID, token: String) async throws -> String {
+    struct Body: Encodable {
+      let accountID: UUID; let requestID: UUID; let baseRevision: String; let threadID: String; let wakeAt: String?
+      enum CodingKeys: CodingKey { case accountID, requestID, baseRevision, threadID, wakeAt }
+      func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(accountID, forKey: .accountID); try c.encode(requestID, forKey: .requestID)
+        try c.encode(baseRevision, forKey: .baseRevision); try c.encode(threadID, forKey: .threadID)
+        // An explicit null cancels; omission must never mean an accidental cancellation.
+        try c.encode(wakeAt, forKey: .wakeAt)
+      }
+    }
+    struct Result: Decodable { let revision: String }
+    return try await request("v1/snoozes/\(upload.intent.id)", method: "PUT", token: token,
+      body: JSONEncoder().encode(Body(accountID: accountID, requestID: upload.intent.requestID,
+        baseRevision: upload.baseRevision, threadID: upload.intent.threadID, wakeAt: upload.intent.wakeAt)), as: Result.self).revision
   }
 }
