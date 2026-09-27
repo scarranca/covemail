@@ -57,6 +57,14 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable {
     }
     return replyTo.trimmingCharacters(in: .whitespaces)
   }
+  /// Describe the effective reply destination, including Reply-To overrides.
+  public var replyAddressLooksUnmonitored: Bool {
+    let recipient = replyRecipient.lowercased()
+    let address = recipient.split(separator: "<").last.map(String.init) ?? recipient
+    let localPart = address.split(separator: "@").first.map(String.init)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return ["noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "do_not_reply"].contains(localPart ?? "")
+  }
   public var isPriority: Bool {
     (decision?.needsReply ?? 0) >= 0.65 || (decision?.urgent ?? 0) >= 0.65
       || labels.contains("IMPORTANT")

@@ -136,6 +136,7 @@ import SwiftUI
     didSet { UserDefaults.standard.set(backgroundSyncEnabled, forKey: "mail.backgroundSync") }
   }
   var showAssistant = false
+  var assistantInitialQuery = ""
   var showComposer = false
   var composeID: String?
   var nextPage: String?
@@ -340,6 +341,7 @@ import SwiftUI
     composeID = nil
     showComposer = false
     showAssistant = false
+    assistantInitialQuery = ""
     connectionIssue = nil
     folder = "Inbox"
     screen = "mail"

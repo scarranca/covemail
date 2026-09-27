@@ -116,8 +116,8 @@ struct RootView: View {
         } catch { break }
       }
     }
-    .sheet(isPresented: $store.showAssistant) {
-      AssistantView(store: store, availableSize: availableSize)
+    .sheet(isPresented: $store.showAssistant, onDismiss: { store.assistantInitialQuery = "" }) {
+      AssistantView(store: store, availableSize: availableSize, initialQuery: store.assistantInitialQuery)
     }
     .sheet(isPresented: $store.showComposer) { ComposerView(store: store, availableSize: availableSize) }
     .alert(

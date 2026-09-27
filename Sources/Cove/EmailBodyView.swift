@@ -18,24 +18,18 @@ struct EmailBodyView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 16) { sourceHeading; Spacer(minLength: 12); readingModes }
+        VStack(alignment: .leading, spacing: 12) { sourceHeading; readingModes }
+      }
       if let html = mail.htmlBody, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        HStack(spacing: 16) {
-          Button(showPlainText || renderingFailed ? "Show formatted email" : "Show plain text") {
-            if renderingFailed {
-              renderingFailed = false
-              plainTextOverride = false
-            } else {
-              plainTextOverride = !showPlainText
-            }
-          }
-          if !showPlainText && !imagesAllowed {
-            Button("Load external images") { loadImages = true }
-              .help(
-                "HTTPS images load directly from the sender’s servers for this message; they may reveal that you opened it."
-              )
-          }
-          Spacer()
-        }.buttonStyle(SecondaryButton()).font(.coveMetadata).foregroundStyle(Palette.body)
+        if !showPlainText && !renderingFailed && !imagesAllowed {
+          Button("Load external images") { loadImages = true }
+            .help(
+              "HTTPS images load directly from the sender’s servers for this message; they may reveal that you opened it."
+            )
+            .buttonStyle(SecondaryButton(compact: true))
+        }
         if showPlainText || renderingFailed {
           if renderingFailed && !showPlainText {
             Text("Formatting couldn’t load. Showing plain text.")
@@ -68,6 +62,35 @@ struct EmailBodyView: View {
         renderingFailed = false
         height = 80
       }
+  }
+
+  private var sourceHeading: some View {
+    Label("Original email", systemImage: "envelope").font(.coveSubheading).fixedSize()
+  }
+  @ViewBuilder private var readingModes: some View {
+    if let html = mail.htmlBody, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      HStack(spacing: 3) {
+        readingMode("Formatted", plain: false)
+        readingMode("Text only", plain: true)
+      }.padding(3).background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityLabel("Email reading format")
+    } else {
+      Text("Text only").font(.coveSecondary).foregroundStyle(Palette.muted)
+        .help("This email has no formatted version")
+    }
+  }
+  private func readingMode(_ title: String, plain: Bool) -> some View {
+    let selected = plain == (showPlainText || renderingFailed)
+    return Button {
+      renderingFailed = false
+      plainTextOverride = plain
+    } label: {
+      Text(title).font(.coveControl).foregroundStyle(selected ? Palette.ink : Palette.body)
+        .padding(.horizontal, 10).frame(height: 30)
+        .background(selected ? Palette.canvas : .clear, in: RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+    }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+      .accessibilityLabel("\(title) email")
   }
 
   private var plainText: some View {

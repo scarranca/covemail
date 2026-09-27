@@ -25,6 +25,8 @@ enum Palette {
   static let mailRead = Color(hex: 0xF7F7F7)
   static let mailReadText = Color(hex: 0x646464)
   static let summary = Color(hex: 0xF4F4F4)
+  static let assessment = Color(hex: 0xF4F6F8)
+  static let assessmentBorder = Color(hex: 0xDEE4E9)
   static let badge = Color(hex: 0xEAE8EE)
   static let badgeText = Color(hex: 0x62576F)
   // #737373 stays on white/FAFAFA; the darker body token maintains contrast on selected fills.

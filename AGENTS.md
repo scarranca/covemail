@@ -22,6 +22,8 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Product and collaboration expectations
 
+Unreleased reader work after 0.1.43: `ReaderView.swift` now implements the September 26 Pen `1. Cove` reader (`w3s2H` / `CQs4F`), with labeled toolbar, distinct Jev assessment/source sections, reading-mode choices, and fixed response actions. Task creation remains unimplemented; follow-up flags and local reminders are the available actions. Translation prepares a selected-email assistant question. See `docs/qa/0.1.44/AUDIT.md` for local verification; this is not a published-version claim.
+
 Cove is a native macOS Gmail client with Jev organization, optional generative writing/chat, Calendar, Contacts, and user-configured agents. The user wants a calm, readable product faithful to their Pen designs, with working interactions rather than decorative mockups.
 
 - Implement the requested work and verify it. Resolve routine reversible choices without repeatedly asking permission. Request missing credentials or approvals only when genuinely required, and explain the specific blocker.
@@ -39,7 +41,7 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 | Shared design and text roles | `Sources/Cove/DesignSystem.swift`, `HomeTypography.swift`, `DESIGN.md` |
 | Onboarding, Google auth, Keychain | `SetupViews.swift`, `BundledGoogleOAuth.swift`, `Security.swift`; core Google session/OAuth files |
 | Home | `AgentHubView.swift`, `HomeActions.swift`, `HomeCalendarView.swift`, `HomeWeatherView.swift`, `MailTideView.swift` |
-| Mail and reader | `MailViews.swift`, `EmailBodyView.swift`, `MailNavigationShortcut.swift`, `MailQuickActions.swift`, `MailDeletionToast.swift` |
+| Mail and reader | `MailViews.swift`, `ReaderView.swift`, `EmailBodyView.swift`, `MailNavigationShortcut.swift`, `MailQuickActions.swift`, `MailDeletionToast.swift` |
 | Categories, labels, flags | `MailCategoriesView.swift`, `MailLabelViews.swift`; core `GmailLabels.swift`, `JevMailFlag.swift` |
 | Compose and AI review | `ComposeTextEditor.swift`, `ComposeSuggestion.swift`, `AIWritingSheet.swift`, `WritingMotion.swift`, `WritingAgent.swift` |
 | Chat | `AgentChatView.swift`, `AssistantResponse.swift`, `AssistantAgenda.swift`, `AssistantCalendar.swift`, `ChatMarkdown.swift`, `AssistantModelPicker.swift` |

@@ -32,6 +32,11 @@ struct MailLabelChips: View {
   let mail: Mail
   var body: some View {
     MailChipLayout(spacing: 8) {
+      Text(mail.labels.contains("TRASH") ? "Trash" : mail.labels.contains("SPAM") ? "Spam"
+        : mail.labels.contains("DRAFT") ? "Draft" : mail.labels.contains("INBOX") ? "Inbox"
+        : mail.labels.contains("SENT") ? "Sent" : "Archived")
+        .font(.coveControl).padding(.horizontal, 8).padding(.vertical, 4)
+        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 4))
       ForEach(store.labels(on: mail)) { label in
         HStack(spacing: 8) {
           Button { store.chooseLabel(label); store.select(mail) } label: {
@@ -56,7 +61,7 @@ struct MailLabelChips: View {
         Divider()
         Button("Refresh labels") { Task { await store.refreshLabels() } }
       } label: {
-        Text("Edit labels").font(.coveSecondary)
+        Label(store.labels(on: mail).isEmpty ? "Add label" : "Edit labels", systemImage: "tag").font(.coveSecondary)
       }.menuStyle(.borderlessButton).fixedSize().padding(.horizontal, 8).frame(height: 30)
         .disabled(store.busy).help("Apply or remove Gmail labels on this email")
     }.foregroundStyle(Palette.body)
