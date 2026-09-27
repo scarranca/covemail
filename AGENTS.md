@@ -107,6 +107,59 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 - Tenant identity comes from verified Google identity; never accept a caller-selected tenant. Preserve forced RLS, restricted DML-only runtime roles, verified TLS, bounded pools/payloads, revision ordering, retry receipts, and generation fencing. Production schema changes require the applicable exact-SQL approval; migration 001's approval is not approval for future migrations.
 - `.local/`, `.env*`, databases, key files, build outputs, and provider credentials stay out of Git. Never embed database credentials or an owner's API keys in the Mac app. The bundled Desktop OAuth client configuration is public native-app configuration, not a server secret or user credential.
 
+## Connecting to services
+
+Connections are machine/session-specific. The repository contains public configuration and instructions, not reusable login sessions. Discover the available tools first, check existing authentication, and request a private browser sign-in only if it has expired. Never recreate infrastructure or rotate credentials just because an agent cannot see a connector.
+
+### PlanetScale: agent access versus application access
+
+**Agent inspection:** prefer the configured PlanetScale MCP. Hosted MCP endpoint: `https://mcp.pscale.dev/mcp/planetscale`; configure it as a remote HTTP MCP server in the agent client and complete its private OAuth flow if setting up a new machine. Scope access to Cove; billing/payment-method access is unnecessary. Available tool names may have a client-specific namespace prefix.
+
+- Target `organization: "santiagocarranc2"`, `database: "cove"`, `branch: "main"` (**PostgreSQL**).
+- Inspect metadata with `planetscale_get_branch` / `planetscale_get_branch_schema`; use `planetscale_execute_read_query` for SQL. Start with `SELECT 1 AS connection_ok`, not a mailbox-content dump.
+- Read tools use short-lived credentials. The read role does not bypass RLS: zero returned rows do **not** prove a protected table is empty. Never disable RLS to make an inspection work.
+- The write-query tool requires the applicable approval of exact mutations/DDL. Do not reuse approval for migration 001 as authorization for other SQL. Avoid billing tools unless the user specifically requests billing work.
+
+**CLI fallback:** `pscale` is installed on the original development Mac. Load its installed guide (`pscale --skill`) and inspect subcommand help; CLI flags can evolve. Automation uses JSON output and explicit organization/branch:
+
+```sh
+pscale auth check --format json
+# Only if authentication is missing: complete the browser authorization locally.
+pscale auth login --format json
+pscale branch list cove --org santiagocarranc2 --format json
+pscale sql cove main --org santiagocarranc2 --format json --role reader --query 'SELECT 1 AS connection_ok'
+# Optional interactive session, explicitly read-only (shell otherwise defaults to admin):
+pscale shell cove main --org santiagocarranc2 --role reader --format json
+```
+
+`pscale connect` / `password` are MySQL/Vitess workflows; Cove's Postgres uses `sql`, `shell`, and `role`. Do not create persistent passwords for routine inspection. CLI mutations and `--force` still need the applicable authorization.
+
+**Backend runtime:** Cloud Run receives `DATABASE_URL` from the pinned Google Secret Manager secret **`cove-sync-database-url`**. The separately provisioned LOGIN inherits only `cove_sync_runtime`. MCP/CLI ephemeral reader credentials are not this application connection. Do not export/print the runtime URL or copy it into the Mac app. If an authorized deployment needs a replacement credential, follow `backend/README.md`: provision the restricted role, validate TLS and role privileges, save directly to Secret Manager, and pin the tested secret version.
+
+### Google Cloud / Cloud Run
+
+Use the installed `gcloud` CLI. On the original Mac it is also available at `~/google-cloud-sdk/bin/gcloud` if absent from PATH. Check authentication before asking for another sign-in:
+
+```sh
+gcloud auth list --filter=status:ACTIVE --format='value(status)'
+# Only if expired/missing; complete Google sign-in privately:
+gcloud auth login
+gcloud run services describe cove-sync-api --project=cove-mail-20260922 --region=us-east1 --format='value(status.url)'
+```
+
+Use the deployed API origin in `assets/cloud-sync-config.json` for the Mac; Cloud Run may also report an equivalent service hostname. `GET /v1/status` is the public health check. Mail routes require the user's Google ID token and pilot consent; do not extract the app's refresh token to test them. CLI admin login is distinct from app-user Google consent and from the runtime service account.
+
+For an authorized deployment, `backend/infra/deploy.sh` takes `COVE_SYNC_ENV_FILE` (local YAML) and `COVE_DB_SECRET_VERSION` (pinned version). The runtime service account is `cove-sync-api@cove-mail-20260922.iam.gserviceaccount.com`. Inspect existing deployed secret references/configuration before changing them; do not guess a secret version or rerun provisioning as a connection fix. `backend/infra/verify.sh` creates/runs a synthetic verification job, so it is not a purely read-only login check.
+
+### Cloudflare, Pen, GitHub, and Apple
+
+- **Cloudflare:** use the configured `cloudflare_api` MCP with its existing private OAuth session. Discover endpoints with its `search` tool before `execute`. Cove's account ID is `f1bf637a915898a7dfe461bd5883357d`, Pages project `covemail`, and domain zone ID `f2ddf5cf3624e799642d9583d9216c03`. Verify the selected resource before writes. If reconnecting, use the agent client's integration authorization; do not paste/export OAuth tokens. Porkbun remains the registrar; normal app/site releases need no registrar or nameserver changes.
+- **Pen:** use the configured `pencil` MCP, inspect `get_app_state`, and load its relevant `read_skill` instructions before design operations. The original desktop setup used stdio command `/Applications/Pen.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64` with args `["--app", "desktop"]` and no custom environment. This path is machine/architecture-specific: verify it exists and Pen is available before configuring another Mac. A named live frame can supersede an exported HTML reference.
+- **GitHub:** repository remote is `https://github.com/scarranca/emailclassifier`. Use the configured Git credential flow or authenticated GitHub integration. Inspect `git remote -v` and current branch/worktree state; do not place a PAT in the remote URL or project files. Git authentication does not grant permission for unrelated repository changes.
+- **Apple:** distribution uses the existing Developer ID identity and Keychain profile `Cove-notarization`. Follow the release section and `docs/DISTRIBUTION.md`. If the profile is missing, have the user enter credentials at the local notarytool prompt; do not treat browser sign-in as notarytool authentication or reset their Keychain.
+
+Access checked September 26, 2026: PlanetScale MCP returned `connection_ok: 1`; `pscale auth check` reported authenticated for the intended organization; `gcloud` successfully read the Cove Cloud Run service URL. These checks read no mailbox content and changed no database/cloud resources. Sessions may expire; recheck rather than assuming this record means a new agent is authenticated.
+
 ## Build and test without blocking the Mac
 
 ```sh
