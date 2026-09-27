@@ -13,16 +13,16 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 26, 2026
 
-- **Cove 0.1.43, build 45**, is published at `https://covemail.xyz`. Its universal app and DMG are Developer ID signed, notarized, and stapled. The signed Sparkle feed and public download were verified.
-- Implementation/release commit: `6204c90` (`Unify Cove typography and publish 0.1.43`), pushed to `main` and `scarranca/cove-oauth-credentials-setup`. This identifies the checkpoint, not a required branch for future work.
-- The latest pass unified typography across all native destinations, retained compact Settings/Integrations density, matched compose and AI-preview text, and made narrow calendar invitation controls stack. **41 affected tests passed** after fixture corrections; this was a targeted suite, not a new full-suite claim. See `docs/qa/0.1.43/AUDIT.md`.
+- **Cove 0.1.44, build 46**, is published at `https://covemail.xyz`. Its universal app and DMG are Developer ID signed, notarized, and stapled. The signed Sparkle feed and public download were verified.
+- Implementation/release-artifact commit: `224fda2` (`Refine the email reader and prepare Cove 0.1.44`), with publication evidence in the following documentation commit, pushed to `main` and `scarranca/cowrie`. This identifies the checkpoint, not a required branch for future work.
+- The latest pass follows the September 26 Pen email reader: labeled toolbar, distinct Jev/original-email sections, reading modes, and fixed response actions. **45 affected tests passed across the initial run and corrected reader reruns**; this is not a full-suite claim. See `docs/qa/0.1.44/AUDIT.md`. The shared typography from 0.1.43 remains in place.
 - Settings shows **one selected section at a time**, not one long page of all sections. This was introduced in 0.1.41; 0.1.42 fixed button styling and secondary-text density.
 - The optional recent-mail cloud pilot was deployed in 0.1.39. It is **off by default**, supports one uploading Mac, and is not a complete mobile sync system. The first real-account consent/upload check has no recorded completion in the release audit. Do not claim it passed without new evidence.
-- The typography release was delivered through the updater; the user's running app was not quit or replaced. Published version and locally installed/running version may differ.
+- The reader release is available through the updater; the user's running app was not quit or replaced. Published version and locally installed/running version may differ.
 
 ## Product and collaboration expectations
 
-Unreleased reader work after 0.1.43: `ReaderView.swift` now implements the September 26 Pen `1. Cove` reader (`w3s2H` / `CQs4F`), with labeled toolbar, distinct Jev assessment/source sections, reading-mode choices, and fixed response actions. Task creation remains unimplemented; follow-up flags and local reminders are the available actions. Translation prepares a selected-email assistant question. See `docs/qa/0.1.44/AUDIT.md` for local verification; this is not a published-version claim.
+Reader behavior in 0.1.44: `ReaderView.swift` now implements the September 26 Pen `1. Cove` reader (`w3s2H` / `CQs4F`), with labeled toolbar, distinct Jev assessment/source sections, reading-mode choices, and fixed response actions. Task creation remains unimplemented; follow-up flags and local reminders are the available actions. Translation prepares a selected-email assistant question. See `docs/qa/0.1.44/AUDIT.md` for local and public release verification.
 
 Cove is a native macOS Gmail client with Jev organization, optional generative writing/chat, Calendar, Contacts, and user-configured agents. The user wants a calm, readable product faithful to their Pen designs, with working interactions rather than decorative mockups.
 

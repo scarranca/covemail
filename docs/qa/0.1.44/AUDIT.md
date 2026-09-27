@@ -30,4 +30,7 @@ Existing tests cover sanitization, script/frame blocking, external images and CI
 - App notarization: `b31abf88-39a0-463d-9880-2561e632314e`; DMG notarization: `b4401f0d-1307-4c14-a5dd-9f6299851a1b`. Both accepted and stapled. Strict code-signature, Gatekeeper, and DMG integrity checks passed.
 - Sparkle archive and feed signatures verified during preparation. The site stages 24 checksum-verified historical/current downloads.
 - DMG: 16730835 bytes; SHA-256 `093cfa88c6662337a6ff7d643b078c1278d60d48fcb4eed77b404e150f3e7f33`.
-- Public deployment and updater verification pending at artifact-preparation commit.
+- Production Pages deployment: `07762df0-8704-434f-bac6-95c60c87f560`, successful on the existing `covemail` project.
+- Public beta page, `/release.json`, `/download/latest`, checksum, and signed feed verified as 0.1.44 / build 46. The public DMG is byte-identical to the local notarized artifact; Ed25519 verification with the bundled public key passed and tampering was rejected. Public feed equals the locally verified signed feed. The previous 0.1.43 download still matches its checksum.
+- Headless Sparkle probes: build 45 discovers 0.1.44 / build 46; build 46 reports no newer update. No foreground windows or installation were requested.
+- Implementation/release artifacts: commit `224fda2`; subsequent documentation records completed publication. Install through **Cove → Check for Updates…**. The user’s running app was not quit, replaced, or updated during this release.
