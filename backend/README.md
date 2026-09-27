@@ -10,7 +10,7 @@ Postgres stores IDs, dates, labels, ordered revisions, tombstones and encrypted 
 
 Bodies become unavailable 30 days after receipt. The private bucket deletes objects after 30 days from creation, including objects orphaned by retries/conflicts. Deleted account/message objects can remain as ciphertext until lifecycle cleanup. Cloud removal deletes live account/key records and cascading message/receipt rows; DB backups follow provider retention and are not purged by that endpoint. Pausing or disconnecting Gmail keeps the cloud copy. Local erasure is separate from cloud erasure.
 
-## Snoozes — backend deployed September 26, 2026; Mac client unreleased
+## Snoozes — backend deployed September 26, 2026; Mac client 0.1.45
 
 Snooze state is independent of the 30-day/1,000-message mirror. `cove_sync.snoozes` stores the Google tenant identity, Gmail message/thread IDs, a UTC `wake_at`, a per-account ordered revision and update time. A null wake time is an explicit cancellation retained in the change feed. Dates and IDs are queryable metadata, not application-level encrypted content. No subject, body, device token or credential enters this table. Old emails need not be mirrored to have a snooze. The future mobile app will need to fetch mail separately when its body is outside the mirror.
 
@@ -23,7 +23,7 @@ Snooze state is independent of the 30-day/1,000-message mirror. `cove_sync.snooz
 
 There is **no scheduler, background Gmail ingestion, notification delivery, APNs registration or mobile client** in this change. A due timestamp remains available while the Mac is closed, but nothing sends an alert yet. Mobile launch needs separately reviewed device registration, notification consent, a worker with narrowly scoped cross-tenant access, revision-aware cancellation checks and an idempotent delivery/outbox model. Do not mark timestamps as delivered or promise notifications based on storage alone.
 
-Rollout: the user approved the exact `migrations/002_snoozes.sql`, applied once in a transaction to PlanetScale `santiagocarranc2/cove/main` on September 26, 2026. Cloud Run revision `cove-sync-api-00004-qjf` serves the snooze API. The production synthetic storage check passed for snooze persistence, cancellation and forced tenant RLS. The Mac integration is implemented but still unreleased; published 0.1.44 remains local-only for snoozes. See `../docs/qa/0.1.45/AUDIT.md` for rollout evidence. The migration is additive; existing mail-only clients remain compatible. Roll back the API/client first and leave the additive schema/data intact. Never run migration 001 again or remove reminder data as a rollback.
+Rollout: the user approved the exact `migrations/002_snoozes.sql`, applied once in a transaction to PlanetScale `santiagocarranc2/cove/main` on September 26, 2026. Cloud Run revision `cove-sync-api-00004-qjf` serves the snooze API. The production synthetic storage check passed for snooze persistence, cancellation and forced tenant RLS. Cove 0.1.45/build 47 is published with this integration; 0.1.44 and older remain local-only for snoozes. See `../docs/qa/0.1.45/AUDIT.md` for rollout evidence. The migration is additive; existing mail-only clients remain compatible. Roll back the API/client first and leave the additive schema/data intact. Never run migration 001 again or remove reminder data as a rollback.
 
 ## Authentication and isolation
 
