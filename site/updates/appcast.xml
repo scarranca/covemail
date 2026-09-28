@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.46</title>
+            <pubDate>Sun, 27 Sep 2026 21:17:41 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>48</sparkle:version>
+            <sparkle:shortVersionString>0.1.46</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.46</title></head><body><h1>Conversations and files, all in one place</h1><ul><li>Opening an email loads its conversation in the same reading pane. Expand other messages and reply to each one while keeping separate drafts.</li><li>Preview PDFs, images and text attachments inside the email. Save remains available for files you want to keep or open elsewhere.</li><li>⌘Delete now targets the email under your cursor, falling back to the selected email outside the list. The five-second Undo remains.</li></ul><p>Attachment previews are limited to supported formats and files up to 25 MiB. Cloud sync remains optional; mobile access and push notifications are not available yet.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.46.dmg" length="17445519" type="application/octet-stream" sparkle:edSignature="meeDf4N81GuF9rATQPLbKuIy79xfQHsd7KGzGa38zXYoaySZwCdCARm3KxU75RmI6PD8a+Oza3pazjOeGbI8DQ=="/>
+        </item>
+        <item>
             <title>0.1.45</title>
             <pubDate>Sat, 26 Sep 2026 22:14:27 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,19 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.44.dmg" length="16730835" type="application/octet-stream" sparkle:edSignature="wfR1NT7vO5X/25cqIbWbep2zdB48y7ZJ5TMQJFk0giM+oCJw3gRMV8zM3t+lGm1CgA4czlYAiIp/2Pww9D9ODA=="/>
         </item>
-        <item>
-            <title>0.1.43</title>
-            <pubDate>Sat, 26 Sep 2026 15:48:24 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>45</sparkle:version>
-            <sparkle:shortVersionString>0.1.43</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.43</title></head><body><h1>A clearer, more consistent Cove</h1><ul><li>Consistent titles, labels, and supporting text across Home, Mail, Calendar, Contacts, Agents, chat, Settings, and Integrations.</li><li>Compact settings copy and Cove’s outlined action buttons give each section more breathing room.</li><li>Compose and AI suggestions now share the same reading size and line spacing.</li><li>Clearer small calendar text and invitation buttons that fit narrow panes.</li></ul></body></html>]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.43.dmg" length="16810400" type="application/octet-stream" sparkle:edSignature="YCXY3Jpv3RUTm5B8MMPCGm6E1r1VCfGhndtgxL4cqEbKMPDr9w/gznaKfJyL2jbGUK8DfvQN54+dJswoI71gDw=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: rJxednpooVqf8T+WfGyKwAQZXCWj8KtjdfsvkfwbrUD+ALY1RMCTu6f254o+V9CMw6uR2Jm8iBCbGew8M2Y6AQ==
-length: 4501
+edSignature: pAPpPWl/P0uxPcoeaLVQu98Qx53zeXPUx0ZzGitOSihp5/x//FzzGuHSQGsMObn5Ma0CDKWCDolPRABItviaAg==
+length: 4703
 -->

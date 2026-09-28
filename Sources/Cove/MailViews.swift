@@ -165,7 +165,7 @@ struct MailboxView: View {
           .focusable().focusEffectDisabled().focused($listFocused)
         Divider()
         if let mail = store.selected {
-          ReaderView(store: store, mail: mail).id(mail.id)
+          ReaderView(store: store, mail: mail).id(store.accountEmail + ":" + mail.id)
         } else {
           UnselectedMailView(store: store)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -330,7 +330,8 @@ struct MailListRow: View {
         MailRowAction(title: "Delete email · 5 seconds to undo", icon: "trash") { store.queueTrash(mail) }.disabled(store.busy)
       }.focused($actionFocused).padding(.trailing, 17).padding(.top, 6)
         .opacity(actionsVisible ? 1 : 0).allowsHitTesting(actionsVisible).accessibilityHidden(!actionsVisible)
-    }.onHover { hovered = $0 }
+    }.background(MailRowPointerTarget(mailID: mail.id))
+      .onHover { hovered = $0 }
       .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: actionsVisible)
       .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: hovered)
       .contextMenu {

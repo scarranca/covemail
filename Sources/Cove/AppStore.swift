@@ -1260,13 +1260,13 @@ import SwiftUI
   }
   func downloadAttachment(_ attachment: MailAttachment, from mail: Mail) async {
     await run("Saving attachment…") {
+      let generation = self.mailboxGeneration
       let panel = NSSavePanel()
       panel.title = "Save attachment"
       panel.nameFieldStringValue = URL(fileURLWithPath: attachment.filename).lastPathComponent
       guard await panel.begin() == .OK, let destination = panel.url else { return }
-      let token = self.isSample || attachment.data != nil ? "" : try await self.auth.token()
-      let data = try await self.gmail.attachmentData(
-        messageID: mail.id, attachment: attachment, token: token)
+      guard generation == self.mailboxGeneration else { throw CancellationError() }
+      let data = try await self.readerAttachmentData(attachment, from: mail)
       try data.write(to: destination, options: .atomic)
     }
   }
@@ -2253,5 +2253,62 @@ extension AppStore {
     }
     try await receive()
     if !cloudSnoozes.conflicts.isEmpty { throw CloudSyncFailure(code: "snooze_conflict") }
+  }
+}
+
+extension AppStore {
+  /// Fetch a reader conversation without changing selection, pagination or the global busy state.
+  func refreshReaderThread(_ anchor: Mail) async throws {
+    guard entered, !isSample, !anchor.threadID.isEmpty, !anchor.labels.contains("DRAFT"),
+      !anchor.id.hasPrefix("local-") else { return }
+    let generation = mailboxGeneration
+    let labelsBefore = Dictionary(uniqueKeysWithValues: mails.map { ($0.id, $0.labels) })
+    let startingReadRevision = readRevision
+    let pendingReadIDs = Set(pendingReadTasks.keys)
+    func ensureCurrent() throws {
+      try Task.checkCancellation()
+      guard generation == mailboxGeneration, entered, !isSample, selectedID == anchor.id else { throw CancellationError() }
+    }
+    try ensureCurrent()
+    let token: String
+    if let provider = gmailTokenProvider { token = try await provider() }
+    else { token = try await auth.token() }
+    try ensureCurrent()
+    let fetched = try await gmail.thread(id: anchor.threadID, token: token)
+    try ensureCurrent()
+    guard let database else { throw CancellationError() }
+    var merged = GmailSyncResult(messages: fetched, historyID: "").applying(to: mails)
+      .map { cloudSnoozes.applying(to: $0) }
+    let latest = Dictionary(uniqueKeysWithValues: mails.map { ($0.id, $0) })
+    for index in merged.indices {
+      let id = merged[index].id
+      if let current = latest[id], current.labels != labelsBefore[id] { merged[index].labels = current.labels }
+      if let change = readChanges[id], change.revision > startingReadRevision || pendingReadIDs.contains(id) || pendingReadTasks[id] != nil {
+        if change.unread { merged[index].labels.insert("UNREAD") } else { merged[index].labels.remove("UNREAD") }
+      }
+    }
+    try database.saveMailSnapshot(merged)
+    mails = merged
+  }
+
+  /// Shared by Save and Preview. Validate account lifetime before and after each suspension.
+  func readerAttachmentData(_ attachment: MailAttachment, from mail: Mail) async throws -> Data {
+    let generation = mailboxGeneration
+    func ensureCurrent() throws {
+      try Task.checkCancellation()
+      guard entered, generation == mailboxGeneration,
+        mails.contains(where: { $0.id == mail.id && $0.availableAttachments.contains(attachment) }) else { throw CancellationError() }
+    }
+    try ensureCurrent()
+    let embedded = attachment.data.map { !$0.isEmpty || attachment.attachmentID == nil } ?? false
+    let token: String
+    if embedded { token = "" }
+    else if isSample { throw CoveError.message("This sample attachment has no local preview data.") }
+    else if let provider = gmailTokenProvider { token = try await provider() }
+    else { token = try await auth.token() }
+    try ensureCurrent()
+    let data = try await gmail.attachmentData(messageID: mail.id, attachment: attachment, token: token)
+    try ensureCurrent()
+    return data
   }
 }

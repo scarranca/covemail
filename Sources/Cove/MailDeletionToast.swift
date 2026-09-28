@@ -54,18 +54,52 @@ struct MailDeleteShortcut: NSViewRepresentable {
         return self.handle(event)
       }
     }
-    func handle(_ event: NSEvent) -> NSEvent? {
-      guard event.window === window, event.keyCode == 51,
+    func handle(_ event: NSEvent, pointerLocation: NSPoint? = nil) -> NSEvent? {
+      guard let window, event.window === window, event.keyCode == 51,
         event.modifierFlags.intersection([.command, .control, .option, .shift]) == .command,
         store.entered, store.screen == "mail", !store.showComposer,
         !store.showAssistant, !store.showConnections,
-        !(window?.firstResponder is NSTextView), let mail = store.selected else { return event }
+        window.attachedSheet == nil, NSApp.modalWindow == nil,
+        !(window.firstResponder is NSTextView),
+        !(window.firstResponder is NSTextField),
+        !(window.firstResponder is NSPopUpButton) else { return event }
       guard !event.isARepeat else { return nil }
+      let mail: Mail?
+      if let id = MailRowPointerTarget.mailID(at: pointerLocation ?? window.mouseLocationOutsideOfEventStream, in: window) {
+        // A disappearing/filtered row must never redirect deletion to a different selected message.
+        mail = store.visible.first { $0.id == id }
+      } else { mail = store.selected }
+      guard let mail else { return event }
       store.queueTrash(mail)
       return nil
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+  }
+}
+
+/// Resolve the row under the pointer at keypress time, including after scrolling or list reflow.
+/// No cached hover ID can outlive its row, and the marker never intercepts row buttons.
+struct MailRowPointerTarget: NSViewRepresentable {
+  let mailID: String
+  func makeNSView(context: Context) -> TargetView { TargetView(mailID: mailID) }
+  func updateNSView(_ view: TargetView, context: Context) { view.mailID = mailID }
+  @MainActor final class TargetView: NSView {
+    var mailID: String
+    init(mailID: String) { self.mailID = mailID; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+  }
+  @MainActor static func mailID(at point: NSPoint, in window: NSWindow) -> String? {
+    func find(in view: NSView) -> String? {
+      guard !view.isHiddenOrHasHiddenAncestor else { return nil }
+      if let row = view as? TargetView {
+        let local = row.convert(point, from: nil)
+        if row.bounds.contains(local), row.visibleRect.contains(local) { return row.mailID }
+      }
+      return view.subviews.reversed().lazy.compactMap { find(in: $0) }.first
+    }
+    return window.contentView.flatMap { find(in: $0) }
   }
 }

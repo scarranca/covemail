@@ -93,6 +93,71 @@ import XCTest
     store.busy = true // Sync/AI activity must not silently disable the shortcut.
     XCTAssertNil(view.handle(key)); XCTAssertEqual(store.queuedTrashIDs, ["message"])
   }
+  func testDeleteTargetsHoveredSwiftUIRowWithoutChangingOtherSelection() async throws {
+    _ = NSApplication.shared
+    let (store, _, first) = try fixture()
+    store.isSample = true; store.priorityOnly = false
+    var second = first; second.id = "hovered"; second.subject = "Hovered message"
+    store.mails.append(second)
+    let host = NSHostingView(rootView: HStack(spacing: 0) {
+      VStack(spacing: 0) {
+        MailListRow(store: store, mail: first)
+        MailListRow(store: store, mail: second)
+        Spacer()
+      }.frame(width: 300)
+      Color.white.frame(width: 100)
+    }.frame(width: 400, height: 400))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    let shortcut = MailDeleteShortcut.ShortcutView(store: store); host.addSubview(shortcut)
+    defer { store.undoQueuedTrash(); window.close() }
+    for _ in 0..<5 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(20)) }
+    func targets(_ view: NSView) -> [MailRowPointerTarget.TargetView] {
+      (view as? MailRowPointerTarget.TargetView).map { [$0] } ?? view.subviews.flatMap { targets($0) }
+    }
+    let row = try XCTUnwrap(targets(host).first { $0.mailID == second.id })
+    XCTAssertGreaterThan(row.bounds.width, 250); XCTAssertGreaterThan(row.bounds.height, 20)
+    let pointer = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+    XCTAssertEqual(MailRowPointerTarget.mailID(at: pointer, in: window), second.id)
+    let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{7f}", charactersIgnoringModifiers: "\u{7f}", isARepeat: false, keyCode: 51))
+    XCTAssertNil(shortcut.handle(key, pointerLocation: pointer))
+    XCTAssertEqual(store.queuedTrashIDs, [second.id]); XCTAssertEqual(store.selectedID, first.id)
+    // Until SwiftUI removes the queued row, another press must not delete the selected email.
+    _ = shortcut.handle(key, pointerLocation: pointer)
+    XCTAssertEqual(store.queuedTrashIDs, [second.id])
+    store.undoQueuedTrash(); store.selectedID = nil
+    XCTAssertNil(shortcut.handle(key, pointerLocation: pointer))
+    XCTAssertEqual(store.queuedTrashIDs, [second.id]); XCTAssertNil(store.selectedID)
+    store.undoQueuedTrash(); store.selectedID = first.id
+    XCTAssertTrue(store.queuedTrashIDs.isEmpty)
+    XCTAssertEqual(store.selected?.id, first.id)
+    XCTAssertNil(MailRowPointerTarget.mailID(at: NSPoint(x: 390, y: 200), in: window), "Row \(row.frame), bounds \(row.bounds), in window \(row.convert(row.bounds, to: nil)), host \(host.bounds)")
+    XCTAssertNil(shortcut.handle(key, pointerLocation: NSPoint(x: 390, y: 200)))
+    XCTAssertEqual(store.queuedTrashIDs, [first.id])
+    XCTAssertFalse(window.isVisible)
+  }
+  func testPointerTargetExcludesHiddenAndClippedRowsAndTracksReflow() throws {
+    _ = NSApplication.shared
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    defer { window.close() }
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+    let document = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
+    let row = MailRowPointerTarget.TargetView(mailID: "old")
+    row.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
+    document.addSubview(row); scroll.documentView = document; window.contentView = scroll
+    let point = row.convert(NSPoint(x: 20, y: 20), to: nil)
+    XCTAssertEqual(MailRowPointerTarget.mailID(at: point, in: window), "old")
+    row.mailID = "new"
+    XCTAssertEqual(MailRowPointerTarget.mailID(at: point, in: window), "new")
+    row.isHidden = true
+    XCTAssertNil(MailRowPointerTarget.mailID(at: point, in: window))
+    row.isHidden = false
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: 200))
+    let clippedPoint = row.convert(NSPoint(x: 20, y: 20), to: nil)
+    XCTAssertNil(MailRowPointerTarget.mailID(at: clippedPoint, in: window))
+    XCTAssertNil(row.hitTest(NSPoint(x: 20, y: 20)))
+  }
   func testBusyQueueRemainsUndoableAfterCountdownAndTimesOutCleanly() async throws {
     let http = HomeUpdateHTTP(); let (store, _, mail) = try fixture(http)
     store.busy = true

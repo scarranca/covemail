@@ -6,12 +6,19 @@ struct ReaderView: View {
   @Bindable var store: AppStore
   let mail: Mail
   @State private var reply = ""
+  @State private var replyTarget: Mail?
   @State private var showReply = false
   @State private var showAIWriting = false
   @State private var assessmentHidden = false
   @State private var showEvidence = false
   @FocusState private var replyFocused: Bool
   var current: Mail { store.mails.first { $0.id == mail.id } ?? mail }
+  private var replySource: Mail { replyTarget.map { target in store.mails.first { $0.id == target.id } ?? target } ?? current }
+  private var replyRecipient: String { MailConversation.replyRecipient(for: replySource, accountEmail: store.accountEmail) }
+  private func updateReply(_ value: String) {
+    reply = value
+    store.saveReply(id: replySource.id, text: value)
+  }
   private var position: Int? { store.visible.firstIndex { $0.id == mail.id } }
   private var localDraft: Bool { current.labels.contains("DRAFT") && current.id.hasPrefix("local-") }
 
@@ -29,23 +36,19 @@ struct ReaderView: View {
             if let decision = current.decision, !assessmentHidden {
               assessment(decision)
             }
-            VStack(alignment: .leading, spacing: 20) {
-              Divider()
-              EmailBodyView(store: store, mail: current).id(current.id)
-              if !current.labels.contains("DRAFT") { Menu {
-                ForEach(["English", "Spanish", "French", "German", "Portuguese", "Japanese"], id: \.self) { language in
-                  Button(language) {
-                    store.askAboutEmail(current, question: "Translate the selected email into \(language). Preserve its meaning and distinguish the translation from the original email.")
-                  }
-                }
-              } label: {
-                Label("Translate", systemImage: "character.bubble")
-              }.menuStyle(.borderlessButton).fixedSize().font(.coveControl)
-                .help("Prepare a translation request in Ask Cove using your connected writing model")
+            Divider()
+            ReaderConversation(store: store, anchor: current) { message in
+              store.saveReply(id: replySource.id, text: reply)
+              replyTarget = message
+              reply = message.draft
+              showReply = true
+              Task { @MainActor in
+                await Task.yield()
+                proxy.scrollTo("reply", anchor: .bottom)
+                replyFocused = true
               }
             }
-            if !current.availableAttachments.isEmpty { attachmentList }
-            if !localDraft && (showReply || !current.draft.isEmpty) {
+            if !localDraft && (showReply || !replySource.draft.isEmpty) {
               replyEditor.id("reply")
               Label("You have the final say. Nothing sends without you.", systemImage: "checkmark.shield")
                 .font(.coveMetadata).foregroundStyle(Palette.muted)
@@ -76,9 +79,8 @@ struct ReaderView: View {
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
     .sheet(isPresented: $showAIWriting) {
-      AIWritingSheet(context: [current], initialText: reply, onInsert: { value in
-        reply = value; showReply = true
-        store.saveReply(id: current.id, text: value)
+      AIWritingSheet(context: [replySource], initialText: reply, onInsert: { value in
+        updateReply(value); showReply = true
       }, onConfigure: { store.screen = "integrations" }, store: store)
     }
   }
@@ -131,7 +133,7 @@ struct ReaderView: View {
       .padding(.horizontal, title == "Remind me" ? 12 : 0).frame(height: 40)
       .background(title == "Remind me" ? Palette.canvas : .clear, in: RoundedRectangle(cornerRadius: 6))
       .overlay(RoundedRectangle(cornerRadius: 6).stroke(title == "Remind me" ? Palette.inputBorder : .clear))
-      .disabled(store.busy).help("\(title) on this Mac").accessibilityLabel("\(title) on this Mac")
+      .disabled(store.busy).help("\(title)").accessibilityLabel(title)
   }
 
   private func moreMenu(compact: Bool) -> some View {
@@ -276,34 +278,6 @@ struct ReaderView: View {
       .buttonStyle(SecondaryButton()).fixedSize()
     }
   }
-  private var attachmentList: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Text(current.availableAttachments.count == 1 ? "Attachment" : "Attachments")
-        .font(.coveControl)
-      ForEach(current.availableAttachments) { attachment in
-        HStack(spacing: 12) {
-          Image(systemName: "paperclip").foregroundStyle(Palette.muted)
-            .accessibilityHidden(true)
-          VStack(alignment: .leading, spacing: 4) {
-            Text(attachment.filename).font(.coveLabel)
-              .lineLimit(2).textSelection(.enabled)
-            if let byteCount = attachment.byteCount {
-              Text(ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file))
-                .font(.coveMetadata).foregroundStyle(Palette.muted)
-            }
-          }.frame(maxWidth: .infinity, alignment: .leading)
-          Button {
-            let source = current
-            Task { await store.downloadAttachment(attachment, from: source) }
-          } label: {
-            Label("Save", systemImage: "arrow.down.to.line")
-          }.buttonStyle(SecondaryButton()).disabled(store.busy)
-            .accessibilityLabel("Save \(attachment.filename)")
-        }.padding(12).background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 8))
-      }
-    }
-  }
-
   var replyEditor: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack {
@@ -314,23 +288,24 @@ struct ReaderView: View {
       }.padding(.horizontal, 17).padding(.vertical, 13).background(Palette.sidebar)
       Divider()
       VStack(alignment: .leading, spacing: 14) {
-        Text("To  \(current.replyRecipient)").font(.coveSecondary).foregroundStyle(Palette.muted)
-        TextEditor(text: $reply).focused($replyFocused).font(.coveBody).lineSpacing(6).scrollContentBackground(
+        Text("To  \(replyRecipient)").font(.coveSecondary).foregroundStyle(Palette.muted)
+        TextEditor(text: Binding(get: { reply }, set: { updateReply($0) })).focused($replyFocused).font(.coveBody).lineSpacing(6).scrollContentBackground(
           .hidden
         ).accessibilityLabel("Reply body").frame(
           minHeight: 118
-        ).onChange(of: reply) { _, value in store.saveReply(id: current.id, text: value) }
+        )
         MailChipLayout(spacing: 12) {
           Button {
-            let source = current
+            let source = replySource
+            let recipient = replyRecipient
             let sentText = reply
             let subject =
               source.subject.lowercased().hasPrefix("re:")
               ? source.subject : "Re: \(source.subject)"
             Task {
               if await store.send(
-                to: source.replyRecipient, subject: subject, body: sentText, reply: source),
-                current.id == source.id, reply == sentText
+                to: recipient, subject: subject, body: sentText, reply: source),
+                replySource.id == source.id, reply == sentText
               {
                 reply = ""
                 showReply = false
@@ -339,17 +314,17 @@ struct ReaderView: View {
           } label: {
             Label(store.isSample ? "Save sample reply" : "Send reply", systemImage: "paperplane")
           }.buttonStyle(PrimaryButton()).disabled(
-            reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busy)
+            reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyRecipient.isEmpty || store.busy)
           Menu {
             Button("Acknowledge") {
-              reply = ReplyTemplates.reply(
-                to: current.sender, voice: store.preferences.voice,
-                signoff: store.preferences.signoff)
+              updateReply(ReplyTemplates.reply(
+                to: replySource.sender, voice: store.preferences.voice,
+                signoff: store.preferences.signoff))
             }
             Button("Ask for more detail") {
-              reply = ReplyTemplates.reply(
-                to: current.sender, voice: store.preferences.voice,
-                signoff: store.preferences.signoff, askForDetail: true)
+              updateReply(ReplyTemplates.reply(
+                to: replySource.sender, voice: store.preferences.voice,
+                signoff: store.preferences.signoff, askForDetail: true))
             }
           } label: {
             Label("Template", systemImage: "square.and.pencil")
@@ -362,7 +337,7 @@ struct ReaderView: View {
           Button {
             reply = ""
             showReply = false
-            store.saveReply(id: current.id, text: "")
+            store.saveReply(id: replySource.id, text: "")
           } label: {
             Image(systemName: "trash")
           }.buttonStyle(.plain).help("Discard reply").accessibilityLabel("Discard reply")
