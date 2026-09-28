@@ -1,12 +1,12 @@
 # Cove 0.1.46 — conversations, previews and pointer-targeted deletion
 
-Implementation verified September 26–27, 2026. The user authorized publishing on September 27. Version 0.1.46/build 48 is being packaged; public version remains 0.1.45 until the publication checks below complete. No running-app replacement or installation is performed.
+Implementation verified September 26–27, 2026. The user authorized publishing on September 27. Cove 0.1.46/build 48 is published at covemail.xyz, with the notarized app/installer and signed updater feed verified below. The running app and installed bundle were untouched.
 
 ## September 27 — delete the hovered mail row
 
 ⌘Delete now resolves the mail row under the current pointer at keypress time and queues that message for the existing five-second Trash/Undo flow. Another selected email stays selected. With no row under the pointer, the shortcut retains its selected-message fallback. There is no cached hover ID, so scrolling, row removal and reuse cannot retain an old target. A disappearing row already excluded from the visible mailbox cannot redirect the operation to a different selected message. Native editor/compose handling and key-repeat suppression remain; sheets, modal windows, editable fields and popup controls are guarded.
 
-25 affected tests passed: HomeUpdateTests (13), HubActionsTests (8), MailNavigationTests (4). New hidden-window tests use real SwiftUI rows and injected pointer coordinates to verify hovered-over-selected priority, no-selection deletion, selection preservation, Undo, selected-message fallback in the reader, disappearing rows, hidden/clipped rows and row reuse. The first run exposed that AppKit’s `visibleRect` can extend beyond a view’s bounds; requiring both actual bounds and visible geometry fixed it. Existing tests verify editor/compose focus, countdown/Undo, delayed/busy operations, failure restoration and mailbox changes. No real mailbox mutation or visible-window interaction occurred. These changes remain local and unreleased.
+25 affected tests passed: HomeUpdateTests (13), HubActionsTests (8), MailNavigationTests (4). New hidden-window tests use real SwiftUI rows and injected pointer coordinates to verify hovered-over-selected priority, no-selection deletion, selection preservation, Undo, selected-message fallback in the reader, disappearing rows, hidden/clipped rows and row reuse. The first run exposed that AppKit’s `visibleRect` can extend beyond a view’s bounds; requiring both actual bounds and visible geometry fixed it. Existing tests verify editor/compose focus, countdown/Undo, delayed/busy operations, failure restoration and mailbox changes. No real mailbox mutation or visible-window interaction occurred. These changes ship in 0.1.46.
 
 ## Behavior
 
@@ -42,4 +42,13 @@ The universal arm64/x86_64 distribution build passed with the existing Developer
 
 The signed 0.1.46 DMG was submitted once as `4fc476ec-8df1-4e8b-90eb-b450aa9e475c`. Final installer validation and publication follow its acceptance.
 
-Apple accepted the DMG submission. Installer stapling, ticket/signature validation, disk-image verification and Gatekeeper passed. The final DMG is 17445519 bytes with SHA-256 `2c31a7a46dab7603b6414e98aeaa7025c8c05cfa87388002a7fe82a08d4303e9`. The signed feed and archive passed Sparkle verification; independent public-key verification accepted the artifact and rejected a tampered copy. The site was staged with historical downloads preserved. Publication is pending the existing publishing helper’s local Keychain authorization.
+Apple accepted the DMG submission. Installer stapling, ticket/signature validation, disk-image verification and Gatekeeper passed. The final DMG is 17445519 bytes with SHA-256 `2c31a7a46dab7603b6414e98aeaa7025c8c05cfa87388002a7fe82a08d4303e9`. The signed feed and archive passed Sparkle verification; independent public-key verification accepted the artifact and rejected a tampered copy. The site was staged with historical downloads preserved. The initial local helper waited for Keychain access and was stopped. Publication instead used the already-authenticated Cloudflare connector, with a scoped, short-lived asset-upload token passed privately to a local process without logging or saving it. No new login or credential rotation was needed.
+
+## Verified publication
+
+- Implementation/artifact commit `dbd8bae0ae58702210a0e9999ac4604d521e2fde` was safely fast-forwarded to main and pushed atomically to `main` and `scarranca/cowrie`.
+- Published once to the existing `covemail` Pages project: deployment `1034ffca-d3ef-44c2-bda3-98bd3946a095`. The authenticated connector confirmed this as the successful canonical production deployment.
+- Public beta page, metadata, latest-download redirect, versioned installer/checksum and signed feed passed verification. The downloaded 17,445,519-byte DMG matched the finalized local artifact byte-for-byte and SHA-256 `2c31a7a46dab7603b6414e98aeaa7025c8c05cfa87388002a7fe82a08d4303e9`. Its Ed25519 signature passed independent verification and a tampered copy was rejected.
+- All 26 historical/current downloads were checksum-verified when staging; the previous 0.1.45 installer was downloaded and checked after publication. The live signed appcast matches the staged feed exactly.
+- Headless Sparkle probes against the live feed: isolated build 47 found 0.1.46/build 48; isolated build 48 reported no newer update. No app launch, update installation or foreground window was requested.
+- Install through **Cove → Check for Updates…**. Real-account preview interaction and the format/privacy limits above remain distinct from publication verification.

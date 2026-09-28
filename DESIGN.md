@@ -118,7 +118,7 @@ The September 26 live Pen `1. Cove` frame (`w3s2H`, reader `CQs4F`) supersedes t
 
 Load older pages when the mail list’s end enters the actual scroll viewport. Keep the loading indicator and failure retry inside the list; remove the permanent Load older mail action. Preserve selection, serialize page requests, use independent label cursors, and stop at exhausted cursors. A page excluded by the local filter waits for another scroll before continuing. Remind me saves locally and queues its timestamp for the separate server snooze API when cloud sync is enabled. The menu reports local, pending, synced or conflict state and says notifications are not available yet. Cloud settings disclose reminder dates and IDs as queryable server metadata; reminders survive recent-mail expiry. This is not a Gmail-side snooze. Tomorrow morning means the following calendar day at 9 a.m. in the local time zone.
 
-### Conversation and attachment previews (unreleased, 0.1.46 candidate)
+### Conversation and attachment previews (0.1.46)
 
 Keep the conversation in the existing reading pane beneath the selected message’s identity and assessment. Messages appear chronologically with sender, date, unread state and attachment indication; the selected message opens expanded and others are individually expandable. Fetching a thread does not mark its collapsed messages read. Keep cached content visible during refresh and offer an inline retry on failure. Each expanded message has its own content, attachments, translation and reply action. The shared reply editor shows its actual recipient and preserves drafts independently when switching messages.
 
