@@ -89,3 +89,45 @@ private struct VoiceHTTP: HTTPTransport {
     return (Data("{}".utf8), HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!)
   }
 }
+
+@MainActor final class SharedVoiceTests: XCTestCase {
+  func testVoiceLearnedInOneAccountIsUsedByAnotherAndForgettingClearsEverywhere() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveSharedVoice-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let shared = SharedVoiceStore.memory()
+    func open(_ name: String, clock: Date = Date(timeIntervalSince1970: 1_000)) throws -> AppStore {
+      try AppStore(database: Database(url: root.appendingPathComponent("\(name).sqlite")), accountEmail: "\(name)@example.com",
+        gmail: GmailClient(transport: EmptySentHTTP()), gmailTokenProvider: { "fixture" }, syncClock: { clock }, sharedVoice: shared)
+    }
+    let work = try open("work")
+    work.mails = (1...3).map { Mail(id: "w\($0)", sender: "Me", senderEmail: "work@example.com", subject: "S",
+      body: "A note long enough to learn a writing voice from, number \($0).", labels: ["SENT"]) }
+    work.voiceWriter = { _ in #"{"summary":"Short and warm."}"# }
+    let profile = try await work.learnVoice()
+
+    let personal = try open("personal")
+    XCTAssertEqual(personal.preferences.voiceProfile, profile, "A new account on this Mac uses the shared voice")
+    let reopened = try open("personal")
+    XCTAssertEqual(reopened.preferences.voiceProfile, profile, "Adopted voice is saved with the account")
+
+    let later = try open("work", clock: Date(timeIntervalSince1970: 2_000_000_000))
+    later.forgetVoice()
+    XCTAssertNil(try open("personal").preferences.voiceProfile, "Forgetting clears older copies in other accounts")
+    XCTAssertNil(try shared.load()?.profile)
+  }
+
+  func testAccountVoiceLearnedBeforeSharingSeedsTheSharedRecord() {
+    let profile = VoiceProfile(summary: "Direct.", learnedAt: Date(timeIntervalSince1970: 50), sampleCount: 3, model: "m")
+    XCTAssertEqual(SharedVoiceStore.reconcile(account: profile, shared: nil).seedShared, true)
+    let newer = SharedVoiceRecord(profile: nil, updatedAt: Date(timeIntervalSince1970: 60))
+    XCTAssertNil(SharedVoiceStore.reconcile(account: profile, shared: newer).profile)
+    let older = SharedVoiceRecord(profile: nil, updatedAt: Date(timeIntervalSince1970: 40))
+    XCTAssertEqual(SharedVoiceStore.reconcile(account: profile, shared: older).profile, profile)
+  }
+}
+
+private struct EmptySentHTTP: HTTPTransport {
+  func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    (Data(#"{"messages":[]}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+  }
+}

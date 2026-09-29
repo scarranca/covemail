@@ -34,6 +34,8 @@ import SwiftUI
   var customAgentWriter: ((AIPrompt) async throws -> String)?
   /// Test hook for voice learning; production uses the connected writing model.
   var voiceWriter: ((AIPrompt) async throws -> String)?
+  /// Mac-level voice shared by all accounts. Tests inject an in-memory store.
+  var sharedVoice = SharedVoiceStore.keychain
   var agentEditor: CustomAgent?
   var agentActivityID: String?
   var agentNotice: String?
@@ -243,8 +245,10 @@ import SwiftUI
     gmailTokenProvider: @escaping () async throws -> String,
     syncClock: @escaping () -> Date,
     calendarClient: GoogleCalendarClient = GoogleCalendarClient(),
-    jev: JevClient = JevClient(), jevKeyProvider: (() throws -> String?)? = nil
+    jev: JevClient = JevClient(), jevKeyProvider: (() throws -> String?)? = nil,
+    sharedVoice: SharedVoiceStore = .memory()
   ) throws {
+    self.sharedVoice = sharedVoice
     self.gmail = gmail
     self.gmailTokenProvider = gmailTokenProvider
     self.syncClock = syncClock
@@ -283,12 +287,24 @@ import SwiftUI
       : try Vault.mailboxKey(
         accountID: filename, existingEncryptedStore: Database.requiresEncryptionKey(at: url))
     let db = try Database(url: url, encryptionKey: key, namespace: filename)
-    return try loadMailbox(database: db)
+    return try loadMailbox(database: db, sharesVoice: name != "sample-mailbox")
   }
-  private func loadMailbox(database db: Database) throws -> MailboxSnapshot {
+  private func loadMailbox(database db: Database, sharesVoice: Bool = true) throws -> MailboxSnapshot {
     let savedPreferences = try db.load(Preferences.self, key: "preferences") ?? Preferences()
-    let loadedPreferences = JevAutomation.initialized(savedPreferences, at: Date())
-    if loadedPreferences.autoClassifySince != savedPreferences.autoClassifySince {
+    var loadedPreferences = JevAutomation.initialized(savedPreferences, at: Date())
+    // The voice follows the person across accounts on this Mac; a missing Keychain record never blocks opening.
+    if sharesVoice, let shared = try? sharedVoice.load() {
+      let merged = SharedVoiceStore.reconcile(account: loadedPreferences.voiceProfile, shared: shared)
+      loadedPreferences.voiceProfile = merged.profile
+      if merged.seedShared, let profile = merged.profile {
+        try? sharedVoice.save(SharedVoiceRecord(profile: profile, updatedAt: profile.learnedAt))
+      }
+    } else if sharesVoice, let profile = loadedPreferences.voiceProfile {
+      try? sharedVoice.save(SharedVoiceRecord(profile: profile, updatedAt: profile.learnedAt))
+    }
+    if loadedPreferences.autoClassifySince != savedPreferences.autoClassifySince
+      || loadedPreferences.voiceProfile != savedPreferences.voiceProfile
+    {
       try db.save(loadedPreferences, key: "preferences")
     }
     return try MailboxSnapshot(
@@ -592,6 +608,8 @@ import SwiftUI
     updated.voiceProfile = profile
     try database.save(updated, key: "preferences")
     preferences = updated
+    do { try sharedVoice.save(SharedVoiceRecord(profile: profile, updatedAt: profile.learnedAt)) }
+    catch { self.error = "Your voice was saved for this account, but couldn’t be shared with your other accounts. " + error.localizedDescription }
     return profile
   }
   enum AssistantDraftOutcome: Equatable {
@@ -636,8 +654,10 @@ import SwiftUI
     guard let database else { return }
     var updated = preferences
     updated.voiceProfile = nil
-    do { try database.save(updated, key: "preferences"); preferences = updated }
-    catch { self.error = error.localizedDescription }
+    do {
+      try database.save(updated, key: "preferences"); preferences = updated
+      try sharedVoice.save(SharedVoiceRecord(profile: nil, updatedAt: syncClock()))
+    } catch { self.error = error.localizedDescription }
   }
   /// Adds Calendar to the current Google sign-in. The mailbox, screen and selection stay as they are;
   /// a different Google account or a declined Calendar permission changes nothing.

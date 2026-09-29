@@ -286,7 +286,7 @@ private struct VoiceProfileSettings: View {
       if let failure {
         Text(failure).font(.coveSecondary).foregroundStyle(Palette.danger).fixedSize(horizontal: false, vertical: true)
       }
-      Text("Learning sends short, quote-free excerpts of up to 25 recent sent emails to your connected writing model. Only the style description is saved, encrypted on this Mac with your mailbox; it stays when you disconnect and reconnect this account.")
+      Text("Learning sends short, quote-free excerpts of up to 25 recent sent emails to your connected writing model. Only the style description is saved: encrypted with this mailbox and in Cove’s Keychain entry on this Mac, so every Gmail account you connect here uses it and it stays after you sign out and back in.")
         .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
     }
   }
