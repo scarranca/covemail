@@ -374,6 +374,7 @@ struct ComposerView: View {
   private var assistant: some View {
     AIWritingPanel(draft: $text, selection: selection, context: WritingContext.recentMail(to: to, mails: store.mails), availableContext: store.mails,
       voice: store.preferences.voice, instructions: store.preferences.instructions,
+      voiceProfile: store.preferences.voiceProfile,
       store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: !compact,
       onApply: { value in
         undoSuggestion = text

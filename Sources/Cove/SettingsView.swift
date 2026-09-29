@@ -175,6 +175,7 @@ struct SettingsView: View {
         }), options: [("Professional", "Professional"), ("Warm", "Warm"), ("Direct", "Direct")])
           .disabled(!store.entered)
       }
+      VoiceProfileSettings(store: store)
       VStack(alignment: .leading, spacing: 10) {
         Text("Instructions for Jev").font(.coveLabel)
         TextField("One instruction per line", text: Binding(
@@ -234,6 +235,59 @@ struct SettingsView: View {
     } catch {
       store.error = error.localizedDescription
       return false
+    }
+  }
+}
+
+/// Learns the user's voice from their sent mail; the result is kept in encrypted local preferences.
+private struct VoiceProfileSettings: View {
+  @Bindable var store: AppStore
+  @State private var learning = false
+  @State private var failure: String?
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .firstTextBaseline, spacing: 16) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Your voice").font(.coveLabel)
+          Text(store.preferences.voiceProfile == nil
+            ? "Cove can read your recent sent emails once and learn how you write, so drafts sound like you."
+            : "Learned from \(store.preferences.voiceProfile!.sampleCount) sent emails on \(store.preferences.voiceProfile!.learnedAt.formatted(date: .abbreviated, time: .omitted)). Used in every AI draft.")
+            .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+        }
+        Spacer(minLength: 0)
+        if learning { ProgressView().controlSize(.small) }
+        Button(store.preferences.voiceProfile == nil ? "Learn from my sent mail" : "Learn again") {
+          learning = true; failure = nil
+          Task {
+            do { try await store.learnVoice() } catch is CancellationError {} catch { failure = error.localizedDescription }
+            learning = false
+          }
+        }.buttonStyle(SecondaryButton()).fixedSize().disabled(learning || !store.entered || store.isSample)
+      }
+      if let profile = store.preferences.voiceProfile {
+        VStack(alignment: .leading, spacing: 8) {
+          Text(profile.summary).font(.coveBody).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          if !profile.traits.isEmpty {
+            Text(profile.traits.joined(separator: " · ")).font(.coveSecondary).foregroundStyle(Palette.body)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          if !(profile.greetings + profile.signoffs).isEmpty {
+            Text("Greetings: \(profile.greetings.joined(separator: ", "))  ·  Sign-offs: \(profile.signoffs.joined(separator: ", "))")
+              .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          }
+          HStack {
+            Text("Model: \(profile.model)").font(.coveMetadata).foregroundStyle(Palette.body)
+            Spacer()
+            Button("Forget my voice") { store.forgetVoice() }.buttonStyle(.plain).font(.coveControl)
+              .foregroundStyle(Palette.body)
+          }
+        }.padding(14).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+      }
+      if let failure {
+        Text(failure).font(.coveSecondary).foregroundStyle(Palette.danger).fixedSize(horizontal: false, vertical: true)
+      }
+      Text("Learning sends short, quote-free excerpts of up to 25 recent sent emails to your connected writing model. Only the style description is saved, encrypted on this Mac with your mailbox; it stays when you disconnect and reconnect this account.")
+        .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
     }
   }
 }

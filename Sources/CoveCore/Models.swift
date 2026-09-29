@@ -135,6 +135,8 @@ public struct Preferences: Codable, Sendable {
   public var ignoredKeepInTouch: Set<String>?
   public var autoClassify = false
   public var autoClassifySince: Date?
+  // Optional so mailboxes saved before voice learning continue to decode.
+  public var voiceProfile: VoiceProfile?
   public init() {}
 }
 public enum LocalCalendar: String, Codable, CaseIterable, Sendable {

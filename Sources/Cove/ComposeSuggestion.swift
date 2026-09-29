@@ -33,8 +33,10 @@ struct ComposeSuggestion {
     return current.replacingCharacters(in: range, with: text)
   }
 
-  static func instruction(_ request: String, voice: String, instructions: [String], selection: Bool) -> String {
+  static func instruction(_ request: String, voice: String, instructions: [String], selection: Bool,
+                          profile: VoiceProfile? = nil) -> String {
     var parts = ["Current user request:\n" + request, "Writing voice: \(voice). Preserve facts, names, dates, and commitments."]
+    if let profile { parts.append(profile.promptText) }
     if !instructions.isEmpty {
       parts.append("Saved writing preferences:\n" + instructions.joined(separator: "\n"))
     }

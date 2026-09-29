@@ -21,7 +21,7 @@ struct AIWritingSheet: View {
         Button("Cancel") { dismiss() }.buttonStyle(SecondaryButton())
       }.padding(20)
       Divider()
-      AIWritingPanel(draft: $draft, context: context, availableContext: store?.mails ?? [], voice: store?.preferences.voice ?? "Natural and concise", instructions: store?.preferences.instructions ?? [], store: store, initialInstruction: initialInstruction, recommendationContext: recommendationContext, envelope: "Reply to: \(context.first?.replyRecipient ?? "")\nSubject: \(context.first?.subject ?? "")", onApply: { value in
+      AIWritingPanel(draft: $draft, context: context, availableContext: store?.mails ?? [], voice: store?.preferences.voice ?? "Natural and concise", instructions: store?.preferences.instructions ?? [], voiceProfile: store?.preferences.voiceProfile, store: store, initialInstruction: initialInstruction, recommendationContext: recommendationContext, envelope: "Reply to: \(context.first?.replyRecipient ?? "")\nSubject: \(context.first?.subject ?? "")", onApply: { value in
         onInsert(value)
         dismiss()
       }, onConfigure: {
@@ -40,6 +40,7 @@ struct AIWritingPanel: View {
   var availableContext: [Mail] = []
   var voice = "Natural and concise"
   var instructions: [String] = []
+  var voiceProfile: VoiceProfile?
   var store: AppStore? = nil
   var initialInstruction = ""
   var recommendationContext = ""
@@ -378,7 +379,7 @@ struct AIWritingPanel: View {
     catch { self.error = error.localizedDescription; return }
     let source = refinement?.sourceText ?? base.sourceText
     let request = ComposeSuggestion.instruction(userRequest, voice: voice,
-      instructions: instructions, selection: selectedPassage || base.selection != nil)
+      instructions: instructions, selection: selectedPassage || base.selection != nil, profile: voiceProfile)
     let session = writingSession
     let mails = selectedMails
     guard let selectedProvider = writingProvider else { return }
