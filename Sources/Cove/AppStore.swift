@@ -542,6 +542,29 @@ import SwiftUI
     auth.finishBrowserSignIn(success: connected)
     if connected { await sync() }
   }
+  /// Adds Calendar to the current Google sign-in. The mailbox, screen and selection stay as they are;
+  /// a different Google account or a declined Calendar permission changes nothing.
+  func connectCalendar() async {
+    guard entered, !isSample, !busy, !calendarConnected else { return }
+    let email = accountEmail
+    let generation = mailboxGeneration
+    var connected = false
+    await run("Connecting Google Calendar…") {
+      let pending = try await self.auth.connect(
+        includeCalendar: true, includeCloud: self.cloudMirror.enabled, loginHint: email)
+      guard generation == self.mailboxGeneration, email == self.accountEmail else {
+        throw CancellationError()
+      }
+      try pending.session.requireMailbox(email)
+      guard pending.session.calendarConnected else {
+        throw CoveError.message("Google didn’t grant Calendar access. Try again and allow Calendar.")
+      }
+      try self.auth.commit(pending)
+      self.calendarConnected = true
+      connected = true
+    }
+    auth.finishBrowserSignIn(success: connected)
+  }
   func disconnect() {
     guard !busy else { return }
     do {

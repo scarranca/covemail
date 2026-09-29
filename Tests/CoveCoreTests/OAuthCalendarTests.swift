@@ -28,6 +28,26 @@ final class OAuthCalendarTests: XCTestCase {
         request: "GET /oauth/callback?state=expected&error=access_denied HTTP/1.1",
         expectedState: "expected"), .denied)
   }
+  func testCalendarAuthorizationKeepsGrantedScopesForConnectedAccount() {
+    func items(_ url: URL) -> [String: String] {
+      Dictionary(uniqueKeysWithValues: (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+        .map { ($0.name, $0.value ?? "") })
+    }
+    let add = items(OAuthSupport.authorizationURL(
+      clientID: "id.apps.googleusercontent.com", redirect: "http://127.0.0.1:1/oauth/callback",
+      state: "s", challenge: "c", includeCalendar: true, includeCloud: false, loginHint: "alex@example.com"))
+    XCTAssertEqual(add["scope"], OAuthSupport.gmailScope + " " + OAuthSupport.calendarScope)
+    XCTAssertEqual(add["login_hint"], "alex@example.com")
+    XCTAssertEqual(add["include_granted_scopes"], "true")
+    XCTAssertEqual(add["access_type"], "offline")
+    XCTAssertEqual(add["code_challenge_method"], "S256")
+    let first = items(OAuthSupport.authorizationURL(
+      clientID: "id.apps.googleusercontent.com", redirect: "http://127.0.0.1:1/oauth/callback",
+      state: "s", challenge: "c", includeCalendar: false, includeCloud: true))
+    XCTAssertEqual(first["scope"], OAuthSupport.gmailScope + " openid email")
+    XCTAssertNil(first["login_hint"])
+    XCTAssertNil(first["include_granted_scopes"])
+  }
   func testCalendarOverlapAndMidnightClipping() {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!

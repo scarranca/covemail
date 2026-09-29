@@ -10,7 +10,6 @@ struct SettingsView: View {
   @State private var showAdvancedGoogle = false
   @State private var saved = false
   @State private var confirmErasure = false
-  @State private var includeCalendar = UserDefaults.standard.bool(forKey: "calendarConnected")
   var readSecret: (String) throws -> String? = { try Vault.read($0) }
 
   var selectedSection: String {
@@ -87,6 +86,12 @@ struct SettingsView: View {
     }
   }
 
+  private var calendarDescription: String {
+    if store.isSample { return "Sample events stay on this Mac." }
+    if store.calendarConnected { return "Connected · uses your Google sign-in for your primary calendar." }
+    if store.auth.isConnected { return "Adds Calendar to your Google sign-in. Your mail stays as it is." }
+    return "Available after you connect Gmail."
+  }
   private var gmailSection: some View {
     VStack(alignment: .leading, spacing: 20) {
       HStack(spacing: 16) {
@@ -107,11 +112,17 @@ struct SettingsView: View {
       Toggle(isOn: $store.backgroundSyncEnabled) {
         copy("Sync mail in the background", "Check for new mail about every two minutes while Cove is open.")
       }.toggleStyle(CoveToggleStyle()).accessibilityLabel("Sync mail in the background")
+      HStack(spacing: 16) {
+        copy("Google Calendar", calendarDescription)
+        Spacer(minLength: 0)
+        if store.auth.isConnected && !store.isSample && !store.calendarConnected {
+          Button("Connect Calendar") { Task { await store.connectCalendar() } }
+            .buttonStyle(SecondaryButton()).disabled(store.busy)
+        }
+      }
 
       DisclosureGroup("Google connection settings", isExpanded: $showAdvancedGoogle) {
         VStack(alignment: .leading, spacing: 16) {
-          Toggle("Also connect Google Calendar", isOn: $includeCalendar).toggleStyle(CoveToggleStyle())
-          Text("Calendar access is applied the next time you connect Gmail.").font(.coveSecondary).foregroundStyle(Palette.body)
           Text("Optional: use your own Desktop OAuth client. Leave the client ID blank to use Cove’s included configuration. Disconnect before changing the client for an existing connection.")
             .font(.coveSecondary).foregroundStyle(Palette.body)
           TextField("Custom Google OAuth client ID", text: $clientID).textFieldStyle(CoveFieldStyle())
@@ -198,7 +209,8 @@ struct SettingsView: View {
     }
   }
   private func connect() {
-    if save() { Task { await store.connect(includeCalendar: includeCalendar) } }
+    // Reconnecting keeps Calendar if it was connected; Calendar is otherwise added separately.
+    if save() { Task { await store.connect(includeCalendar: store.calendarConnected) } }
   }
   private var selectedGoogleConfiguration: GoogleOAuthConfiguration {
     GoogleOAuthConfiguration.selected(

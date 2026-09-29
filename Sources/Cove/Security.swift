@@ -163,7 +163,7 @@ enum Vault {
     }
     return Data(bytes).base64URL
   }
-  func connect(includeCalendar: Bool = false, includeCloud: Bool = false) async throws -> PendingConnection {
+  func connect(includeCalendar: Bool = false, includeCloud: Bool = false, loginHint: String? = nil) async throws -> PendingConnection {
     finishBrowserSignIn(success: false)
     guard GoogleOAuthConfiguration(clientID: clientID).isConfigured else {
       throw CoveError.message("Add a Google Desktop OAuth client ID in Connections first.")
@@ -209,19 +209,13 @@ enum Vault {
       server.start(queue: .main)
     }
     let redirect = "http://127.0.0.1:\(port)/oauth/callback"
-    var url = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
-    url.queryItems = [
-      "client_id": connectingClientID, "redirect_uri": redirect, "response_type": "code",
-      "scope": "https://www.googleapis.com/auth/gmail.modify"
-        + (includeCalendar ? " https://www.googleapis.com/auth/calendar.events" : "")
-        + (includeCloud ? " openid email" : ""),
-      "access_type": "offline", "prompt": "consent", "state": expectedState,
-      "code_challenge": OAuthSupport.challenge(for: verifier),
-      "code_challenge_method": "S256",
-    ].map { URLQueryItem(name: $0.key, value: $0.value) }
+    let url = OAuthSupport.authorizationURL(
+      clientID: connectingClientID, redirect: redirect, state: expectedState,
+      challenge: OAuthSupport.challenge(for: verifier), includeCalendar: includeCalendar,
+      includeCloud: includeCloud, loginHint: loginHint)
     let code: String = try await withCheckedThrowingContinuation { continuation in
       callback = continuation
-      if !NSWorkspace.shared.open(url.url!) {
+      if !NSWorkspace.shared.open(url) {
         finish(.failure(CoveError.message("Could not open your browser.")))
       }
     }
@@ -244,7 +238,7 @@ enum Vault {
         email: email, clientID: connectingClientID, clientSecret: connectingSecret,
         refreshToken: refresh,
         calendarConnected: includeCalendar
-          && (result.scope?.contains("https://www.googleapis.com/auth/calendar.events") ?? true)),
+          && (result.scope?.contains(OAuthSupport.calendarScope) ?? true)),
       accessToken: result.access_token,
       expiration: Date().addingTimeInterval(result.expires_in - 60), identityToken: result.id_token)
   }

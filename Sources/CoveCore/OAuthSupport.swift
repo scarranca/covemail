@@ -9,6 +9,29 @@ public enum OAuthSupport {
   public static func challenge(for verifier: String) -> String {
     Data(SHA256.hash(data: Data(verifier.utf8))).base64URL
   }
+  public static let gmailScope = "https://www.googleapis.com/auth/gmail.modify"
+  public static let calendarScope = "https://www.googleapis.com/auth/calendar.events"
+
+  /// Google authorization request. `loginHint` preselects the connected account; with it, previously
+  /// granted scopes are kept so adding Calendar never drops Gmail access.
+  public static func authorizationURL(
+    clientID: String, redirect: String, state: String, challenge: String,
+    includeCalendar: Bool, includeCloud: Bool, loginHint: String? = nil
+  ) -> URL {
+    var url = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
+    var items: [(String, String)] = [
+      ("client_id", clientID), ("redirect_uri", redirect), ("response_type", "code"),
+      ("scope", gmailScope + (includeCalendar ? " " + calendarScope : "") + (includeCloud ? " openid email" : "")),
+      ("access_type", "offline"), ("prompt", "consent"), ("state", state),
+      ("code_challenge", challenge), ("code_challenge_method", "S256"),
+    ]
+    if let loginHint, !loginHint.isEmpty {
+      items += [("login_hint", loginHint), ("include_granted_scopes", "true")]
+    }
+    url.queryItems = items.map { URLQueryItem(name: $0.0, value: $0.1) }
+    return url.url!
+  }
+
   /// Invalid callbacks do not terminate the pending sign-in session.
   public static func response(request: String, expectedState: String) -> OAuthResponse? {
     guard !expectedState.isEmpty, let firstLine = request.components(separatedBy: "\r\n").first

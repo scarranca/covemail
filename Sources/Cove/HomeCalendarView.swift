@@ -20,7 +20,12 @@ struct HomeCalendarView: View {
       }
       if !store.calendarConnected && !store.isSample {
         Text("Bring your schedule and invitations into Home.").font(.coveBody).foregroundStyle(Palette.muted)
-        Button("Connect Google Calendar") { store.showConnections = true }.buttonStyle(SecondaryButton())
+        Button("Connect Google Calendar") {
+          Task {
+            await store.connectCalendar()
+            if store.calendarConnected { await store.refreshHomeCalendar() }
+          }
+        }.buttonStyle(SecondaryButton()).disabled(store.busy)
       } else {
         if store.calendarSyncing {
           HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Refreshing your schedule…").font(.coveMetadata) }

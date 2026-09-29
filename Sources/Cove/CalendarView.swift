@@ -164,8 +164,8 @@ struct CalendarView: View {
               }
               CalendarRule()
               if !store.calendarConnected && !store.isSample {
-                Button("Connect Google Calendar") { store.showConnections = true }.buttonStyle(
-                  SecondaryButton())
+                Button("Connect Google Calendar") { Task { await store.connectCalendar() } }
+                  .buttonStyle(SecondaryButton()).disabled(store.busy)
               }
               if store.calendarConnected && !store.isSample {
                 if let error = store.calendarSyncError {
