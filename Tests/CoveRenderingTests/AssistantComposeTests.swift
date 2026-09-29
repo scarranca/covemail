@@ -40,6 +40,10 @@ import XCTest
     XCTAssertTrue(store.showComposer)
     XCTAssertFalse(store.mails.contains { $0.labels.contains("SENT") })
 
+    var single = ""
+    _ = try await store.draftNewEmail(.init(recipients: ["Maya"], subject: "", purpose: "Introduce myself", intro: true),
+      question: "introduce me to Maya") { prompt in single = prompt.user; return "Hi Maya," }
+    XCTAssertFalse(single.contains("This is an introduction"), "A one-person intro is a normal new email")
     let unknown = try await store.draftNewEmail(
       .init(recipients: ["Luis"], subject: "", purpose: "", intro: false), question: "email Luis") { _ in
         XCTFail("Nothing is written until recipients are known"); return ""

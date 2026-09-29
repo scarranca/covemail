@@ -612,7 +612,7 @@ import SwiftUI
     let to = people.map { $0.name == $0.email ? $0.email : "\($0.name) <\($0.email)>" }.joined(separator: ", ")
     let firstNames = people.map { $0.name == $0.email ? $0.email : String($0.name.split(separator: " ").first ?? "") }
     var task = "Write a NEW email to: \(to).\nWhat it should accomplish: \(request.purpose.isEmpty ? question : request.purpose)\nThe user's words: \(question)"
-    if request.intro {
+    if request.intro && people.count >= 2 {
       task += "\nThis is an introduction. Greet \(firstNames.joined(separator: " and ")) together, say in one or two sentences why they should connect using only what the user said, and hand it over to them. Do not invent roles, companies or facts about either person; if the reason is unclear, keep it general."
     }
     task += "\nReturn only the email body."
