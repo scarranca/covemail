@@ -1,46 +1,21 @@
-<?xml version="1.0" standalone="yes"?>
-<!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
--->
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Cove</title>
         <item>
-            <title>0.1.46</title>
-            <pubDate>Sun, 27 Sep 2026 21:17:41 -0700</pubDate>
+            <title>0.1.47</title>
+            <pubDate>Tue, 29 Sep 2026 13:45:41 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>48</sparkle:version>
-            <sparkle:shortVersionString>0.1.46</sparkle:shortVersionString>
+            <sparkle:version>49</sparkle:version>
+            <sparkle:shortVersionString>0.1.47</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.46</title></head><body><h1>Conversations and files, all in one place</h1><ul><li>Opening an email loads its conversation in the same reading pane. Expand other messages and reply to each one while keeping separate drafts.</li><li>Preview PDFs, images and text attachments inside the email. Save remains available for files you want to keep or open elsewhere.</li><li>⌘Delete now targets the email under your cursor, falling back to the selected email outside the list. The five-second Undo remains.</li></ul><p>Attachment previews are limited to supported formats and files up to 25 MiB. Cloud sync remains optional; mobile access and push notifications are not available yet.</p></body></html>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.47</title></head><body><h1>An assistant that writes like you</h1><ul><li>Cove can learn your writing voice once from your sent mail. AI drafts, replies and introductions then sound like you, across your accounts and, with cloud sync on, your other Macs.</li><li>Ask Cove to “make an intro between Ana and Luis” or “email Carlos about Friday”. It finds them in your contacts, writes the draft in your voice and opens it for review — nothing is sent.</li><li>Ask Cove now reads the whole conversation, and a missing TypeSafe key takes you straight to the right setting.</li><li>Conversations show each email as its own card. Reply has a Reply all option, labels open a searchable list, and the Inbox has an Unread filter.</li><li>Connect Google Calendar in one step with your existing Google sign-in.</li><li>AI and TypeSafe keys move to protected storage that stays on this Mac, with optional Touch ID in Settings → Privacy.</li><li>Reconnecting reuses mail already saved on your Mac instead of downloading it again.</li></ul><p>Only a description of your writing style is saved, never your emails. Cloud sync remains optional; mobile access and push notifications are not available yet.</p></body></html>
 ]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.46.dmg" length="17445519" type="application/octet-stream" sparkle:edSignature="meeDf4N81GuF9rATQPLbKuIy79xfQHsd7KGzGa38zXYoaySZwCdCARm3KxU75RmI6PD8a+Oza3pazjOeGbI8DQ=="/>
-        </item>
-        <item>
-            <title>0.1.45</title>
-            <pubDate>Sat, 26 Sep 2026 22:14:27 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>47</sparkle:version>
-            <sparkle:shortVersionString>0.1.45</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.45</title></head><body><h1>Smoother scrolling and synced reminders</h1><ul><li>Older mail loads automatically when you reach the end of the list, with an inline retry if loading fails.</li><li>With the optional cloud pilot enabled, snooze times sync to Cove independently of the recent-mail copy, including reminders for older emails.</li><li>Offline snooze changes, rescheduling and cancellations are saved and retried safely. The snooze menu shows whether a reminder is local, pending or synced.</li><li>Tomorrow morning now means the following calendar day at 9 a.m. in your local time zone.</li></ul><p>Cloud sync remains off by default. Mobile access and push notifications are not available yet; snoozed mail returns in Cove when due while the app is open, or when you reopen it.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.45.dmg" length="17009984" type="application/octet-stream" sparkle:edSignature="aKjSekrvho5WLF5kDpUjP2vvCXTN3Hqedr5BH5m7DptohRI9LQPqCM+AeKuh2ZyM0xUtDCPZyxTI4u8CvV2ZBQ=="/>
-        </item>
-        <item>
-            <title>0.1.44</title>
-            <pubDate>Sat, 26 Sep 2026 21:23:36 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>46</sparkle:version>
-            <sparkle:shortVersionString>0.1.44</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.44</title></head><body><h1>A clearer email reader</h1><ul><li>More thoughtful spacing, labeled toolbar actions, and clearer sender details.</li><li>Jev’s assessment and source excerpts sit apart from the original email.</li><li>Reply, Forward, and Ask Cove stay within reach as you scroll.</li><li>Choose Formatted or Text only, flag an email for follow-up, set a local reminder, or prepare a translation request in Ask Cove.</li><li>Controls and long sender details adapt to narrow reading panes.</li></ul></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.44.dmg" length="16730835" type="application/octet-stream" sparkle:edSignature="wfR1NT7vO5X/25cqIbWbep2zdB48y7ZJ5TMQJFk0giM+oCJw3gRMV8zM3t+lGm1CgA4czlYAiIp/2Pww9D9ODA=="/>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.47.dmg" length="17953158" type="application/octet-stream" sparkle:edSignature="1cjsaVLDVZhWLHNmX/St95dICIKvNnpF4/hv22+QvUT90d1vZP4gZUKJ4oS2G3owK6vuoTGyZhZ6d1YgstuUCA=="></enclosure>
         </item>
     </channel>
-</rss>
-<!-- sparkle-signatures:
-edSignature: pAPpPWl/P0uxPcoeaLVQu98Qx53zeXPUx0ZzGitOSihp5/x//FzzGuHSQGsMObn5Ma0CDKWCDolPRABItviaAg==
-length: 4703
+</rss><!-- sparkle-signatures:
+edSignature: jU2HbIdlPM+Bt2S7jghNL9aeK1QWXPDgy5caj6sD4/IHBxQRVuq8YqC3eLh1BLlsdi7JXsknKXly5adotC2nBg==
+length: 2403
 -->
