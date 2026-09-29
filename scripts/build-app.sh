@@ -10,8 +10,15 @@ if [[ "$cove_distribution" == 1 ]]; then
   cove_identity_label='Developer ID Application:'
   cove_output_dir="$PWD/dist/distribution"
 fi
+# Sign from the login keychain when the identity is there: System-keychain keys ask for an
+# administrator password on every use. Override with COVE_SIGNING_KEYCHAIN.
+if [[ -z "${COVE_SIGNING_KEYCHAIN:-}" ]] && security find-identity -v -p codesigning "$HOME/Library/Keychains/login.keychain-db" | grep -qF "$cove_identity_label"; then
+  export COVE_SIGNING_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+fi
+cove_keychain_args=()
+[[ -n "${COVE_SIGNING_KEYCHAIN:-}" ]] && cove_keychain_args=(--keychain "$COVE_SIGNING_KEYCHAIN")
 if [[ -z "$cove_signing_identity" ]]; then
-  cove_identities=("${(@f)$(security find-identity -v -p codesigning | awk -v label="$cove_identity_label" 'index($0,label) {print $2}')}")
+  cove_identities=("${(@f)$(security find-identity -v -p codesigning ${COVE_SIGNING_KEYCHAIN:+"$COVE_SIGNING_KEYCHAIN"} | awk -v label="$cove_identity_label" 'index($0,label) {print $2}' | sort -u)}")
   if (( ${#cove_identities} == 1 )) && [[ -n "${cove_identities[1]}" ]]; then
     cove_signing_identity="${cove_identities[1]}"
   else
@@ -63,7 +70,7 @@ assert "27H459Y2P9" in profile.get("TeamIdentifier", []), "Provisioning profile 
   cove_entitlements=assets/Cove.hardened.entitlements
   print "Embedding provisioning profile; AI keys will use the data-protection keychain."
 fi
-cove_sign_args=(--force --options runtime --entitlements "$cove_entitlements" --sign "$cove_signing_identity")
+cove_sign_args=(--force --options runtime --entitlements "$cove_entitlements" --sign "$cove_signing_identity" "${cove_keychain_args[@]}")
 if [[ "$cove_distribution" == 1 ]]; then cove_sign_args+=(--timestamp); fi
 codesign "${cove_sign_args[@]}" "$cove_app"
 codesign --verify --deep --strict "$cove_app"

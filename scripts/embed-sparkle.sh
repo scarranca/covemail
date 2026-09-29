@@ -12,6 +12,7 @@ cp "$PWD/.build/artifacts/sparkle/Sparkle/LICENSE" "$1/Contents/Resources/Sparkl
 # Optional XPC services are only used by sandboxed apps; keep the installer helpers.
 rm -rf "$cove_target/Versions/B/XPCServices" "$cove_target/XPCServices"
 cove_flags=(--force --sign "$2" --options runtime)
+[[ -n "${COVE_SIGNING_KEYCHAIN:-}" ]] && cove_flags+=(--keychain "$COVE_SIGNING_KEYCHAIN")
 if [[ "$3" == 1 ]]; then cove_flags+=(--timestamp); fi
 for cove_nested in "$cove_target/Versions/B/Autoupdate" "$cove_target/Versions/B/Updater.app" "$cove_target"; do
   codesign "${cove_flags[@]}" "$cove_nested"
