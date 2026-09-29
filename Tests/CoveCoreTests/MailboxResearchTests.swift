@@ -37,6 +37,7 @@ final class MailboxResearchTests: XCTestCase {
     let outcome = try await research.run("summarize everything about angel hub", progress: { progress.append($0) })
     XCTAssertEqual(outcome.queries, [#"{from:"angel hub" to:"angel hub"}"#, "angel hub"])
     XCTAssertEqual(outcome.read.count, 45)
+    XCTAssertEqual(Set(outcome.read.map(\.body)), Set(all.map(\.body)), "read keeps full bodies for saving")
     XCTAssertEqual(prompts.filter { $0.system.contains("Extract only facts") }.count, 3, "45 emails → 3 batches")
     XCTAssertLessThanOrEqual(outcome.sourceMails.count, 20)
     XCTAssertEqual(outcome.sourceMails.count, 6, "each batch cited its first two emails")

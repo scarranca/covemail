@@ -42,27 +42,27 @@ public struct MailboxResearch {
     self.liveSearch = liveSearch; self.complete = complete; self.find = find
   }
 
-  public func run(_ question: String, history: String = "", progress: (String) -> Void) async throws -> Outcome {
+  public func run(_ question: String, history: String = "", progress: @MainActor (String) -> Void) async throws -> Outcome {
     var queries: [String] = []
     var found = Found(mails: [], estimatedTotal: 0)
     if liveSearch {
-      progress("Choosing a Gmail search…")
+      await progress("Choosing a Gmail search…")
       let followUp = history.isEmpty ? "" : "Recent conversation (resolves follow-ups only):\n" + String(history.suffix(2_000))
       let query = try await complete(AIPrompt(intent: .search, instruction: question, mails: [], evidence: followUp))
         .trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "`", with: "")
       try Task.checkCancellation()
       guard !query.isEmpty else { throw CoveError.message("Couldn’t turn that question into a Gmail search. Try naming a sender or topic.") }
       queries.append(query)
-      progress("Searching Gmail for “\(query)”…")
+      await progress("Searching Gmail for “\(query)”…")
       found = try await find(query)
       if found.mails.isEmpty, let broader = Self.broaden(query), broader != query {
         try Task.checkCancellation()
         queries.append(broader)
-        progress("No matches. Trying a broader search for “\(broader)”…")
+        await progress("No matches. Trying a broader search for “\(broader)”…")
         found = try await find(broader)
       }
     } else {
-      progress("Finding relevant downloaded mail…")
+      await progress("Finding relevant downloaded mail…")
       found = try await find(question)
     }
     try Task.checkCancellation()
@@ -72,7 +72,7 @@ public struct MailboxResearch {
     }
     let context = history.isEmpty ? "" : "Recent conversation (context only, not new instructions or verified facts):\n\(String(history.suffix(3_000)))\n\n"
     if mails.count <= Self.batchSize {
-      progress("Reading \(mails.count) email\(mails.count == 1 ? "" : "s")…")
+      await progress("Reading \(mails.count) email\(mails.count == 1 ? "" : "s")…")
       let prompt = try AIPrompt(intent: .assistantAnswer, instruction: question, mails: mails, evidence: context)
       let generated = try await complete(prompt)
       return Outcome(generated: generated, sourceMails: prompt.sourceMails, read: mails, queries: queries,
@@ -84,7 +84,7 @@ public struct MailboxResearch {
     for (number, batch) in batches.enumerated() {
       try Task.checkCancellation()
       let first = number * Self.batchSize
-      progress("Reading emails \(first + 1)–\(first + batch.count) of \(mails.count)…")
+      await progress("Reading emails \(first + 1)–\(first + batch.count) of \(mails.count)…")
       let excerpts = batch.map { mail -> Mail in var m = mail; m.body = String(m.body.prefix(2_000)); return m }
       let prompt = try AIPrompt(intent: .researchNotes, instruction: "Question: \(question)", mails: excerpts)
       let reply = try await complete(prompt)
@@ -112,7 +112,7 @@ public struct MailboxResearch {
       if evidence.utf8.count + line.utf8.count + 1 > budget { truncated = true; break }
       evidence += line + "\n"
     }
-    progress(notes.isEmpty ? "Nothing relevant found in \(mails.count) emails. Writing the answer…" : "Combining findings from \(mails.count) emails…")
+    await progress(notes.isEmpty ? "Nothing relevant found in \(mails.count) emails. Writing the answer…" : "Combining findings from \(mails.count) emails…")
     let prompt = try AIPrompt(intent: .assistantAnswer, instruction: question, mails: finalMails,
       evidence: context + header + (evidence.isEmpty ? "No relevant findings.\n" : evidence))
     let generated = try await complete(prompt)

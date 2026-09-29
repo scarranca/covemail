@@ -16,6 +16,16 @@ Ask Cove with Mail search turned "angel hub" into `{from:"angel hub" to:"angel h
 - **Ask Cove:** the Mail search toggle now means *search all of Gmail* (on by default) vs *downloaded mail only* (now up to 100 candidates, also batched). The manual "Review Gmail search" card and its state were removed. Research results stay in memory; only emails the answer cites are saved locally (so source links open), so a question never adds 100 emails to the mailbox or the cloud mirror. Progress shows each step ("Reading emails 41–60 of 97…"). Selected-email and thread questions are unchanged.
 - **Tests:** `MailboxResearchTests` (6: broadening, citation remap, 45-email batching with ≤20 final sources and no leaked global numbers, small/empty results, evidence budget and partial marking, Gmail paging with stored-mail reuse). Full offline suite: 490 tests (280 rendering + 210 core), 0 failures, 7 skipped.
 
+## Review fixes
+
+- Progress callbacks are `@MainActor`, so UI state is never mutated off the main thread.
+- Cited emails are saved from `outcome.read` (full bodies), not the shortened prompt excerpts.
+- The downloaded-mail path reports partial when it reaches its 100-candidate cap.
+- Prompt and intro examples are neutral (no real user topics).
+- Losing or switching the model no longer silently turns off Mail search (the toggle is disabled without a model).
+- The email writer's `search_mail` tool still uses the 20-result `aiSearchMail`; it was out of scope.
+- Full offline suite after fixes: see the commit; `MailboxResearchTests` (6), `AssistantChatRenderingTests` (2) and `AssistantCalendarTests` (12) pass.
+
 ## Limits
 
 - At most 100 Gmail matches per question (newest first); more are reported as partial.
