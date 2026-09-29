@@ -11,14 +11,13 @@ This is the shared handoff for the Cove repository. Read it before changing the 
 
 Some README/status/distribution sections are historical and still mention older versions, no deployed backend, or the old `Cove / Needs review` behavior. Newer code, versioned evidence, and this handoff supersede those claims. Do not report old test totals as verification of new changes.
 
-## Current checkpoint — September 27, 2026
+## Current checkpoint — September 29, 2026
 
-- **Cove 0.1.46, build 48**, is published at `https://covemail.xyz`. Its universal app and DMG are Developer ID signed, notarized, and stapled. The signed Sparkle feed and public download were verified.
-- Implementation/release-artifact commit: `dbd8bae` (`Add conversations and attachment previews; prepare Cove 0.1.46`), with publication evidence in the following documentation commit, pushed to `main` and `scarranca/cowrie`. This identifies the checkpoint, not a required branch for future work.
-- The latest release adds conversations in the reader, inline attachment previews and pointer-targeted ⌘Delete. **91 distinct targeted Mac tests passed** across the feature and updater suites; this is not a full-suite claim. See `docs/qa/0.1.46/AUDIT.md`. Cloud snoozes and automatic older-mail loading remain as released in 0.1.45; this release changes no backend/schema.
-- Settings shows **one selected section at a time**, not one long page of all sections. This was introduced in 0.1.41; 0.1.42 fixed button styling and secondary-text density.
-- The optional recent-mail cloud pilot was deployed in 0.1.39. It is **off by default**, supports one uploading Mac, and is not a complete mobile sync system. The first real-account consent/upload check has no recorded completion in the release audit. Do not claim it passed without new evidence.
-- The reader release is available through the updater; the user's running app was not quit or replaced. Published version and locally installed/running version may differ.
+- **Cove 0.1.47, build 49**, is published at `https://covemail.xyz` (Cloudflare Pages deployment `9c0a9d4f`, commit `49625c5`). The universal app and DMG are Developer ID signed, notarized (app `769c642e-…`, DMG `732e0430-…`) and stapled, and embed the "Cove Developer ID" provisioning profile with `assets/Cove.hardened.entitlements`. Evidence: `docs/qa/0.1.47/AUDIT.md`.
+- 0.1.47 adds a learned writing voice (shared across accounts and, via cloud sync, across Macs), Ask Cove new emails and introductions, conversation cards with a Reply menu and Reply all, a searchable label picker, Inbox Unread, one-step Calendar, hardened AI/TypeSafe keys with optional Touch ID, and cache-aware reconnect.
+- Backend: migration 003 `voice_profiles` applied (user-approved exact SQL); Cloud Run `cove-sync-api-00005-xtt` serves `/v1/voice`.
+- Release builds need `.local/Cove.provisionprofile` and `.local/google-oauth-desktop.json` in the building checkout. Publishing used Wrangler OAuth (account `f1bf637a…`); verify `whoami` shows that account before any deploy.
+- Published and installed/running versions may differ; the user's running app was not replaced.
 
 ## Product and collaboration expectations
 
