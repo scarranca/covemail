@@ -156,6 +156,18 @@ import XCTest
     XCTAssertTrue(sent)
     XCTAssertEqual(store.mails.first { $0.labels.contains("SENT") }?.cc, "Sam Lee <sam@example.com>, Jo <jo@example.com>")
   }
+  func testReplySplitButtonAndSearchableLabelPickerRender() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let (store, _, original) = try fixture()
+    store.isSample = true
+    var first = original; first.draft = ""; first.cc = "Jo <jo@example.com>"
+    first.to = "\(store.accountEmail), Sam Lee <sam@example.com>"
+    store.gmailLabels = (1...14).map { GmailLabel(id: "Label_\($0)", name: $0 == 3 ? "Finance / Invoices" : "Project \($0)") }
+    first.labels.insert("Label_3")
+    store.mails = [first]
+    try await render(ReaderView(store: store, mail: first), width: 760, height: 1000, name: "reply-split")
+    try await render(LabelPicker(store: store, mail: first).padding(12).frame(maxWidth: .infinity, alignment: .leading), width: 320, height: 420, name: "label-picker")
+  }
   func testPDFAndImagePreviewRenderInline() async throws {
     _ = NSApplication.shared
     let (store, _, mail) = try fixture(); store.isSample = true

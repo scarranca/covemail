@@ -270,15 +270,14 @@ struct ReaderView: View {
   }
   private func responseActions(_ replyAction: @escaping (Bool) -> Void) -> some View {
     Group {
-      Button { replyAction(false) } label: {
-        Label(localDraft ? "Continue writing" : showReply ? "Continue reply" : "Reply", systemImage: "arrowshape.turn.up.left")
-      }.buttonStyle(PrimaryButton())
       if !localDraft && !showReply
         && MailConversation.replyAllRecipients(for: current, accountEmail: store.accountEmail) != nil
       {
-        Button { replyAction(true) } label: {
-          Label("Reply all", systemImage: "arrowshape.turn.up.left.2")
-        }.buttonStyle(SecondaryButton())
+        ReplySplitButton(reply: { replyAction(false) }, replyAll: { replyAction(true) })
+      } else {
+        Button { replyAction(false) } label: {
+          Label(localDraft ? "Continue writing" : showReply ? "Continue reply" : "Reply", systemImage: "arrowshape.turn.up.left")
+        }.buttonStyle(PrimaryButton())
       }
       if !localDraft {
         Button { store.prepareHomeDelegation(current) } label: {
@@ -403,6 +402,32 @@ extension AppStore {
     screen = "mail"
     assistantInitialQuery = question
     showAssistant = true
+  }
+}
+
+/// Reply is the primary action; Reply all is one click away in the attached menu.
+struct ReplySplitButton: View {
+  let reply: () -> Void
+  let replyAll: () -> Void
+  @Environment(\.isEnabled) private var enabled
+  var body: some View {
+    HStack(spacing: 0) {
+      Button(action: reply) {
+        Label("Reply", systemImage: "arrowshape.turn.up.left").font(.coveControl)
+          .padding(.leading, 16).padding(.trailing, 12).frame(height: 40).contentShape(Rectangle())
+      }.buttonStyle(.plain).accessibilityLabel("Reply")
+      Rectangle().fill(.white.opacity(0.3)).frame(width: 1, height: 22)
+      Menu {
+        Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply)
+        Button("Reply all", systemImage: "arrowshape.turn.up.left.2", action: replyAll)
+      } label: {
+        Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+          .frame(width: 34, height: 40).contentShape(Rectangle())
+      }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help("Reply options").accessibilityLabel("Reply options")
+    }.foregroundStyle(.white)
+      .background(enabled ? Palette.ink : Palette.disabled, in: RoundedRectangle(cornerRadius: 6))
+      .fixedSize()
   }
 }
 

@@ -70,6 +70,12 @@ struct AssistantView: View {
       // The hub asks about the mailbox; only the mail reader starts with a selected email.
       contextID =
         store.screen == "mail" ? availableMail.first { $0.id == store.selectedID }?.id : nil
+      // A conversation is read as a whole by default; "This email" remains in the scope picker.
+      if let context, !context.threadID.isEmpty,
+        MailConversation.messages(in: store.mails, anchor: context).count > 1
+      {
+        scope = .thread
+      }
       composerFocused = true
     }
     .task {
@@ -241,11 +247,13 @@ struct AssistantView: View {
     VStack(alignment: .leading, spacing: 22) {
       HStack {
         Spacer(minLength: 32)
+        // The bubble hugs short questions and wraps long ones, always aligned to the right.
         Text(exchange.question).font(.coveBody).lineSpacing(6)
+          .fixedSize(horizontal: false, vertical: true)
           .padding(.horizontal, 14).padding(.vertical, 10)
-          .frame(maxWidth: 464, alignment: .leading)
           .background(Palette.summary, in: RoundedRectangle(cornerRadius: 10))
           .textSelection(.enabled)
+          .frame(maxWidth: 464, alignment: .trailing)
       }
       VStack(alignment: .leading, spacing: 20) {
         if let answer = exchange.answer {
@@ -281,11 +289,25 @@ struct AssistantView: View {
             Text(exchange.cancelled ? "Response stopped" : "Couldn’t complete this request")
               .font(.coveControl).foregroundStyle(exchange.cancelled ? Palette.body : Palette.danger)
             Text(error).font(.coveBody).foregroundStyle(Palette.body).textSelection(.enabled)
-            Button("Try again") {
-              contextID = exchange.mail?.id
-              scope = exchange.scope
-              ask(exchange.question)
-            }.buttonStyle(SecondaryButton()).disabled(working)
+            if error == JevClient.missingKeyMessage {
+              HStack(spacing: 10) {
+                Button("Add TypeSafe key") {
+                  store.settingsSection = "Jev · Mail agent"
+                  store.showAssistant = false
+                  store.showConnections = true
+                }.buttonStyle(PrimaryButton())
+                Button("Connect a writing model") {
+                  store.showAssistant = false
+                  store.screen = "integrations"
+                }.buttonStyle(SecondaryButton())
+              }
+            } else {
+              Button("Try again") {
+                contextID = exchange.mail?.id
+                scope = exchange.scope
+                ask(exchange.question)
+              }.buttonStyle(SecondaryButton()).disabled(working)
+            }
           }
         } else {
           HStack(spacing: 10) {

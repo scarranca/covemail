@@ -139,11 +139,6 @@ struct ReaderThreadMessage: View {
       Button { onReply(mail, false) } label: {
         Image(systemName: "arrowshape.turn.up.left").frame(width: 32, height: 32).contentShape(Rectangle())
       }.buttonStyle(ReaderActionStyle()).help("Reply").accessibilityLabel("Reply to \(mail.sender)")
-      if canReplyAll {
-        Button { onReply(mail, true) } label: {
-          Image(systemName: "arrowshape.turn.up.left.2").frame(width: 32, height: 32).contentShape(Rectangle())
-        }.buttonStyle(ReaderActionStyle()).help("Reply all").accessibilityLabel("Reply all")
-      }
       Menu {
         Button("Reply", systemImage: "arrowshape.turn.up.left") { onReply(mail, false) }
         if canReplyAll {

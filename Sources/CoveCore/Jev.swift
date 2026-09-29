@@ -12,11 +12,12 @@ public struct JevClient {
     public var model: String
     public var answers: [String: Answer]
   }
+  public static let missingKeyMessage = "Add your TypeSafe API key in Settings → Jev · Mail agent to use Jev."
   public func evaluate(key: String, state: [String: Any], questions: [String: Any]) async throws
     -> Response
   {
     guard !key.isEmpty else {
-      throw CoveError.message("Add your TypeSafe API key in Connections to use Jev.")
+      throw CoveError.message(Self.missingKeyMessage)
     }
     var request = URLRequest(url: URL(string: "https://api.typesafe.ai/v1/systemone")!)
     request.httpMethod = "POST"

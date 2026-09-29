@@ -30,6 +30,7 @@ struct JevFlagsNavigation: View {
 struct MailLabelChips: View {
   @Bindable var store: AppStore
   let mail: Mail
+  @State private var choosingLabels = false
   var body: some View {
     MailChipLayout(spacing: 8) {
       Text(mail.labels.contains("TRASH") ? "Trash" : mail.labels.contains("SPAM") ? "Spam"
@@ -49,24 +50,65 @@ struct MailLabelChips: View {
         }.font(.coveSecondary).padding(.leading, 10).padding(.trailing, 4).padding(.vertical, 3)
           .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 6))
       }
-      Menu {
-        ForEach(store.customMailLabels) { label in
-          Button {
-            Task { await store.setLabel(label, on: mail, applied: !mail.labels.contains(label.id)) }
-          } label: {
-            Label(label.name, systemImage: mail.labels.contains(label.id) ? "checkmark" : "tag")
-          }
-        }
-        if store.customMailLabels.isEmpty { Text("No custom Gmail labels yet") }
-        Divider()
-        Button("Refresh labels") { Task { await store.refreshLabels() } }
-      } label: {
+      Button { choosingLabels = true } label: {
         Label(store.labels(on: mail).isEmpty ? "Add label" : "Edit labels", systemImage: "tag").font(.coveSecondary)
-      }.menuStyle(.borderlessButton).fixedSize().padding(.horizontal, 8).frame(height: 30)
+          .padding(.horizontal, 8).frame(height: 30).contentShape(Rectangle())
+      }.buttonStyle(.plain).fixedSize()
         .disabled(store.busy).help("Apply or remove Gmail labels on this email")
+        .popover(isPresented: $choosingLabels, arrowEdge: .bottom) { LabelPicker(store: store, mail: mail) }
     }.foregroundStyle(Palette.body)
   }
 }
+/// A compact, searchable label list. Checked labels are on this email; toggling applies it in Gmail.
+struct LabelPicker: View {
+  @Bindable var store: AppStore
+  let mail: Mail
+  @State private var search = ""
+  @FocusState private var searching: Bool
+  private var current: Mail { store.mails.first { $0.id == mail.id } ?? mail }
+  private var matches: [GmailLabel] {
+    let query = search.trimmingCharacters(in: .whitespaces)
+    return store.customMailLabels.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
+  }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: 8) {
+        Image(systemName: "magnifyingglass").foregroundStyle(Palette.muted)
+        TextField("Find a label", text: $search, prompt: Text("Find a label").foregroundStyle(Palette.muted))
+          .textFieldStyle(.plain).focused($searching)
+      }.font(.coveSecondary).padding(.horizontal, 12).frame(height: 40)
+      Divider()
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(matches) { label in
+            let applied = current.labels.contains(label.id)
+            Button { Task { await store.setLabel(label, on: current, applied: !applied) } } label: {
+              HStack(spacing: 10) {
+                Image(systemName: applied ? "checkmark.square.fill" : "square")
+                  .foregroundStyle(applied ? Palette.ink : Palette.muted).frame(width: 16)
+                Text(label.name).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+              }.font(.coveSecondary).padding(.horizontal, 12).frame(height: 32).contentShape(Rectangle())
+            }.buttonStyle(ReaderActionStyle()).disabled(store.busy)
+              .accessibilityValue(applied ? "Applied" : "Not applied")
+          }
+          if matches.isEmpty {
+            Text(store.customMailLabels.isEmpty ? "No custom Gmail labels yet" : "No labels match “\(search)”")
+              .font(.coveSecondary).foregroundStyle(Palette.body).padding(12)
+          }
+        }.padding(.vertical, 4)
+      }.frame(maxHeight: 260)
+      Divider()
+      Button { Task { await store.refreshLabels() } } label: {
+        Label("Refresh labels", systemImage: "arrow.clockwise").font(.coveSecondary)
+          .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading).contentShape(Rectangle())
+      }.buttonStyle(ReaderActionStyle()).disabled(store.labelsRefreshing)
+    }.frame(width: 280).fixedSize(horizontal: false, vertical: true)
+      .foregroundStyle(Palette.ink).background(Palette.canvas)
+      .onAppear { searching = true }
+  }
+}
+
 struct JevMailFlagBadges: View {
   let mail: Mail
   var isSample = false
