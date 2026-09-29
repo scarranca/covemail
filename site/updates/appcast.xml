@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.49</title>
+            <pubDate>Tue, 29 Sep 2026 16:16:31 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>51</sparkle:version>
+            <sparkle:shortVersionString>0.1.49</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.49</title></head><body><h1>Ask Cove, now much more capable</h1><ul><li>Ask big questions across your mail. With Mail search on, Cove searches Gmail, reads up to 100 matching emails, cites its sources and tells you how much it covered. Searches for a topic no longer come back empty.</li><li>“Brief me on today” summarizes your schedule, invitations awaiting a reply and the emails that need you.</li><li>“Reply saying Thursday works” drafts a reply to the open email in your voice and leaves it for your review. Existing drafts are never replaced unless you ask.</li><li>Tell Cove to remember or forget things about you; your memories now shape every AI draft and answer.</li><li>Ask about a contact to see their address and your recent conversations, straight from your mail.</li><li>New emails and introductions drafted from chat can check your real calendar availability.</li></ul><p>Nothing is sent, archived or deleted without you. Cloud sync remains optional; mobile access and push notifications are not available yet.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.49.dmg" length="18224513" type="application/octet-stream" sparkle:edSignature="eZbz4CTyoyFSj/+oBQH6JTKku/7Q2+0cY4YNcVhRpcIQ/noINdnkCHNdAzTa18hP/zq1ywKZiUlE1PTaZGhvDg=="/>
+        </item>
+        <item>
             <title>0.1.48</title>
             <pubDate>Tue, 29 Sep 2026 14:45:46 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -30,6 +41,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 4zFrhpGsCXJ2kBcBMpJSBGfIDEWYJQ8YixN371j+26qWy3jgzc7rLZLTMW1KFuHaA37qiQE+hv1kkCY7t5cdAg==
-length: 3673
+edSignature: oW4G+J+vGuFxn5pJ7q5ogUermW5GP0t36nJY/5wGJmSoEHHsI20xys9gayIoO4Yu9rBRg0S6pJef0hN2qed7AA==
+length: 5475
 -->
