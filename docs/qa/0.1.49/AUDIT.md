@@ -49,3 +49,13 @@ Ask Cove with Mail search turned "angel hub" into `{from:"angel hub" to:"angel h
 - **Tests:** `AssistantMemoryTests` (1), `AssistantActionTests` (5: router guards, remember/forget and writer injection, contact summary, reply saved as a draft with no send, availability requires Calendar); `AssistantComposeTests` updated for the writer planner. Full offline suite: 496 tests (285 rendering + 211 core), 0 failures, 7 skipped. Not yet run on a real account.
 - **Safety review fixes:** a chat reply never replaces an existing unsent draft unless the request says replace/rewrite (otherwise a visible message, draft unchanged). `remember` is verified in code: at least 75% of the memory's words (3+ letters) must appear in the user's message, so email text can't become a persistent memory. Memories are capped at 2,500 characters and history at 3,000 in the selected-email and briefing prompts, so evidence stays under `AIPrompt`'s limit. Tests: `AssistantActionTests` now has 6. Full offline suite after fixes: 497 tests, 0 failures, 7 skipped.
 - **Known cost:** every chat draft adds one writer-planning call (`{"tools":[]}` when no lookup is needed). `forget` removes every memory containing the words and reports which.
+
+## Release — September 29, 2026
+
+- Version 0.1.49, build 51, released at the user's request ("release"). Universal Developer ID build with the embedded "Cove Developer ID" profile and hardened entitlements. The first signing attempt hit a transient "timestamp service is not available"; the retry succeeded after the service answered.
+- App notarization `8636f489-18e7-4b6d-b848-14c52b83a216` **Accepted**, stapled, Gatekeeper "Notarized Developer ID".
+- DMG notarization `44a4b892-631e-4c71-8cf7-21799ee13e24` **Accepted**, stapled, `hdiutil verify` VALID. `Cove-0.1.49.dmg`: 18,224,513 bytes, SHA-256 `44c48f77506bde90cf02162990297d93ee7a34be1859143f0da279d35760feb4`.
+- Signed feed verified (tamper rejected); site staged with 29 verified releases.
+- Cloudflare Pages `covemail`, branch `main`, commit `5fd1f42`: deployment **`463c0cae`**.
+- Public checks: `/release.json` 0.1.49/51 with matching bytes/SHA; `/download/latest` 302 to 0.1.49; beta page and feed show 0.1.49; the public DMG has matching bytes/SHA, the feed signature verifies and Gatekeeper accepts it; 0.1.48 is still downloadable.
+- Not run: the headless `probe-update.swift` check and a live real-account check of the new assistant features. The user's installed Cove was not replaced; install via **Cove → Check for Updates…**.
