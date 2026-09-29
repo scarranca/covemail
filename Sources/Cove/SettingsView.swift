@@ -231,8 +231,14 @@ struct SettingsView: View {
       }
       try Vault.save(
         secret.trimmingCharacters(in: .whitespacesAndNewlines), name: "googleClientSecret")
-      if keyLoaded || !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        try Vault.save(key.trimmingCharacters(in: .whitespacesAndNewlines), name: "typesafeKey")
+      let typesafe = key.trimmingCharacters(in: .whitespacesAndNewlines)
+      if keyLoaded || !typesafe.isEmpty {
+        try Vault.save(typesafe, name: "typesafeKey")
+        // Never report success unless the key can actually be read back from the Keychain.
+        if !typesafe.isEmpty, !Vault.aiKeysRequireTouchID, try readSecret("typesafeKey") != typesafe {
+          throw CoveError.message("Your TypeSafe key couldn’t be saved to the Keychain. Try again, or quit and reopen Cove.")
+        }
+        keyLoaded = true
       }
       UserDefaults.standard.set(clean, forKey: "googleClientID")
       saved = true

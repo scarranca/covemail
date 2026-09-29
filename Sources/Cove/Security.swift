@@ -34,12 +34,9 @@ enum Vault {
   }
 
   private static func insertMailboxKey(_ value: String, name: String) throws {
-    let item: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service, kSecAttrAccount as String: name,
-      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-      kSecValueData as String: Data(value.utf8),
-    ]
+    var item = legacyQuery(name)
+    item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    item[kSecValueData as String] = Data(value.utf8)
     let status = SecItemAdd(item as CFDictionary, nil)
     guard status == errSecSuccess || status == errSecDuplicateItem else {
       throw CoveError.message("Keychain could not save the mailbox key (\(status)).")
@@ -57,6 +54,14 @@ enum Vault {
     HardenedSecrets.requireUserPresence = enabled
     for (name, value) in values { try save(value, name: name) }
   }
+  /// Login (file-based) keychain only. On builds with the data-protection entitlement, a query
+  /// that doesn't say which keychain also matches — and a delete also removes — protected items.
+  static func legacyQuery(_ name: String, service: String = service) -> [String: Any] {
+    [
+      kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+      kSecAttrAccount as String: name, kSecUseDataProtectionKeychain as String: false,
+    ]
+  }
   private static var service: String {
     CoveRuntime.isQA ? "ai.cove.qa" : "ai.cove.mac"
   }
@@ -68,11 +73,9 @@ enum Vault {
     return try legacyRead(name)
   }
   private static func legacyRead(_ name: String) throws -> String? {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-      kSecAttrAccount as String: name, kSecReturnData as String: true,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-    ]
+    var query = legacyQuery(name)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
     if status == errSecItemNotFound { return nil }
@@ -89,10 +92,7 @@ enum Vault {
     try legacySave(value, name: name)
   }
   private static func legacySave(_ value: String, name: String) throws {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-      kSecAttrAccount as String: name,
-    ]
+    let query = legacyQuery(name)
     let attributes: [String: Any] = [kSecValueData as String: Data(value.utf8)]
     var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
     if status == errSecItemNotFound {
@@ -110,11 +110,7 @@ enum Vault {
     try legacyDelete(name)
   }
   private static func legacyDelete(_ name: String) throws {
-    let status = SecItemDelete(
-      [
-        kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-        kSecAttrAccount as String: name,
-      ] as CFDictionary)
+    let status = SecItemDelete(legacyQuery(name) as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else {
       throw CoveError.message("Keychain could not remove credentials (\(status)).")
     }

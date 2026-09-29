@@ -37,6 +37,14 @@ import XCTest
     super.tearDown()
   }
 
+  func testLoginKeychainQueriesNeverReachProtectedItems() {
+    // Regression (0.1.47): without this flag, deleting the old login-keychain copy on a hardened
+    // build also deleted the protected copy just written, so keys were lost on first use.
+    let query = Vault.legacyQuery("typesafeKey", service: "ai.cove.test")
+    XCTAssertEqual(query[kSecUseDataProtectionKeychain as String] as? Bool, false)
+    XCTAssertEqual(query[kSecAttrAccount as String] as? String, "typesafeKey")
+  }
+
   func testOnlyAIAndTypeSafeKeysAreHandled() {
     XCTAssertTrue(HardenedSecrets.protects("aiProvider.openAI"))
     XCTAssertTrue(HardenedSecrets.protects("typesafeKey"))
