@@ -883,6 +883,32 @@ import SwiftUI
   }
   func select(_ mail: Mail) { selectedID = mail.id }
 
+  /// Live Gmail matches for a large question. Results stay in memory: only emails the answer cites
+  /// are saved (see `keepResearchSources`), so research never bloats the mailbox or cloud mirror.
+  func researchGmail(_ query: String) async throws -> MailboxResearch.Found {
+    guard entered, !isSample else { throw CoveError.message("Connect Gmail to search beyond the sample mailbox.") }
+    let generation = mailboxGeneration
+    let email = accountEmail
+    let token: String
+    if let gmailTokenProvider { token = try await gmailTokenProvider() } else { token = try await auth.token() }
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration, email == accountEmail else { throw CancellationError() }
+    let stored = Dictionary(mails.filter { !$0.id.hasPrefix("local-") }.map { ($0.id, $0) }) { first, _ in first }
+    let results = try await gmail.research(query: query, token: token, limit: 100, stored: stored)
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration, email == accountEmail else { throw CancellationError() }
+    return MailboxResearch.Found(mails: results.mails, estimatedTotal: results.estimatedTotal, hasMore: results.hasMore)
+  }
+  /// Saves newly found emails that an answer cites, so their source links open in the reader.
+  func keepResearchSources(_ sources: [Mail]) {
+    guard entered, !isSample, let database else { return }
+    let known = Set(mails.map(\.id))
+    let additions = sources.filter { !known.contains($0.id) && !$0.id.hasPrefix("local-") }
+    guard !additions.isEmpty else { return }
+    let merged = (mails + additions).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
+    do { try database.saveMailSnapshot(merged); mails = merged } catch { self.error = error.localizedDescription }
+  }
+
   /// Called when a reader is presented, including source links and keyboard navigation.
   /// Reading stays responsive during background sync; failures restore the unread badge.
   func markViewed(_ mail: Mail) async {

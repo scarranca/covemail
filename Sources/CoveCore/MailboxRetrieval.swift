@@ -3,7 +3,7 @@ import Foundation
 extension SourcePassages {
   /// Retrieval is local and lexical. Jev decides which of these original passages
   /// actually answer the question; candidate matches alone are never answers.
-  public init(mailbox messages: [Mail], query: String) throws {
+  public init(mailbox messages: [Mail], query: String, limit: Int = 20) throws {
     let eligible = Self.eligibleForAssistant(messages)
     let terms = MailboxRetrieval.terms(query)
     var candidates: [MailboxRetrieval.Candidate] = []
@@ -17,7 +17,7 @@ extension SourcePassages {
         if $0.mail.date != $1.mail.date { return $0.mail.date > $1.mail.date }
         return $0.mail.id < $1.mail.id
       }
-      if candidates.count > 20 { candidates.removeLast() }
+      if candidates.count > limit { candidates.removeLast() }
     }
     self.init(
       selected: candidates.map(\.mail),
