@@ -139,6 +139,18 @@ import XCTest
     }
     try await render(ReaderAttachment(store: store, mail: first, attachment: attachment, initiallyExpanded: true).padding(24), width: 640, height: 550, name: "attachment-preview", expectPreview: true)
   }
+  func testReplyEditorActionsRenderOnOneAlignedRow() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let (store, _, original) = try fixture()
+    store.isSample = true
+    var first = original; first.draft = "Thanks, I'll review it today."; first.date = Date(timeIntervalSince1970: 1000)
+    var response = first; response.id = "m2"; response.draft = ""; response.sender = "Alex Morgan"
+    response.senderEmail = "alex@example.com"; response.body = "Sounds good."; response.date = first.date.addingTimeInterval(3600)
+    store.mails = [response, first]
+    for width in [420.0, 760.0] {
+      try await render(ReaderView(store: store, mail: first), width: width, height: 1500, name: "conversation-reply-\(Int(width))")
+    }
+  }
   func testPDFAndImagePreviewRenderInline() async throws {
     _ = NSApplication.shared
     let (store, _, mail) = try fixture(); store.isSample = true

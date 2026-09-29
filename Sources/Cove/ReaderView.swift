@@ -21,6 +21,8 @@ struct ReaderView: View {
   }
   private var position: Int? { store.visible.firstIndex { $0.id == mail.id } }
   private var localDraft: Bool { current.labels.contains("DRAFT") && current.id.hasPrefix("local-") }
+  private var conversationCount: Int { MailConversation.messages(in: store.mails, anchor: current).count }
+  private var isConversation: Bool { conversationCount > 1 }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -146,6 +148,7 @@ struct ReaderView: View {
         Task { await store.classify(current) }
       }
       if assessmentHidden { Button("Show Jev assessment") { assessmentHidden = false } }
+      if !isConversation { TranslateMenu(store: store, mail: current) }
       Divider()
       Button("Move to Trash", systemImage: "trash", role: .destructive) { store.queueTrash(current) }
     } label: { actionLabel("More", icon: "ellipsis", compact: compact) }
@@ -158,11 +161,12 @@ struct ReaderView: View {
       MailLabelChips(store: store, mail: current)
       Text(current.subject.isEmpty ? "New message" : current.subject).font(.coveTitle)
         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: 12) { sender; Spacer(minLength: 12); date; moreMenu(compact: true) }
-        VStack(alignment: .leading, spacing: 8) {
-          sender
-          HStack { date; Spacer(); moreMenu(compact: true) }.padding(.leading, 52)
+      if isConversation {
+        Text("\(conversationCount) messages").font(.coveSecondary).foregroundStyle(Palette.body)
+      } else {
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 12) { sender; Spacer(minLength: 12); date }
+          VStack(alignment: .leading, spacing: 8) { sender; date.padding(.leading, 52) }
         }
       }
       if let attribution = store.labelAttribution(for: current) {
@@ -294,57 +298,72 @@ struct ReaderView: View {
         ).accessibilityLabel("Reply body").frame(
           minHeight: 118
         )
-        MailChipLayout(spacing: 12) {
-          Button {
-            let source = replySource
-            let recipient = replyRecipient
-            let sentText = reply
-            let subject =
-              source.subject.lowercased().hasPrefix("re:")
-              ? source.subject : "Re: \(source.subject)"
-            Task {
-              if await store.send(
-                to: recipient, subject: subject, body: sentText, reply: source),
-                replySource.id == source.id, reply == sentText
-              {
-                reply = ""
-                showReply = false
-              }
-            }
-          } label: {
-            Label(store.isSample ? "Save sample reply" : "Send reply", systemImage: "paperplane")
-          }.buttonStyle(PrimaryButton()).disabled(
-            reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyRecipient.isEmpty || store.busy)
-          Menu {
-            Button("Acknowledge") {
-              updateReply(ReplyTemplates.reply(
-                to: replySource.sender, voice: store.preferences.voice,
-                signoff: store.preferences.signoff))
-            }
-            Button("Ask for more detail") {
-              updateReply(ReplyTemplates.reply(
-                to: replySource.sender, voice: store.preferences.voice,
-                signoff: store.preferences.signoff, askForDetail: true))
-            }
-          } label: {
-            Label("Template", systemImage: "square.and.pencil")
-          }.menuStyle(.borderlessButton).frame(width: 95)
-            .help("Start with a reply template in your preferred voice")
-          if AIProviderSettings.shared.writingProvider() != nil {
-            Button("Write with AI", systemImage: "sparkles") { showAIWriting = true }
-              .buttonStyle(SecondaryButton()).disabled(store.busy)
+        ViewThatFits(in: .horizontal) {
+          HStack(alignment: .center, spacing: 10) { sendButton; templateMenu; aiButton; Spacer(minLength: 8); discardButton }
+          VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) { sendButton; Spacer(minLength: 8); discardButton }
+            HStack(alignment: .center, spacing: 10) { templateMenu; aiButton }
           }
-          Button {
-            reply = ""
-            showReply = false
-            store.saveReply(id: replySource.id, text: "")
-          } label: {
-            Image(systemName: "trash")
-          }.buttonStyle(.plain).help("Discard reply").accessibilityLabel("Discard reply")
         }
       }.padding(.horizontal, 18).padding(.vertical, 16)
     }.clipShape(RoundedRectangle(cornerRadius: 10)).overlay(
       RoundedRectangle(cornerRadius: 10).stroke(Palette.line))
+  }
+}
+
+extension ReaderView {
+  private var sendButton: some View {
+    Button {
+      let source = replySource
+      let recipient = replyRecipient
+      let sentText = reply
+      let subject = source.subject.lowercased().hasPrefix("re:") ? source.subject : "Re: \(source.subject)"
+      Task {
+        if await store.send(to: recipient, subject: subject, body: sentText, reply: source),
+          replySource.id == source.id, reply == sentText
+        {
+          reply = ""
+          showReply = false
+        }
+      }
+    } label: {
+      Label(store.isSample ? "Save sample reply" : "Send reply", systemImage: "paperplane")
+    }.buttonStyle(PrimaryButton()).fixedSize().disabled(
+      reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyRecipient.isEmpty || store.busy)
+  }
+  private var templateMenu: some View {
+    Menu {
+      Button("Acknowledge") {
+        updateReply(ReplyTemplates.reply(
+          to: replySource.sender, voice: store.preferences.voice, signoff: store.preferences.signoff))
+      }
+      Button("Ask for more detail") {
+        updateReply(ReplyTemplates.reply(
+          to: replySource.sender, voice: store.preferences.voice, signoff: store.preferences.signoff,
+          askForDetail: true))
+      }
+    } label: {
+      Label("Template", systemImage: "text.badge.plus").font(.coveControl)
+    }.menuStyle(.borderlessButton).fixedSize()
+      .padding(.horizontal, 14).frame(height: 40)
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 6))
+      .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.inputBorder))
+      .help("Start with a reply template in your preferred voice")
+  }
+  @ViewBuilder private var aiButton: some View {
+    if AIProviderSettings.shared.writingProvider() != nil {
+      Button("Write with AI", systemImage: "sparkles") { showAIWriting = true }
+        .buttonStyle(SecondaryButton()).fixedSize().disabled(store.busy)
+    }
+  }
+  private var discardButton: some View {
+    Button {
+      reply = ""
+      showReply = false
+      store.saveReply(id: replySource.id, text: "")
+    } label: {
+      Image(systemName: "trash").font(.system(size: 15)).frame(width: 40, height: 40).contentShape(Rectangle())
+    }.buttonStyle(ReaderActionStyle()).help("Discard reply").accessibilityLabel("Discard reply")
   }
 }
 
@@ -357,7 +376,7 @@ extension AppStore {
   }
 }
 
-private struct ReaderActionStyle: ButtonStyle {
+struct ReaderActionStyle: ButtonStyle {
   @Environment(\.isEnabled) private var enabled
   @Environment(\.isFocused) private var focused
   @State private var hovering = false
