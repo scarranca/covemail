@@ -2261,6 +2261,11 @@ extension AppStore {
         catch is CancellationError { throw CancellationError() }
         catch { snoozeFailure = error }
         try ensureCurrent()
+        // The learned voice follows the Google account to other Macs; a failure never blocks mail.
+        do { try await syncCloudVoice(client: client, accountID: id, token: { try await self.auth.cloudToken(for: email) }) }
+        catch is CancellationError { throw CancellationError() }
+        catch {}
+        try ensureCurrent()
         var revision = connection.revision
         // Reconcile a lost upload response or a missing device checkpoint against the server inventory.
         if cloudMirror.revision != connection.revision {
@@ -2354,6 +2359,30 @@ extension AppStore {
 
   // Separate from mail uploads so reminders survive the recent-mail window. Test callers inject
   // the transport and token; production always uses the signed-in account's Google ID token.
+  /// Newest wins between this Mac's voice and the cloud copy, including an explicit "forgotten" state.
+  func syncCloudVoice(client: CloudMailClient, accountID: UUID, token: () async throws -> String) async throws {
+    guard entered, !isSample, let database else { return }
+    let generation = mailboxGeneration
+    let record = try? sharedVoice.load()
+    let localProfile = record.map(\.profile) ?? preferences.voiceProfile
+    let localUpdatedAt = record?.updatedAt ?? preferences.voiceProfile?.learnedAt
+    let remote = try await client.voice(accountID: accountID, token: try await token())
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration else { throw CancellationError() }
+    switch CloudVoiceSync.decide(localProfile: localProfile, localUpdatedAt: localUpdatedAt, remote: remote) {
+    case .none: return
+    case .upload:
+      guard let localUpdatedAt else { return }
+      _ = try await client.uploadVoice(localProfile, updatedAt: localUpdatedAt, baseRevision: remote.revision,
+        accountID: accountID, token: try await token())
+    case .apply(let profile, let updatedAt):
+      try sharedVoice.save(SharedVoiceRecord(profile: profile, updatedAt: updatedAt))
+      var updated = preferences
+      updated.voiceProfile = profile
+      try database.save(updated, key: "preferences")
+      preferences = updated
+    }
+  }
   func syncCloudSnoozes(client: CloudMailClient, accountID: UUID,
                        token: () async throws -> String, pace: Bool = true) async throws {
     let generation = mailboxGeneration

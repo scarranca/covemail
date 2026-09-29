@@ -107,6 +107,13 @@ Live check (September 29, Cove QA, real gigstack.io account): the first attempt 
 - **Signing:** `assets/Cove.hardened.entitlements` (application-identifier, team-identifier, keychain-access-groups `27H459Y2P9.ai.cove.mac`, location). `scripts/build-app.sh` uses it and embeds `.local/Cove.provisionprofile` **only if that file exists**, after checking the profile's app ID and team. Otherwise the build is unchanged. `build-qa.sh` still uses the default entitlements (ad-hoc plus a restricted entitlement would be killed at launch).
 - **Verified:** `HardenedSecretsTests` (7, fake Keychain: scope, no-entitlement fallback, device-only attributes, readback-gated move, failed readback, first-read migration, Touch ID access control, cancellation, context reuse); an ad-hoc probe binary confirmed `-34018` and that `SecAccessControl(.userPresence)` can be created. **Not verified:** the data-protection path on a real profile-signed build, which needs an App ID for `ai.cove.mac` plus a Developer ID provisioning profile. Verify at release on an isolated copy; don't launch a hardened build alongside the user's running Cove (same bundle ID, store and Keychain service).
 
-## September 29 — cross-Mac voice (proposed only)
+## September 29 — cross-Mac voice (applied and deployed; see update below)
 
 `backend/migrations/003_voice_profile.sql` proposes `cove_sync.voice_profiles` (one encrypted profile per Google identity, forced RLS like migrations 001/002). It is **not applied**, and no route code was written. It needs the user's exact-SQL approval, then backend routes and client sync under the opt-in cloud pilot. Server keys can decrypt it (not end-to-end).
+
+## September 29 — cross-Mac voice deployed
+
+- The user approved the exact SQL for migration 003. Applied to PlanetScale `santiagocarranc2/cove/main` as five statements (`pscale sql`, admin role), each returning ok. Verified read-only: RLS and force-RLS true; policy `voice_profile_owner` for `cove_sync_runtime` with USING and WITH CHECK on `owner_sub`; runtime SELECT/INSERT/UPDATE/DELETE granted, TRUNCATE not.
+- Backend `src/voice.js`: `GET`/`PUT /v1/voice`, per-account AES-GCM with the KMS-wrapped data key, strict bounded schema, optimistic revision, idempotent receipts. Backend tests 17/17 (2 new) on a disposable loopback Postgres. Deployed Cloud Run `cove-sync-api-00005-xtt` with unchanged configuration and pinned secret version 1. `/v1/status` 200; missing and forged tokens 401 on both voice routes. `infra/verify.sh` was not rerun (no KMS/bucket change).
+- Mac: `CloudVoiceSync` (newest `updatedAt` wins; explicit forgotten propagates) runs within opt-in cloud sync after snoozes; failures are non-blocking. Cloud sync copy now mentions the voice description. Tests: `CloudVoiceSyncTests` (2).
+- Live check pending: enable cloud sync on a second Mac or account generation and confirm the voice appears.

@@ -1,4 +1,5 @@
--- PROPOSED, NOT APPLIED. Requires the user's exact-SQL approval before production.
+-- Approved by the user as exact SQL on September 29, 2026 and applied to PlanetScale
+-- santiagocarranc2/cove/main statement by statement (pscale sql, admin role), each result checked.
 -- Stores one learned writing-voice profile per Google identity so it follows the account to
 -- another Mac that opts into cloud sync. The profile is a style description only (no mail
 -- bodies) and is encrypted with the account's existing KMS-wrapped data key, like messages.

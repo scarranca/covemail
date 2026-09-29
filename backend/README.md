@@ -25,6 +25,15 @@ There is **no scheduler, background Gmail ingestion, notification delivery, APNs
 
 Rollout: the user approved the exact `migrations/002_snoozes.sql`, applied once in a transaction to PlanetScale `santiagocarranc2/cove/main` on September 26, 2026. Cloud Run revision `cove-sync-api-00004-qjf` serves the snooze API. The production synthetic storage check passed for snooze persistence, cancellation and forced tenant RLS. Cove 0.1.45/build 47 is published with this integration; 0.1.44 and older remain local-only for snoozes. See `../docs/qa/0.1.45/AUDIT.md` for rollout evidence. The migration is additive; existing mail-only clients remain compatible. Roll back the API/client first and leave the additive schema/data intact. Never run migration 001 again or remove reminder data as a rollback.
 
+## Learned writing voice — deployed September 29, 2026
+
+`cove_sync.voice_profiles` (migration 003, user-approved exact SQL) stores one learned writing-voice profile per Google identity so it follows the account to another Mac with cloud sync on. It holds a style description only (summary, greetings, sign-offs, traits, generic phrases, languages, learnedAt, sampleCount, model), never mail bodies. It is encrypted with the account data key (AAD binds account and kind) and is server-accessible, not end-to-end.
+
+- `GET /v1/voice?accountID=<uuid>` returns `{revision, profile|null, updatedAt|null}`; revision `"0"` means none yet.
+- `PUT /v1/voice` takes `{accountID, requestID, baseRevision, profile|null, updatedAt}`. The profile is strict and bounded (unknown fields such as `body` are rejected). A null profile explicitly records "forgotten". The response is `{revision}`. Stale bases return `voice_conflict`; identical retries are idempotent through the shared receipts table.
+- The Mac compares its shared record's `updatedAt` with the cloud's; the newest wins, including "forgotten". Failures never block mail or snooze sync.
+- Rollout: statements applied individually on September 29 with verified RLS/force-RLS, the owner policy and DML-only runtime privileges (no TRUNCATE). Cloud Run revision `cove-sync-api-00005-xtt` (image `api:20260929175709`), same pinned secret version 1 and configuration as 00004. `/v1/status` 200; unauthenticated and forged voice requests 401. Backend tests: 17/17 on a disposable loopback Postgres 17 (npm `embedded-postgres`, since Docker is unavailable here; never PlanetScale).
+
 ## Authentication and isolation
 
 Google ID tokens are verified for signature, issuer, expiry, configured OAuth audiences, verified authoritative Google email, authorized party and the explicit private-pilot email allowlist. Google `sub` selects the tenant; no request may choose a tenant. Tokens are not persisted or logged. Google refresh tokens never leave the Mac.

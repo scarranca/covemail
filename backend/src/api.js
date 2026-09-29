@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { transaction } from './database.js';
 import { newKey, seal, open, context, digest } from './crypto.js';
 import { registerSnoozes } from './snoozes.js';
+import { registerVoice } from './voice.js';
 
 const uuid = z.string().uuid().transform(value => value.toLowerCase());
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
@@ -184,5 +185,6 @@ export function createAPI({pool, verifyIdentity, keys, bodies, now = () => new D
     return open(key,await bodies.get(r.body_object),context(a.account_id,messageID,'body'));
   });
   registerSnoozes(app, {withOwner, account, keys, parse, fail, uuid, id, revision});
+  registerVoice(app, {withOwner, account, keys, parse, fail, uuid, revision});
   return app;
 }

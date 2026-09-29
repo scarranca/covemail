@@ -60,7 +60,7 @@ struct CloudSyncSettings: View {
           Button("Reconnect Google…") { Task { await store.enableCloudSync(resume: false) } }
             .buttonStyle(SecondaryButton()).disabled(store.cloudSyncing || store.busy)
         }
-        Text("Private pilot · one Mac uploads up to 1,000 downloaded emails from the last 30 days, including labels and Jev results. Snooze times sync separately, including for older mail. Drafts, Spam, Trash and attachments are excluded. Large bodies are shortened. Google credentials stay on this Mac.")
+        Text("Private pilot · one Mac uploads up to 1,000 downloaded emails from the last 30 days, including labels and Jev results. Snooze times sync separately, including for older mail. Your learned writing-voice description (not your emails) also syncs so it follows this Google account to your other Macs. Drafts, Spam, Trash and attachments are excluded. Large bodies are shortened. Google credentials stay on this Mac.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         Text("Cove stores encrypted mail headers and Jev results in PlanetScale, and encrypted bodies in Google Cloud. Reminder dates and message IDs are stored in PlanetScale so the server can find due reminders. Cove’s server holds the decryption keys. Pausing keeps the existing cloud copy; removing local data does not remove it.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)

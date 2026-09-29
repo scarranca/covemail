@@ -26,6 +26,7 @@ before(async () => {
   await admin.query('DROP ROLE IF EXISTS cove_sync_runtime');
   await admin.query(await readFile(new URL('../migrations/001_sync.sql', import.meta.url),'utf8'));
   await admin.query(await readFile(new URL('../migrations/002_snoozes.sql', import.meta.url),'utf8'));
+  await admin.query(await readFile(new URL('../migrations/003_voice_profile.sql', import.meta.url),'utf8'));
   await admin.query("CREATE ROLE cove_test_api LOGIN PASSWORD 'synthetic-api-only' NOSUPERUSER NOBYPASSRLS; GRANT cove_sync_runtime TO cove_test_api");
   pool = createPool('postgres://cove_test_api:synthetic-api-only@127.0.0.1:55439/postgres',{local:true});
   await assertRuntimeRole(pool);
@@ -226,4 +227,43 @@ test('snooze change feed paginates cancelled and active records; storage quota p
   assert.equal(last.snoozes.at(-1).wakeAt,null);
   assert.equal((await request(owner,'PUT','/v1/snoozes/new',snoozeInput(a))).json().error,'snooze_storage_limit');
   assert.equal((await request(owner,'PUT','/v1/snoozes/msg1',snoozeInput(a,{baseRevision:'1',wakeAt:null}))).statusCode,200);
+});
+
+const voice = (overrides={}) => ({summary:'Warm and brief.',greetings:['Hi {name},'],signoffs:['Best,'],traits:['Short'],
+  phrases:[],languages:['English'],learnedAt:'2026-09-29T10:00:00Z',sampleCount:20,model:'fixture',...overrides});
+test('voice profile is encrypted per account, follows the Google identity and is isolated by RLS', async () => {
+  const owner='fixture-voice'; const a=await connect(owner);
+  let got=(await request(owner,'GET',`/v1/voice?accountID=${a.accountID}`)).json();
+  assert.deepEqual(got,{revision:'0',profile:null,updatedAt:null});
+  const put={accountID:a.accountID,requestID:randomUUID(),baseRevision:'0',profile:voice(),updatedAt:'2026-09-29T10:00:00Z'};
+  const first=await request(owner,'PUT','/v1/voice',put);
+  assert.equal(first.statusCode,200,first.body); assert.equal(first.json().revision,'1');
+  // Stored bytes are ciphertext, not the style text.
+  const row=(await admin.query('SELECT ciphertext FROM cove_sync.voice_profiles WHERE owner_sub=$1',[owner])).rows[0];
+  assert.equal(row.ciphertext.toString().includes('Warm and brief'),false);
+  got=(await request(owner,'GET',`/v1/voice?accountID=${a.accountID}`)).json();
+  assert.equal(got.profile.summary,'Warm and brief.'); assert.equal(got.revision,'1');
+  // Identical retry is idempotent; a stale base cannot overwrite; a reused request ID with other content is rejected.
+  assert.equal((await request(owner,'PUT','/v1/voice',put)).json().revision,'1');
+  assert.equal((await request(owner,'PUT','/v1/voice',{...put,requestID:randomUUID()})).json().error,'voice_conflict');
+  assert.equal((await request(owner,'PUT','/v1/voice',{...put,profile:voice({summary:'Other'})})).json().error,'request_id_reused');
+  // Forgetting is an explicit null record.
+  const forget=await request(owner,'PUT','/v1/voice',{...put,requestID:randomUUID(),baseRevision:'1',profile:null,updatedAt:'2026-09-30T10:00:00Z'});
+  assert.equal(forget.json().revision,'2');
+  got=(await request(owner,'GET',`/v1/voice?accountID=${a.accountID}`)).json();
+  assert.equal(got.profile,null); assert.equal(got.updatedAt,'2026-09-30T10:00:00Z');
+  // Another tenant sees nothing, even through the pooled runtime role.
+  const other='fixture-voice-other'; const b=await connect(other);
+  assert.equal((await request(other,'GET',`/v1/voice?accountID=${b.accountID}`)).json().revision,'0');
+  assert.equal((await request(other,'GET',`/v1/voice?accountID=${a.accountID}`)).json().error,'connection_changed');
+  const leaked=await transaction(pool,other,c=>c.query('SELECT count(*) FROM cove_sync.voice_profiles'));
+  assert.equal(leaked.rows[0].count,'0');
+});
+test('voice payloads are strict and bounded; mail content fields are rejected', async () => {
+  const owner='fixture-voice-strict'; const a=await connect(owner);
+  const base={accountID:a.accountID,requestID:randomUUID(),baseRevision:'0',updatedAt:'2026-09-29T10:00:00Z'};
+  assert.equal((await request(owner,'PUT','/v1/voice',{...base,profile:{...voice(),body:'raw email'}})).statusCode,400);
+  assert.equal((await request(owner,'PUT','/v1/voice',{...base,profile:voice({summary:'x'.repeat(601)})})).statusCode,400);
+  assert.equal((await request(owner,'PUT','/v1/voice',{...base,profile:voice({phrases:Array(9).fill('a')})})).statusCode,400);
+  assert.equal((await app.inject({method:'GET',url:`/v1/voice?accountID=${a.accountID}`})).statusCode,401);
 });

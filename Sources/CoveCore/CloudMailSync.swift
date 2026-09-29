@@ -135,7 +135,7 @@ public struct CloudMailClient {
     }
     self.baseURL = baseURL; self.transport = transport
   }
-  private func request<T: Decodable>(_ path: String, method: String = "GET", token: String,
+  func request<T: Decodable>(_ path: String, method: String = "GET", token: String,
                                     body: Data? = nil, query: [URLQueryItem] = [], as type: T.Type) async throws -> T {
     var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
     if !query.isEmpty { components.queryItems = query }
