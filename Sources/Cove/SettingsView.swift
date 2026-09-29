@@ -7,6 +7,7 @@ struct SettingsView: View {
   @State private var clientID = UserDefaults.standard.string(forKey: "googleClientID") ?? ""
   @State private var secret = ""
   @State private var key = ""
+  @State private var keyLoaded = false
   @State private var showAdvancedGoogle = false
   @State private var saved = false
   @State private var confirmErasure = false
@@ -61,7 +62,8 @@ struct SettingsView: View {
       showAdvancedGoogle = !BundledGoogleOAuth.configuration.isConfigured
       do {
         secret = try readSecret("googleClientSecret") ?? ""
-        key = try readSecret("typesafeKey") ?? ""
+        // With Touch ID on, opening Settings shouldn't ask for it; the saved key stays untouched.
+        if !Vault.aiKeysRequireTouchID { key = try readSecret("typesafeKey") ?? ""; keyLoaded = true }
       } catch { store.error = error.localizedDescription }
     }
     .onChange(of: clientID) { _, _ in saved = false }
@@ -194,6 +196,7 @@ struct SettingsView: View {
     VStack(alignment: .leading, spacing: 16) {
       Label("Credentials and mailbox keys stay in macOS Keychain. Real-account mail is encrypted on this Mac. Disconnect keeps the local cache.", systemImage: "lock.shield")
         .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      AIKeyProtectionSettings()
       if store.entered {
         Button("Remove local data and disconnect…", role: .destructive) { confirmErasure = true }
           .buttonStyle(SecondaryButton()).disabled(store.busy)
@@ -228,7 +231,9 @@ struct SettingsView: View {
       }
       try Vault.save(
         secret.trimmingCharacters(in: .whitespacesAndNewlines), name: "googleClientSecret")
-      try Vault.save(key.trimmingCharacters(in: .whitespacesAndNewlines), name: "typesafeKey")
+      if keyLoaded || !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        try Vault.save(key.trimmingCharacters(in: .whitespacesAndNewlines), name: "typesafeKey")
+      }
       UserDefaults.standard.set(clean, forKey: "googleClientID")
       saved = true
       return true
@@ -291,3 +296,40 @@ private struct VoiceProfileSettings: View {
     }
   }
 }
+
+/// AI provider and TypeSafe keys: data-protection keychain on hardened builds, optional Touch ID.
+private struct AIKeyProtectionSettings: View {
+  @State private var hardened = false
+  @State private var touchID = false
+  @State private var working = false
+  @State private var failure: String?
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Toggle(isOn: Binding(get: { touchID }, set: { enabled in
+        working = true; failure = nil
+        // Re-saving may show Touch ID; run it after this layout pass.
+        Task {
+          do { try Vault.setAIKeysRequireTouchID(enabled); touchID = enabled }
+          catch { failure = error.localizedDescription }
+          working = false
+        }
+      })) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Require Touch ID for AI keys").font(.coveLabel)
+          Text(hardened
+            ? "AI and TypeSafe keys are stored only on this Mac and readable only while it’s unlocked. With Touch ID on, Cove asks before using them (at most every 5 minutes) and pauses automatic agent checks."
+            : "AI and TypeSafe keys are in your login Keychain, encrypted and readable only by Cove. Touch ID protection is available in the hardened, signed Cove build.")
+            .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 580, alignment: .leading)
+        }
+      }.toggleStyle(CoveToggleStyle()).disabled(!hardened || working)
+      if let failure {
+        Text(failure).font(.coveSecondary).foregroundStyle(Palette.danger)
+      }
+    }.task {
+      hardened = Vault.aiKeysHardened
+      touchID = Vault.aiKeysRequireTouchID
+    }
+  }
+}
+

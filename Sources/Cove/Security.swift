@@ -46,10 +46,28 @@ enum Vault {
     }
   }
 
+  /// True when AI keys use the data-protection keychain on this build.
+  static var aiKeysHardened: Bool { HardenedSecrets.dataProtectionAvailable(service: service) }
+  static var aiKeysRequireTouchID: Bool { HardenedSecrets.userPresenceActive(service: service) }
+  /// Changes the Touch ID requirement and re-saves existing AI keys under the new protection.
+  static func setAIKeysRequireTouchID(_ enabled: Bool) throws {
+    guard aiKeysHardened else { throw CoveError.message("Touch ID protection needs the hardened, signed Cove build.") }
+    var values: [String: String] = [:]
+    for name in HardenedSecrets.protectedNames { if let value = try read(name) { values[name] = value } }
+    HardenedSecrets.requireUserPresence = enabled
+    for (name, value) in values { try save(value, name: name) }
+  }
   private static var service: String {
     CoveRuntime.isQA ? "ai.cove.qa" : "ai.cove.mac"
   }
   static func read(_ name: String) throws -> String? {
+    if HardenedSecrets.protects(name) {
+      return try HardenedSecrets.read(name, service: service, legacy: { try legacyRead(name) },
+        legacyDelete: { try legacyDelete(name) })
+    }
+    return try legacyRead(name)
+  }
+  private static func legacyRead(_ name: String) throws -> String? {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
       kSecAttrAccount as String: name, kSecReturnData as String: true,
@@ -64,6 +82,13 @@ enum Vault {
     return String(data: data, encoding: .utf8)
   }
   static func save(_ value: String, name: String) throws {
+    if HardenedSecrets.protects(name) {
+      return try HardenedSecrets.save(value, name: name, service: service,
+        legacySave: { try legacySave(value, name: name) }, legacyDelete: { try legacyDelete(name) })
+    }
+    try legacySave(value, name: name)
+  }
+  private static func legacySave(_ value: String, name: String) throws {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
       kSecAttrAccount as String: name,
@@ -81,6 +106,10 @@ enum Vault {
     }
   }
   static func delete(_ name: String) throws {
+    if HardenedSecrets.protects(name) { try HardenedSecrets.delete(name, service: service) }
+    try legacyDelete(name)
+  }
+  private static func legacyDelete(_ name: String) throws {
     let status = SecItemDelete(
       [
         kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,

@@ -36,6 +36,8 @@ import SwiftUI
   var voiceWriter: ((AIPrompt) async throws -> String)?
   /// Mac-level voice shared by all accounts. Tests inject an in-memory store.
   var sharedVoice = SharedVoiceStore.keychain
+  /// Tests run agents without consulting the real Keychain protection setting.
+  var agentsBypassKeyProtection = false
   var agentEditor: CustomAgent?
   var agentActivityID: String?
   var agentNotice: String?
@@ -1110,6 +1112,10 @@ import SwiftUI
       return
     }
     guard entered, !busy, queuedTrashIDs.isEmpty else { return }
+    if automatically, !agentsBypassKeyProtection, Vault.aiKeysRequireTouchID {
+      status = "Automatic Jev organizing is paused while Touch ID protects your keys. Use Organize to run it."
+      return
+    }
     let generation = mailboxGeneration
     let email = accountEmail
     let cutoff = automatically ? preferences.autoClassifySince : nil
@@ -1904,6 +1910,11 @@ extension AppStore {
   }
   func runCustomAgents(ignoreCooldown: Bool = false, agentID: String? = nil) async {
     guard entered, !isSample, !busy, queuedTrashIDs.isEmpty, !agentsRunning, customAgents.agents.contains(where: { $0.status == .active }) else { return }
+    // Touch ID-protected keys must not prompt from background work; manual runs still proceed.
+    if agentID == nil, !ignoreCooldown, !agentsBypassKeyProtection, Vault.aiKeysRequireTouchID {
+      agentNotice = "Automatic agent checks are paused while Touch ID protects your AI keys. Run an agent from Agents to continue."
+      return
+    }
     agentsRunning = true
     defer { agentsRunning = false }
     let generation = mailboxGeneration
