@@ -66,3 +66,13 @@ Live check (September 29, Cove QA, real gigstack.io account): the first attempt 
 - **Ask Cove**: when the open email belongs to a multi-message conversation, the scope now starts as **Whole thread** (the existing `aiThreadContext` Gmail thread fetch); "This email" remains in the scope picker. The user's question bubble hugs its text and aligns right (previously it was stretched to 464 points).
 - **TypeSafe key**: Jev's missing-key error now names Settings → Jev · Mail agent (`JevClient.missingKeyMessage`), and Ask Cove shows **Add TypeSafe key** (opens that Settings section) and **Connect a writing model** (Integrations) instead of Try again.
 - Inspected `/tmp/cove-reply-split.png`, `/tmp/cove-label-picker.png`, `/tmp/cove-assistant-design.png`. Full offline suite: 462 tests (267 rendering + 195 core), 0 failures, 7 skipped. The thread-scope default is view state and was not unit tested; live check pending.
+
+## September 29 — learned writing voice
+
+**Settings → Jev · Mail agent → Your voice → Learn from my sent mail** builds a `VoiceProfile` from the user's own sent mail:
+- **Input:** up to 25 newest sent messages from the account address. Drafts, aliases, quoted replies ("On … wrote:", "El … escribió:", `>` lines) and forwarded blocks are removed, and each excerpt is capped at 1,200 characters. If fewer than 15 usable samples are stored, one Gmail `labelIds=SENT` page is fetched; stored IDs get only a `format=minimal` label check.
+- **What the model returns:** the new `AIIntent.learnVoice` asks the connected writing model for style only (summary, greetings with `{name}`, sign-offs, traits, generic phrases, languages). It must not copy names, addresses, amounts or confidential content. The parser is bounded and rejects unreadable output.
+- **What is saved:** only the profile, not sent bodies, in `Preferences.voiceProfile` inside the per-account AES-GCM encrypted SQLite store.
+- **Where it's used:** `ComposeSuggestion.instruction(…, profile:)`, so AI replies, the composer's AI writing and custom-agent prepared replies all get it. Language rules keep precedence. **Forget my voice** removes it.
+- **Persistence:** per Gmail account on this Mac. It survives Disconnect and reconnecting the same address, but does not follow a different account or another Mac. Syncing it through the cloud pilot would need a new backend table and migration with exact-SQL approval; not built.
+- **Tests:** `VoiceProfileTests` (4), `VoiceLearningTests` (2: encrypted save/reopen/forget with quoted text excluded from the prompt; sent-page fetch without re-downloading stored mail). Settings Jev 900-point render inspected. Live learning in Cove QA pending the user.
