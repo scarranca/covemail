@@ -26,6 +26,7 @@ import XCTest
     store.preferences = updated
     var instruction = ""
     let outcome = try await store.draftNewEmail(request, question: "make an intro between Alberto and Maya") { prompt in
+      if prompt.system.contains("You plan read-only evidence lookups") { return #"{"tools":[]}"# }
       instruction = prompt.user
       return "Hi Alberto and Maya,\n\nYou two should talk about invoicing.\n\nBest,"
     }
@@ -42,7 +43,9 @@ import XCTest
 
     var single = ""
     _ = try await store.draftNewEmail(.init(recipients: ["Maya"], subject: "", purpose: "Introduce myself", intro: true),
-      question: "introduce me to Maya") { prompt in single = prompt.user; return "Hi Maya," }
+      question: "introduce me to Maya") { prompt in
+        if prompt.system.contains("You plan read-only evidence lookups") { return #"{"tools":[]}"# }
+        single = prompt.user; return "Hi Maya," }
     XCTAssertFalse(single.contains("This is an introduction"), "A one-person intro is a normal new email")
     let unknown = try await store.draftNewEmail(
       .init(recipients: ["Luis"], subject: "", purpose: "", intro: false), question: "email Luis") { _ in

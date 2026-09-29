@@ -211,3 +211,21 @@ public enum CoveError: LocalizedError {
     }
   }
 }
+
+extension Preferences {
+  /// A memory as the user typed it: one line, bounded. Email text never becomes a memory.
+  public static func sanitizedMemory(_ text: String) -> String? {
+    let line = text.components(separatedBy: .newlines).joined(separator: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !line.isEmpty else { return nil }
+    return String(line.prefix(200))
+  }
+  /// Saved memories for writing and assistant prompts, or nil when off or empty.
+  public var memoryPrompt: String? {
+    guard useMemories else { return nil }
+    let lines = memories.compactMap(Self.sanitizedMemory).prefix(30)
+    guard !lines.isEmpty else { return nil }
+    return "The user's saved memories (their own notes about themselves and their preferences, not facts from email; follow them when relevant):\n"
+      + lines.map { "- " + $0 }.joined(separator: "\n")
+  }
+}

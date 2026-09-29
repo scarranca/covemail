@@ -25,13 +25,21 @@ import Foundation
   enum Result {
     case email
     case compose(ComposeRequest)
+    case reply(String)
+    case remember(String)
+    case forget(String)
+    case contact(String)
+    case brief
     case clarification(String)
     case proposal(Proposal)
     case agenda(AssistantAgenda)
   }
   private struct Plan: Decodable {
-    enum Action: String, Decodable { case email, clarify, propose, agenda, compose }
+    enum Action: String, Decodable { case email, clarify, propose, agenda, compose, reply, remember, forget, contact, brief }
     let action: Action
+    var instruction: String?
+    var memory: String?
+    var name: String?
     var recipients: [String]?
     var subject: String?
     var purpose: String?
@@ -59,6 +67,20 @@ import Foundation
     } catch { throw CoveError.message("I couldn’t understand the calendar request. Try including the date, start time, and duration.") }
     switch plan.action {
     case .email: return .email
+    case .brief: return .brief
+    case .reply:
+      guard !mails.isEmpty else { return .clarification("Which email should I reply to? Open it first, then ask again.") }
+      return .reply(String((plan.instruction ?? question).trimmingCharacters(in: .whitespacesAndNewlines).prefix(2_000)))
+    case .remember, .forget:
+      guard let memory = plan.memory.flatMap(Preferences.sanitizedMemory) else {
+        return .clarification(plan.action == .remember ? "What should I remember?" : "Which memory should I forget?")
+      }
+      return plan.action == .remember ? .remember(memory) : .forget(memory)
+    case .contact:
+      guard let name = plan.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+        return .clarification("Who would you like to know about?")
+      }
+      return .contact(String(name.prefix(200)))
     case .compose:
       let recipients = (plan.recipients ?? []).map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)) }
         .filter { !$0.isEmpty }

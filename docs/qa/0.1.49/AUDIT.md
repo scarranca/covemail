@@ -31,3 +31,19 @@ Ask Cove with Mail search turned "angel hub" into `{from:"angel hub" to:"angel h
 - At most 100 Gmail matches per question (newest first); more are reported as partial.
 - Large questions make 1 + ceil(N/20) + 1 model calls (about 7 for 100 emails). With a subscription CLI model this can take a couple of minutes; progress stays visible.
 - Not yet checked live on a real account (Cove QA was deleted at the user's request; a live check needs a new QA build and sign-in, or a release).
+
+## September 29 — assistant actions and memories
+
+- **Memories:** `Preferences.memoryPrompt` gives bounded (≤30 × ≤200 characters, one line each) saved memories, only when "Use my saved memories" is on. They reach every writer (`ComposeSuggestion.instruction(memories:)`: reply sheet, composer, agent replies, chat drafts) and assistant answers (mailbox research, selected email, briefing), labelled as the user's own notes, not email facts.
+- **New router actions (`planAssistant`)** with guards in `AssistantCalendar`:
+  - `remember` / `forget`: memory text only from the user's request, sanitized to one line. Stored in encrypted preferences and editable in Agents → Memories.
+  - `reply`: only with a selected email, otherwise a clarification.
+  - `contact`: a name as typed.
+  - `brief`: today's overview.
+- **Reply from chat:** `AppStore.draftReply` uses `WritingAgent` (voice, memories, read-only mail/calendar lookups), saves the text as the email's draft, selects it and closes the assistant. Nothing is sent.
+- **New emails and introductions from chat:** now also use `WritingAgent` via `assistantWriter`, so "schedule a meeting at my first available time" uses real calendar availability. Without Calendar, the existing visible error is shown and no draft opens.
+- **Contact questions:** answered deterministically from `RecipientResolver` and downloaded mail (address, count, most recent date, three recent conversations, company). No model and no guessed addresses; ambiguity asks.
+- **Briefing:** today's events (live when Calendar is connected), pending invitations and up to 15 inbox emails (priority and unread first), summarized in one cited answer with a coverage line.
+- **UI:** "Brief me on today" and "Draft a reply" suggestions, and updated empty-state copy.
+- **No new mutations:** nothing sends, archives, labels or deletes.
+- **Tests:** `AssistantMemoryTests` (1), `AssistantActionTests` (5: router guards, remember/forget and writer injection, contact summary, reply saved as a draft with no send, availability requires Calendar); `AssistantComposeTests` updated for the writer planner. Full offline suite: 496 tests (285 rendering + 211 core), 0 failures, 7 skipped. Not yet run on a real account.

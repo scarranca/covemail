@@ -34,9 +34,10 @@ struct ComposeSuggestion {
   }
 
   static func instruction(_ request: String, voice: String, instructions: [String], selection: Bool,
-                          profile: VoiceProfile? = nil) -> String {
+                          profile: VoiceProfile? = nil, memories: String? = nil) -> String {
     var parts = ["Current user request:\n" + request, "Writing voice: \(voice). Preserve facts, names, dates, and commitments."]
     if let profile { parts.append(profile.promptText) }
+    if let memories { parts.append(memories) }
     if !instructions.isEmpty {
       parts.append("Saved writing preferences:\n" + instructions.joined(separator: "\n"))
     }
