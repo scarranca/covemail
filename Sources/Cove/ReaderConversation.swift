@@ -5,7 +5,7 @@ import SwiftUI
 struct ReaderConversation: View {
   let store: AppStore
   let anchor: Mail
-  let onReply: (Mail) -> Void
+  let onReply: (Mail, Bool) -> Void
   @State private var loading = false
   @State private var failure: String?
   @State private var retry = 0
@@ -74,9 +74,9 @@ struct ReaderThreadMessage: View {
   let store: AppStore
   let mail: Mail
   let selected: Bool
-  let onReply: (Mail) -> Void
+  let onReply: (Mail, Bool) -> Void
   @State private var expanded: Bool
-  init(store: AppStore, mail: Mail, selected: Bool, onReply: @escaping (Mail) -> Void) {
+  init(store: AppStore, mail: Mail, selected: Bool, onReply: @escaping (Mail, Bool) -> Void) {
     self.store = store; self.mail = mail; self.selected = selected; self.onReply = onReply
     _expanded = State(initialValue: selected)
   }
@@ -127,17 +127,28 @@ struct ReaderThreadMessage: View {
     }.padding(.leading, 16).padding(.trailing, expanded ? 8 : 16).frame(minHeight: 60)
   }
 
+  private var canReplyAll: Bool {
+    MailConversation.replyAllRecipients(for: mail, accountEmail: store.accountEmail) != nil
+  }
   private var snippet: String {
     mail.body.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
   }
 
   private var actions: some View {
     HStack(spacing: 0) {
-      Button { onReply(mail) } label: {
+      Button { onReply(mail, false) } label: {
         Image(systemName: "arrowshape.turn.up.left").frame(width: 32, height: 32).contentShape(Rectangle())
       }.buttonStyle(ReaderActionStyle()).help("Reply").accessibilityLabel("Reply to \(mail.sender)")
+      if canReplyAll {
+        Button { onReply(mail, true) } label: {
+          Image(systemName: "arrowshape.turn.up.left.2").frame(width: 32, height: 32).contentShape(Rectangle())
+        }.buttonStyle(ReaderActionStyle()).help("Reply all").accessibilityLabel("Reply all")
+      }
       Menu {
-        Button("Reply", systemImage: "arrowshape.turn.up.left") { onReply(mail) }
+        Button("Reply", systemImage: "arrowshape.turn.up.left") { onReply(mail, false) }
+        if canReplyAll {
+          Button("Reply all", systemImage: "arrowshape.turn.up.left.2") { onReply(mail, true) }
+        }
         Button("Forward", systemImage: "arrowshape.turn.up.right") { store.prepareHomeDelegation(mail) }
           .disabled(store.busy)
         Divider()

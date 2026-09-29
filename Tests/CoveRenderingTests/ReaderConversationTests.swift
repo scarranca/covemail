@@ -144,12 +144,17 @@ import XCTest
     let (store, _, original) = try fixture()
     store.isSample = true
     var first = original; first.draft = "Thanks, I'll review it today."; first.date = Date(timeIntervalSince1970: 1000)
+    first.to = "\(store.accountEmail), Sam Lee <sam@example.com>"; first.cc = "Jo <jo@example.com>"
     var response = first; response.id = "m2"; response.draft = ""; response.sender = "Alex Morgan"
     response.senderEmail = "alex@example.com"; response.body = "Sounds good."; response.date = first.date.addingTimeInterval(3600)
     store.mails = [response, first]
     for width in [420.0, 760.0] {
       try await render(ReaderView(store: store, mail: first), width: width, height: 1500, name: "conversation-reply-\(Int(width))")
     }
+    let all = try XCTUnwrap(MailConversation.replyAllRecipients(for: first, accountEmail: store.accountEmail))
+    let sent = await store.send(to: all.to, subject: "Re: \(first.subject)", body: "On it.", reply: first, cc: all.cc)
+    XCTAssertTrue(sent)
+    XCTAssertEqual(store.mails.first { $0.labels.contains("SENT") }?.cc, "Sam Lee <sam@example.com>, Jo <jo@example.com>")
   }
   func testPDFAndImagePreviewRenderInline() async throws {
     _ = NSApplication.shared

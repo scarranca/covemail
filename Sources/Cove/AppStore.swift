@@ -1388,7 +1388,7 @@ import SwiftUI
     mails[index].body = body
     persistMessage(mails[index])
   }
-  func send(to: String, subject: String, body: String, reply: Mail? = nil, draftID: String? = nil, from: String? = nil)
+  func send(to: String, subject: String, body: String, reply: Mail? = nil, draftID: String? = nil, from: String? = nil, cc: String = "")
     async -> Bool
   {
     guard entered, !busy, let database else { return false }
@@ -1401,7 +1401,7 @@ import SwiftUI
     var localSaveFailed = false
     await run(isSample ? "Saving sample reply…" : "Sending through Gmail…") {
       _ = try GmailClient.rawMessage(
-        from: sender, to: to, subject: subject, body: body, replyMessageID: reply?.messageID)
+        from: sender, to: to, subject: subject, body: body, replyMessageID: reply?.messageID, cc: cc)
       let sentID: String
       if self.isSample {
         guard sender.caseInsensitiveCompare(primary) == .orderedSame else {
@@ -1428,7 +1428,7 @@ import SwiftUI
         guard generation == self.mailboxGeneration else { throw CancellationError() }
         do {
           sentID = try await self.gmail.send(
-            token: token, from: sender, to: to, subject: subject, body: body, reply: reply)
+            token: token, from: sender, to: to, subject: subject, body: body, reply: reply, cc: cc)
         } catch let failure as HTTPFailure where (400..<500).contains(failure.statusCode) {
           throw failure
         } catch {
@@ -1442,7 +1442,7 @@ import SwiftUI
       guard generation == self.mailboxGeneration else { throw CancellationError() }
       let sent = Mail(
         id: sentID, threadID: reply?.threadID ?? "", sender: sender, senderEmail: sender, to: to,
-        subject: subject, body: body, labels: ["SENT"])
+        subject: subject, body: body, labels: ["SENT"], cc: cc)
       var updated = self.mails
       updated.insert(sent, at: 0)
       if let reply, let index = updated.firstIndex(where: { $0.id == reply.id }) {

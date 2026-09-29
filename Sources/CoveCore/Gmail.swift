@@ -157,7 +157,8 @@ public struct GmailMessage: Decodable {
       attachments: payload?.attachments(), htmlBody: html,
       isBulkOrAutomated: KeepInTouch.hasBulkOrAutomatedHeaders(
         listID: header("List-ID"), listUnsubscribe: header("List-Unsubscribe"),
-        autoSubmitted: header("Auto-Submitted"), precedence: header("Precedence")))
+        autoSubmitted: header("Auto-Submitted"), precedence: header("Precedence")),
+      cc: header("Cc"))
   }
   /// A few senders leak presentation markup into text/plain. Only recognize paired,
   /// attributed HTML fragments that also occur literally in the HTML alternative.
@@ -293,7 +294,7 @@ public struct GmailClient {
   }
   public static func rawMessage(
     from: String, to: String, subject: String, body: String, replyMessageID: String? = nil,
-    date: Date = Date()
+    date: Date = Date(), cc: String = ""
   ) throws -> String {
     guard from.rangeOfCharacter(from: .newlines) == nil,
       !from.trimmingCharacters(in: .whitespaces).isEmpty, from.contains("@")
@@ -304,6 +305,10 @@ public struct GmailClient {
       subject.rangeOfCharacter(from: .newlines) == nil,
       !to.trimmingCharacters(in: .whitespaces).isEmpty, to.contains("@")
     else { throw CoveError.message("Enter a valid recipient and a single-line subject.") }
+    let cc = cc.trimmingCharacters(in: .whitespaces)
+    guard cc.rangeOfCharacter(from: .newlines) == nil, cc.isEmpty || cc.contains("@") else {
+      throw CoveError.message("Enter valid Cc recipients.")
+    }
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.calendar = Calendar(identifier: .gregorian)
@@ -311,7 +316,9 @@ public struct GmailClient {
     formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
     var headers = [
       "From: \(from)", "Date: \(formatter.string(from: date))",
-      "To: \(to)", "Subject: \(encodedSubject(subject))",
+      "To: \(to)",
+    ] + (cc.isEmpty ? [] : ["Cc: \(cc)"]) + [
+      "Subject: \(encodedSubject(subject))",
       "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8",
       "Content-Transfer-Encoding: base64",
     ]
@@ -345,13 +352,14 @@ public struct GmailClient {
     return words.joined(separator: "\r\n ")
   }
   public func send(
-    token: String, from: String, to: String, subject: String, body: String, reply: Mail? = nil
+    token: String, from: String, to: String, subject: String, body: String, reply: Mail? = nil,
+    cc: String = ""
   )
     async throws -> String
   {
     var payload: [String: Any] = [
       "raw": try Self.rawMessage(
-        from: from, to: to, subject: subject, body: body, replyMessageID: reply?.messageID)
+        from: from, to: to, subject: subject, body: body, replyMessageID: reply?.messageID, cc: cc)
     ]
     if let reply, !reply.threadID.isEmpty { payload["threadId"] = reply.threadID }
     struct Sent: Decodable { var id: String }

@@ -149,7 +149,8 @@ public enum ContactDirectory {
     chunks.append(current)
     return chunks.map { raw in
       let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-      if let start = text.firstIndex(of: "<"), let end = text.lastIndex(of: ">"), start < end {
+      // The address is the final angle-addr; a quoted display name may itself contain "<".
+      if let start = text.lastIndex(of: "<"), let end = text.lastIndex(of: ">"), start < end {
         let name = String(text[..<start]).trimmingCharacters(in: .whitespacesAndNewlines)
           .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         return (name, String(text[text.index(after: start)..<end]))

@@ -8,13 +8,21 @@ struct ReaderView: View {
   @State private var reply = ""
   @State private var replyTarget: Mail?
   @State private var showReply = false
+  @State private var replyAll = false
   @State private var showAIWriting = false
   @State private var assessmentHidden = false
   @State private var showEvidence = false
   @FocusState private var replyFocused: Bool
   var current: Mail { store.mails.first { $0.id == mail.id } ?? mail }
   private var replySource: Mail { replyTarget.map { target in store.mails.first { $0.id == target.id } ?? target } ?? current }
-  private var replyRecipient: String { MailConversation.replyRecipient(for: replySource, accountEmail: store.accountEmail) }
+  private var replyAllRecipients: (to: String, cc: String)? {
+    MailConversation.replyAllRecipients(for: replySource, accountEmail: store.accountEmail)
+  }
+  private var replyingToAll: Bool { replyAll && replyAllRecipients != nil }
+  private var replyRecipient: String {
+    replyingToAll ? replyAllRecipients!.to : MailConversation.replyRecipient(for: replySource, accountEmail: store.accountEmail)
+  }
+  private var replyCc: String { replyingToAll ? replyAllRecipients!.cc : "" }
   private func updateReply(_ value: String) {
     reply = value
     store.saveReply(id: replySource.id, text: value)
@@ -39,10 +47,11 @@ struct ReaderView: View {
               assessment(decision)
             }
             Divider()
-            ReaderConversation(store: store, anchor: current) { message in
+            ReaderConversation(store: store, anchor: current) { message, all in
               store.saveReply(id: replySource.id, text: reply)
               replyTarget = message
               reply = message.draft
+              replyAll = all
               showReply = true
               Task { @MainActor in
                 await Task.yield()
@@ -59,7 +68,8 @@ struct ReaderView: View {
             .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity)
         }
         Divider()
-        responseBar {
+        responseBar { all in
+          replyAll = all
           if localDraft {
             store.composeID = current.id; store.showComposer = true
           } else {
@@ -247,7 +257,7 @@ struct ReaderView: View {
     }.buttonStyle(.plain).font(.coveSecondary).frame(minHeight: 40)
   }
 
-  private func responseBar(replyAction: @escaping () -> Void) -> some View {
+  private func responseBar(replyAction: @escaping (Bool) -> Void) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 12) { responseActions(replyAction); Spacer(minLength: 12); noReplyNotice; askButton }
@@ -258,11 +268,18 @@ struct ReaderView: View {
       }
     }.padding(.horizontal, 32).padding(.vertical, 18).background(Palette.canvas)
   }
-  private func responseActions(_ replyAction: @escaping () -> Void) -> some View {
+  private func responseActions(_ replyAction: @escaping (Bool) -> Void) -> some View {
     Group {
-      Button(action: replyAction) {
+      Button { replyAction(false) } label: {
         Label(localDraft ? "Continue writing" : showReply ? "Continue reply" : "Reply", systemImage: "arrowshape.turn.up.left")
       }.buttonStyle(PrimaryButton())
+      if !localDraft && !showReply
+        && MailConversation.replyAllRecipients(for: current, accountEmail: store.accountEmail) != nil
+      {
+        Button { replyAction(true) } label: {
+          Label("Reply all", systemImage: "arrowshape.turn.up.left.2")
+        }.buttonStyle(SecondaryButton())
+      }
       if !localDraft {
         Button { store.prepareHomeDelegation(current) } label: {
           Label("Forward", systemImage: "arrowshape.turn.up.right")
@@ -292,7 +309,19 @@ struct ReaderView: View {
       }.padding(.horizontal, 17).padding(.vertical, 13).background(Palette.sidebar)
       Divider()
       VStack(alignment: .leading, spacing: 14) {
-        Text("To  \(replyRecipient)").font(.coveSecondary).foregroundStyle(Palette.muted)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("To  \(replyRecipient)")
+            if replyingToAll { Text("Cc  \(replyCc)") }
+          }.font(.coveSecondary).foregroundStyle(Palette.muted).textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 0)
+          if replyAllRecipients != nil {
+            // Switching keeps the text; only the recipients change.
+            Button(replyingToAll ? "Reply to sender only" : "Reply all") { replyAll.toggle() }
+              .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).fixedSize()
+          }
+        }
         TextEditor(text: Binding(get: { reply }, set: { updateReply($0) })).focused($replyFocused).font(.coveBody).lineSpacing(6).scrollContentBackground(
           .hidden
         ).accessibilityLabel("Reply body").frame(
@@ -316,10 +345,11 @@ extension ReaderView {
     Button {
       let source = replySource
       let recipient = replyRecipient
+      let cc = replyCc
       let sentText = reply
       let subject = source.subject.lowercased().hasPrefix("re:") ? source.subject : "Re: \(source.subject)"
       Task {
-        if await store.send(to: recipient, subject: subject, body: sentText, reply: source),
+        if await store.send(to: recipient, subject: subject, body: sentText, reply: source, cc: cc),
           replySource.id == source.id, reply == sentText
         {
           reply = ""

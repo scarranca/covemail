@@ -34,6 +34,8 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable {
   public var senderEmail: String
   public var replyTo: String?
   public var to: String
+  // "" means Gmail sent no Cc header; nil means a snapshot saved before Cc was stored.
+  public var cc: String?
   public var subject: String
   public var body: String
   // Optional for older snapshots and plain-text-only email. Keep body for search and Jev.
@@ -77,8 +79,10 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable {
     to: String = "", subject: String, body: String, date: Date = Date(),
     labels: Set<String> = ["INBOX", "UNREAD"], messageID: String = "", decision: Decision? = nil,
     snoozedUntil: Date? = nil, draft: String = "", replyTo: String? = nil,
-    attachments: [MailAttachment]? = nil, htmlBody: String? = nil, isBulkOrAutomated: Bool? = nil
+    attachments: [MailAttachment]? = nil, htmlBody: String? = nil, isBulkOrAutomated: Bool? = nil,
+    cc: String? = nil
   ) {
+    self.cc = cc
     self.id = id
     self.threadID = threadID
     self.sender = sender
