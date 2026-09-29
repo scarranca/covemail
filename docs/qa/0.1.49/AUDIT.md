@@ -1,4 +1,4 @@
-# Cove 0.1.49 (unreleased) — large questions across mail
+# Cove 0.1.49 — large questions across mail and assistant actions
 
 ## Problem (user screenshot, September 29)
 
