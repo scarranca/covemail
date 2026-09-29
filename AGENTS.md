@@ -13,10 +13,10 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 29, 2026
 
-- **Cove 0.1.47, build 49**, is published at `https://covemail.xyz` (Cloudflare Pages deployment `9c0a9d4f`, commit `49625c5`). The universal app and DMG are Developer ID signed, notarized (app `769c642e-…`, DMG `732e0430-…`) and stapled, and embed the "Cove Developer ID" provisioning profile with `assets/Cove.hardened.entitlements`. Evidence: `docs/qa/0.1.47/AUDIT.md`.
-- 0.1.47 adds a learned writing voice (shared across accounts and, via cloud sync, across Macs), Ask Cove new emails and introductions, conversation cards with a Reply menu and Reply all, a searchable label picker, Inbox Unread, one-step Calendar, hardened AI/TypeSafe keys with optional Touch ID, and cache-aware reconnect.
+- **Cove 0.1.48, build 50**, is published at `https://covemail.xyz` (Pages deployment `75e0a625`, commit `1baecef`). It is a hotfix for 0.1.47: login-keychain queries must set `kSecUseDataProtectionKeychain: false` (`Vault.legacyQuery`), because otherwise deletes also remove data-protection items on the hardened build. Evidence: `docs/qa/0.1.48/AUDIT.md` and `docs/qa/0.1.47/AUDIT.md`.
+- 0.1.47 (deployment `9c0a9d4f`) added the learned voice (shared across accounts and, via cloud sync, across Macs), Ask Cove new emails and introductions, conversation cards with a Reply menu, a searchable label picker, Inbox Unread, one-step Calendar, and hardened AI/TypeSafe keys with optional Touch ID.
 - Backend: migration 003 `voice_profiles` applied (user-approved exact SQL); Cloud Run `cove-sync-api-00005-xtt` serves `/v1/voice`.
-- Release builds need `.local/Cove.provisionprofile` and `.local/google-oauth-desktop.json` in the building checkout. Publishing used Wrangler OAuth (account `f1bf637a…`); verify `whoami` shows that account before any deploy.
+- Release builds need `.local/Cove.provisionprofile` and `.local/google-oauth-desktop.json` in the building checkout, plus historical DMGs in `dist/releases` (kept in the main checkout). Publishing uses Wrangler OAuth; `whoami` must show account `f1bf637a…`. The Developer ID key is currently in the System keychain, so each codesign use asks for an admin password.
 - Published and installed/running versions may differ; the user's running app was not replaced.
 
 ## Product and collaboration expectations
