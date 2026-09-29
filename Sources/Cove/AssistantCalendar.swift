@@ -16,15 +16,26 @@ import Foundation
     let end: Date
     let availability: String
   }
+  struct ComposeRequest: Equatable {
+    let recipients: [String]
+    let subject: String
+    let purpose: String
+    let intro: Bool
+  }
   enum Result {
     case email
+    case compose(ComposeRequest)
     case clarification(String)
     case proposal(Proposal)
     case agenda(AssistantAgenda)
   }
   private struct Plan: Decodable {
-    enum Action: String, Decodable { case email, clarify, propose, agenda }
+    enum Action: String, Decodable { case email, clarify, propose, agenda, compose }
     let action: Action
+    var recipients: [String]?
+    var subject: String?
+    var purpose: String?
+    var intro: Bool?
     var title: String?
     var start: String?
     var end: String?
@@ -48,6 +59,16 @@ import Foundation
     } catch { throw CoveError.message("I couldn’t understand the calendar request. Try including the date, start time, and duration.") }
     switch plan.action {
     case .email: return .email
+    case .compose:
+      let recipients = (plan.recipients ?? []).map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)) }
+        .filter { !$0.isEmpty }
+      guard !recipients.isEmpty, recipients.count <= 10 else {
+        return .clarification("Who should this email go to?")
+      }
+      return .compose(ComposeRequest(recipients: recipients,
+        subject: String((plan.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(200)),
+        purpose: String((plan.purpose ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(600)),
+        intro: plan.intro == true))
     case .clarify:
       guard let question = plan.question?.trimmingCharacters(in: .whitespacesAndNewlines),
         !question.isEmpty, question.utf8.count <= 800 else {

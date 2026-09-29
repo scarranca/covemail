@@ -709,6 +709,23 @@ struct AssistantView: View {
             exchanges[index].answer = agenda.plainText
             exchanges[index].source = store.isSample ? "Calendar · sample data" : "Calendar · live lookup"
             return
+          case .compose(let request):
+            exchanges[index].progress = "Finding contacts and writing your draft…"
+            let outcome = try await store.draftNewEmail(request, question: question) { prompt in
+              try await aiSettings.complete(prompt, provider: provider, model: model)
+            }
+            guard !Task.isCancelled, store.accountEmail == account,
+              let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
+            switch outcome {
+            case .clarification(let question):
+              exchanges[index].answer = question
+              exchanges[index].source = "Your contacts · nothing drafted"
+            case .opened(let recipients, _):
+              exchanges[index].answer = "Here’s your draft to \(recipients.map(\.name).joined(separator: " and ")), open in the composer for review. Nothing has been sent."
+              exchanges[index].source = "Draft · \(provider.title) · \(model)"
+              store.showAssistant = false
+            }
+            return
           case .email: break
           }
           if searchingGmail {

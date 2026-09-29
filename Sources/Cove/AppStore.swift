@@ -594,6 +594,44 @@ import SwiftUI
     preferences = updated
     return profile
   }
+  enum AssistantDraftOutcome: Equatable {
+    case clarification(String)
+    case opened(recipients: [MailContact], subject: String)
+  }
+  /// Writes a new email (for example an introduction) to people matched in the user's contacts,
+  /// then opens it in the composer for review. Nothing is sent.
+  func draftNewEmail(
+    _ request: AssistantCalendar.ComposeRequest, question: String,
+    write: (AIPrompt) async throws -> String
+  ) async throws -> AssistantDraftOutcome {
+    guard entered else { throw CoveError.message("Open a mailbox before drafting.") }
+    let generation = mailboxGeneration
+    let resolution = RecipientResolver.resolve(
+      request.recipients, contacts: contacts, question: question, accountEmail: accountEmail)
+    guard case .resolved(let people) = resolution else { return .clarification(resolution.clarification ?? "") }
+    let to = people.map { $0.name == $0.email ? $0.email : "\($0.name) <\($0.email)>" }.joined(separator: ", ")
+    let firstNames = people.map { $0.name == $0.email ? $0.email : String($0.name.split(separator: " ").first ?? "") }
+    var task = "Write a NEW email to: \(to).\nWhat it should accomplish: \(request.purpose.isEmpty ? question : request.purpose)\nThe user's words: \(question)"
+    if request.intro {
+      task += "\nThis is an introduction. Greet \(firstNames.joined(separator: " and ")) together, say in one or two sentences why they should connect using only what the user said, and hand it over to them. Do not invent roles, companies or facts about either person; if the reason is unclear, keep it general."
+    }
+    task += "\nReturn only the email body."
+    let instruction = ComposeSuggestion.instruction(
+      task, voice: preferences.voice, instructions: preferences.instructions, selection: false,
+      profile: preferences.voiceProfile)
+    let prompt = try AIPrompt(intent: .write, instruction: instruction,
+      mails: WritingContext.recentMail(to: people.map(\.email).joined(separator: ", "), mails: mails))
+    let body = try await write(prompt).trimmingCharacters(in: .whitespacesAndNewlines)
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration, entered else { throw CancellationError() }
+    guard !body.isEmpty else { throw CoveError.message("The writing model returned an empty draft. Try again.") }
+    let subject = !request.subject.isEmpty ? request.subject
+      : request.intro && people.count == 2 ? "Intro: \(firstNames[0]) ⟷ \(firstNames[1])" : ""
+    newDraft()
+    guard let id = composeID else { throw CoveError.message("Couldn’t open a new draft.") }
+    saveComposition(id: id, to: to, subject: subject, body: body)
+    return .opened(recipients: people, subject: subject)
+  }
   func forgetVoice() {
     guard let database else { return }
     var updated = preferences
