@@ -67,8 +67,10 @@ struct MailboxView: View {
               }.buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body)
             } else {
             HStack(spacing: 20) {
+              let unreadOnly = store.labelUnreadOnly && store.folder == "Inbox"
               Button {
                 store.priorityOnly = true
+                store.labelUnreadOnly = false
                 store.reconcileSelection()
               } label: {
                 Text("Priority \(store.attentionCount)").fontWeight(
@@ -76,12 +78,24 @@ struct MailboxView: View {
                 )
                 .foregroundStyle(store.priorityOnly ? Palette.body : Palette.muted)
               }
+              if store.folder == "Inbox" {
+                Button {
+                  store.priorityOnly = false
+                  store.labelUnreadOnly = true
+                  store.reconcileSelection()
+                } label: {
+                  Text("Unread \(store.inboxUnreadCount)").fontWeight(unreadOnly ? .medium : .regular)
+                    .foregroundStyle(unreadOnly ? Palette.body : Palette.muted)
+                }
+              }
               Button {
                 store.priorityOnly = false
+                store.labelUnreadOnly = false
                 store.reconcileSelection()
               } label: {
-                Text("All mail").fontWeight(!store.priorityOnly ? .medium : .regular)
-                  .foregroundStyle(!store.priorityOnly ? Palette.body : Palette.muted)
+                let all = !store.priorityOnly && !unreadOnly
+                Text("All mail").fontWeight(all ? .medium : .regular)
+                  .foregroundStyle(all ? Palette.body : Palette.muted)
               }
               Spacer()
             }.buttonStyle(.plain).font(.coveText).foregroundStyle(Palette.muted)

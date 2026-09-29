@@ -34,6 +34,26 @@ import CoveCore
     XCTAssertEqual(store.visible.map(\.id), ["inbox"])
     store.chooseFolder("Inbox"); XCTAssertFalse(store.labelUnreadOnly); XCTAssertFalse(store.labelOldestFirst)
   }
+  func testInboxUnreadFilterKeepsOpenMessageUntilSelectionMoves() async throws {
+    let (store, _) = try fixture(); store.isSample = true
+    store.mails = [mail("new", labels: ["INBOX", "UNREAD"], date: 4), mail("next", labels: ["INBOX", "UNREAD"], date: 3),
+      mail("read", labels: ["INBOX"], date: 2), mail("archived", labels: ["UNREAD"], date: 1)]
+    store.chooseFolder("Inbox")
+    XCTAssertEqual(store.inboxUnreadCount, 2)
+    store.labelUnreadOnly = true
+    XCTAssertEqual(store.visible.map(\.id), ["new", "next"])
+    store.select(store.mails[0]); await store.markViewed(store.mails[0])
+    store.reconcileSelection()
+    XCTAssertEqual(store.selectedID, "new")
+    XCTAssertEqual(store.visible.map(\.id), ["new", "next"])
+    XCTAssertEqual(store.inboxUnreadCount, 1)
+    store.moveSelection(by: 1)
+    XCTAssertEqual(store.selectedID, "next")
+    XCTAssertEqual(store.visible.map(\.id), ["next"])
+    store.chooseFolder("Sent"); XCTAssertFalse(store.labelUnreadOnly)
+    store.labelUnreadOnly = true; store.chooseFolder("Archive")
+    XCTAssertEqual(store.labelUnreadOnly, false)
+  }
   func testCatalogAndLabelPagePersistWithoutAdvancingMainSyncCursor() async throws {
     let http = LabelHTTP(); let (store, db) = try fixture(http)
     store.nextPage = "mailbox-next"

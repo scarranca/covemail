@@ -261,6 +261,85 @@ final class GmailSyncTests: XCTestCase {
     }
   }
 
+  func testExpiredHistoryRefreshesOnlyLabelsForStoredMessagesOnFirstPage() async throws {
+    let transport = SyncFixtureHTTP { request in
+      switch request.url!.lastPathComponent {
+      case "history": return (404, [:])
+      case "profile": return (200, ["historyId": "new-baseline"])
+      case "messages":
+        return (200, ["messages": [["id": "stored"], ["id": "new"], ["id": "vanished"]]])
+      case "stored":
+        XCTAssertEqual(request.query("format"), "minimal")
+        return (200, ["labelIds": ["INBOX", "STARRED"]])
+      case "vanished":
+        XCTAssertEqual(request.query("format"), "minimal")
+        return (404, [:])
+      case "new":
+        XCTAssertEqual(request.query("format"), "full")
+        return (200, ["id": "new", "threadId": "new-thread", "labelIds": ["INBOX"]])
+      default: throw SyncFixtureError.unexpectedRequest(request.url!.absoluteString)
+      }
+    }
+    var stored = cached("stored")
+    stored.draft = "Unsent reply"
+    stored.decision = Samples.mail[0].decision
+    let existing = [stored, cached("vanished")]
+    let result = try await GmailClient(transport: transport).synchronize(
+      token: "fixture", cached: existing, historyID: "expired")
+    let applied = result.applying(to: existing)
+    XCTAssertEqual(Set(applied.map(\.id)), ["stored", "new"])
+    let updated = try XCTUnwrap(applied.first { $0.id == "stored" })
+    XCTAssertEqual(updated.labels, ["INBOX", "STARRED"])
+    XCTAssertEqual(updated.body, "Original")
+    XCTAssertEqual(updated.draft, stored.draft)
+    XCTAssertEqual(updated.decision, stored.decision)
+    let paths = await transport.paths()
+    // Each stored message is requested once, not again by deletion reconciliation.
+    XCTAssertEqual(paths.filter { $0 == "stored" }.count, 1)
+    XCTAssertEqual(paths.filter { $0 == "vanished" }.count, 1)
+  }
+
+  func testOlderPageDownloadsOnlyMessagesNotAlreadyStored() async throws {
+    let transport = SyncFixtureHTTP { request in
+      switch request.url!.lastPathComponent {
+      case "messages":
+        XCTAssertEqual(request.query("pageToken"), "older")
+        return (200, ["messages": [["id": "stored"], ["id": "new"]], "nextPageToken": "oldest"])
+      case "stored":
+        XCTAssertEqual(request.query("format"), "minimal")
+        return (200, ["labelIds": ["UNREAD"]])
+      case "new":
+        XCTAssertEqual(request.query("format"), "full")
+        return (200, ["id": "new", "threadId": "thread", "labelIds": ["INBOX"]])
+      default: throw SyncFixtureError.unexpectedRequest(request.url!.absoluteString)
+      }
+    }
+    let page = try await GmailClient(transport: transport).page(
+      token: "fixture", pageToken: "older", cachedIDs: ["stored"])
+    XCTAssertEqual(page.messages.map(\.id), ["new"])
+    XCTAssertEqual(page.labels, ["stored": ["UNREAD"]])
+    XCTAssertTrue(page.deletedIDs.isEmpty)
+    XCTAssertEqual(page.next, "oldest")
+  }
+
+  func testContentRefreshStillDownloadsStoredMessagesOnFirstPage() async throws {
+    let transport = SyncFixtureHTTP { request in
+      switch request.url!.lastPathComponent {
+      case "profile": return (200, ["historyId": "baseline"])
+      case "messages": return (200, ["messages": [["id": "stored"]]])
+      case "stored":
+        XCTAssertEqual(request.query("format"), "full")
+        return (200, ["id": "stored", "threadId": "thread", "labelIds": ["INBOX"]])
+      default: throw SyncFixtureError.unexpectedRequest(request.url!.absoluteString)
+      }
+    }
+    let result = try await GmailClient(transport: transport).synchronize(
+      token: "fixture", cached: [cached("stored")], historyID: "valid", refreshContent: true)
+    XCTAssertEqual(result.messages.map(\.id), ["stored"])
+    let paths = await transport.paths()
+    XCTAssertEqual(paths.filter { $0 == "stored" }.count, 1)
+  }
+
   func testMessageDisappearingBetweenListAndFetchDoesNotAbortPage() async throws {
     let transport = SyncFixtureHTTP { request in
       switch request.url!.lastPathComponent {

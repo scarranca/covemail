@@ -160,6 +160,11 @@ import SwiftUI
   private var lastMailboxPoll = Date.distantPast
   private var automaticRetryAfter: [String: Date] = [:]
   var selected: Mail? { mails.first { $0.id == selectedID } }
+  /// Messages already saved in the encrypted local store. Page loads refresh only their labels,
+  /// unless a decoder upgrade still requires their content to be downloaded again.
+  private var storedRemoteMailIDs: Set<String> {
+    needsContentRefresh ? [] : Set(mails.filter { !$0.id.hasPrefix("local-") }.map(\.id))
+  }
   var needsContentRefresh: Bool {
     entered && !isSample && mailDecodingVersion < GmailMessage.decodingVersion
   }
@@ -183,7 +188,8 @@ import SwiftUI
       let searchable = "\(mail.sender) \(mail.senderEmail) \(mail.subject) \(mail.body)"
       return !queuedTrashIDs.contains(mail.id) && mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) && inFolder
         && (!priorityOnly || mail.isPriority)
-        && (!isFocusedMailView || !labelUnreadOnly || mail.isUnread)
+        // The open message stays listed after it is marked read, until selection moves on.
+        && (!unreadFilterApplies || !labelUnreadOnly || mail.isUnread || mail.id == selectedID)
         && (search.isEmpty || searchable.localizedCaseInsensitiveContains(search))
     }.sorted { labelOldestFirst && isFocusedMailView ? $0.date < $1.date : $0.date > $1.date }
   }
@@ -191,6 +197,14 @@ import SwiftUI
     mails.filter {
       !queuedTrashIDs.contains($0.id) && $0.labels.contains("INBOX") && $0.labels.isDisjoint(with: ["TRASH", "SPAM"])
         && ($0.snoozedUntil ?? .distantPast) <= now
+    }.count
+  }
+  /// Label views and Inbox offer an unread-only filter; `labelUnreadOnly` holds it for both.
+  var unreadFilterApplies: Bool { isFocusedMailView || folder == "Inbox" }
+  var inboxUnreadCount: Int {
+    mails.filter {
+      !queuedTrashIDs.contains($0.id) && $0.isUnread && $0.labels.contains("INBOX")
+        && $0.labels.isDisjoint(with: ["TRASH", "SPAM"]) && ($0.snoozedUntil ?? .distantPast) <= now
     }.count
   }
   var attentionCount: Int {
@@ -607,10 +621,11 @@ import SwiftUI
       let result: GmailSyncResult
       if older {
         guard let next = self.nextPage else { return }
-        let page = try await self.gmail.page(token: token, pageToken: next)
+        let page = try await self.gmail.page(
+          token: token, pageToken: next, cachedIDs: self.storedRemoteMailIDs)
         result = GmailSyncResult(
-          messages: page.messages, historyID: self.gmailHistoryID ?? "",
-          nextPage: page.next, resetsPagination: true)
+          messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
+          historyID: self.gmailHistoryID ?? "", nextPage: page.next, resetsPagination: true)
       } else {
         result = try await self.gmail.synchronize(
           token: token, cached: self.mails,
@@ -1951,13 +1966,22 @@ extension AppStore {
       let token: String
       if let provider = gmailTokenProvider { token = try await provider() }
       else { token = try await auth.token() }
-      let page = try await gmail.page(token: token, pageToken: pageToken, labelID: labelID)
+      let page = try await gmail.page(
+        token: token, pageToken: pageToken, labelID: labelID, cachedIDs: storedRemoteMailIDs)
       var visited = older ? labelVisitedPages[labelID] ?? [] : []
       if let pageToken { visited.insert(pageToken) }
       if let next = page.next, visited.contains(next) { throw CoveError.message("Gmail repeated a page. Refresh this view to continue.") }
       try Task.checkCancellation()
       guard generation == mailboxGeneration else { return }
-      var merged = GmailSyncResult(messages: page.messages, historyID: "").applying(to: mails).map { cloudSnoozes.applying(to: $0) }
+      if !page.deletedIDs.isEmpty {
+        var snoozes = cloudSnoozes
+        snoozes.cancelDeleted(page.deletedIDs)
+        try database?.save(snoozes, key: "cloudSnoozes")
+        cloudSnoozes = snoozes
+      }
+      var merged = GmailSyncResult(
+        messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs, historyID: ""
+      ).applying(to: mails).map { cloudSnoozes.applying(to: $0) }
       for index in merged.indices {
         if let change = readChanges[merged[index].id], change.revision > readRevisionAtStart || pendingAtStart.contains(merged[index].id) || pendingReadTasks[merged[index].id] != nil {
           if change.unread { merged[index].labels.insert("UNREAD") } else { merged[index].labels.remove("UNREAD") }

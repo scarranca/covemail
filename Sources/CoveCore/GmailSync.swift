@@ -118,12 +118,12 @@ extension GmailClient {
       ).mail()
     } catch let error as HTTPFailure where error.statusCode == 404 { return nil }
   }
-  private enum MessageUpdate: Sendable {
+  enum MessageUpdate: Sendable {
     case full(Mail)
     case labels(String, Set<String>)
     case deleted(String)
   }
-  private func update(id: String, token: String, cached: Bool) async throws -> MessageUpdate {
+  func update(id: String, token: String, cached: Bool) async throws -> MessageUpdate {
     if !cached {
       return try await message(id: id, token: token).map(MessageUpdate.full) ?? .deleted(id)
     }
@@ -184,14 +184,16 @@ extension GmailClient {
     struct Profile: Decodable { let historyId: String }
     let baseline = try JSONDecoder().decode(
       Profile.self, from: await request("profile", token: token))
-    let page = try await page(token: token)
-    let fetchedIDs = Set(page.messages.map(\.id))
+    // Stored messages only need their labels; refreshContent is the one reason to reload bodies.
+    let knownIDs = refreshContent ? [] : cachedIDs
+    let page = try await page(token: token, cachedIDs: knownIDs)
+    let fetchedIDs = Set(page.messages.map(\.id)).union(page.labels.keys).union(page.deletedIDs)
     let result = GmailSyncResult(
-      messages: page.messages, historyID: baseline.historyId,
-      nextPage: page.next, resetsPagination: true)
+      messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
+      historyID: baseline.historyId, nextPage: page.next, resetsPagination: true)
     // Missing from a single page is not deletion: verify every previously cached remote ID.
     return try await fetchUpdates(
-      ids: cachedIDs.subtracting(fetchedIDs), cachedIDs: refreshContent ? [] : cachedIDs,
+      ids: cachedIDs.subtracting(fetchedIDs), cachedIDs: knownIDs,
       token: token, into: result)
   }
 }

@@ -228,8 +228,16 @@ public struct GmailClient {
   public struct Page {
     public var messages: [Mail]
     public var next: String?
+    /// Current Gmail labels for listed messages already stored locally; their content is not refetched.
+    public var labels: [String: Set<String>] = [:]
+    /// Stored messages Gmail confirmed no longer exist.
+    public var deletedIDs: Set<String> = []
   }
-  public func page(token: String, pageToken: String? = nil, labelID: String? = nil) async throws -> Page {
+  /// Lists one page. IDs in `cachedIDs` are already stored on this Mac, so only their labels are fetched.
+  public func page(
+    token: String, pageToken: String? = nil, labelID: String? = nil,
+    cachedIDs: Set<String> = []
+  ) async throws -> Page {
     struct Entry: Decodable { var id: String }
     struct List: Decodable {
       var messages: [Entry]?
@@ -243,22 +251,35 @@ public struct GmailClient {
     if let pageToken { query.append(URLQueryItem(name: "pageToken", value: pageToken)) }
     let list = try JSONDecoder().decode(
       List.self, from: await request("messages", token: token, query: query))
-    var messages: [Mail] = []
+    var result = Page(messages: [], next: list.nextPageToken)
     // Small bounded groups avoid both serial latency and Gmail quota bursts.
     let entries = list.messages ?? []
     for start in stride(from: 0, to: entries.count, by: 5) {
       let batch = Array(entries[start..<min(start + 5, entries.count)])
-      let fetched = try await withThrowingTaskGroup(of: Mail?.self) { group in
+      let updates = try await withThrowingTaskGroup(of: MessageUpdate?.self) { group in
         for entry in batch {
-          group.addTask { try await message(id: entry.id, token: token) }
+          group.addTask {
+            if cachedIDs.contains(entry.id) {
+              return try await update(id: entry.id, token: token, cached: true)
+            }
+            // A message removed between listing and fetching is skipped, not treated as deleted.
+            return try await message(id: entry.id, token: token).map(MessageUpdate.full)
+          }
         }
-        var result: [Mail] = []
-        for try await mail in group { if let mail { result.append(mail) } }
-        return result
+        var values: [MessageUpdate] = []
+        for try await update in group { if let update { values.append(update) } }
+        return values
       }
-      messages.append(contentsOf: fetched)
+      for update in updates {
+        switch update {
+        case .full(let mail): result.messages.append(mail)
+        case .labels(let id, let labels): result.labels[id] = labels
+        case .deleted(let id): result.deletedIDs.insert(id)
+        }
+      }
     }
-    return Page(messages: messages.sorted { $0.date > $1.date }, next: list.nextPageToken)
+    result.messages.sort { $0.date > $1.date }
+    return result
   }
   public func modify(id: String, token: String, add: [String] = [], remove: [String] = [])
     async throws
