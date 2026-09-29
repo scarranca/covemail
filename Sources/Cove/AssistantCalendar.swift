@@ -50,6 +50,17 @@ import Foundation
     var question: String?
   }
 
+  static func words(_ text: String, appearIn source: String) -> Bool {
+    func fold(_ value: String) -> [String] {
+      value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count >= 3 }
+    }
+    let wanted = fold(text)
+    guard !wanted.isEmpty else { return false }
+    let available = Set(fold(source))
+    return Double(wanted.filter(available.contains).count) / Double(wanted.count) >= 0.75
+  }
+
   func respond(_ question: String, mails: [Mail] = [], history: String = "", progress: (String) -> Void) async throws -> Result {
     let clock = ISO8601DateFormatter()
     clock.timeZone = timeZone
@@ -74,6 +85,10 @@ import Foundation
     case .remember, .forget:
       guard let memory = plan.memory.flatMap(Preferences.sanitizedMemory) else {
         return .clarification(plan.action == .remember ? "What should I remember?" : "Which memory should I forget?")
+      }
+      // Memories persist into every future draft: they must come from the user's own words, not email text.
+      if plan.action == .remember && !Self.words(memory, appearIn: question) {
+        return .clarification("Tell me exactly what to remember, in your own words.")
       }
       return plan.action == .remember ? .remember(memory) : .forget(memory)
     case .contact:

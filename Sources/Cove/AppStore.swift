@@ -633,6 +633,12 @@ import SwiftUI
     guard entered else { throw CoveError.message("Open a mailbox before drafting.") }
     let generation = mailboxGeneration
     let current = mails.first { $0.id == mail.id } ?? mail
+    // Never replace a reply the user already started unless they explicitly ask to.
+    let replaces = ["replace", "rewrite", "overwrite", "start over", "reemplaza", "reescribe"]
+      .contains { request.localizedCaseInsensitiveContains($0) }
+    if !current.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !replaces {
+      throw CoveError.message("You already have a draft reply to this email, so I left it unchanged. Open it and use Write with AI, or ask me to replace it.")
+    }
     let recipient = MailConversation.replyRecipient(for: current, accountEmail: accountEmail)
     let subject = current.subject.lowercased().hasPrefix("re:") ? current.subject : "Re: \(current.subject)"
     let instruction = ComposeSuggestion.instruction(
