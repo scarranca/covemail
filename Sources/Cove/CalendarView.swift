@@ -166,6 +166,10 @@ struct CalendarView: View {
               if !store.calendarConnected && !store.isSample {
                 Button("Connect Google Calendar") { Task { await store.connectCalendar() } }
                   .buttonStyle(SecondaryButton()).disabled(store.busy)
+                if let error = store.calendarConnectError {
+                  Text(error).font(.coveSecondary).foregroundStyle(Palette.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
               }
               if store.calendarConnected && !store.isSample {
                 if let error = store.calendarSyncError {

@@ -89,7 +89,9 @@ struct SettingsView: View {
   private var calendarDescription: String {
     if store.isSample { return "Sample events stay on this Mac." }
     if store.calendarConnected { return "Connected · uses your Google sign-in for your primary calendar." }
-    if store.auth.isConnected { return "Adds Calendar to your Google sign-in. Your mail stays as it is." }
+    if store.auth.isConnected {
+      return store.calendarConnectError ?? "Adds Calendar to your Google sign-in. Your mail stays as it is."
+    }
     return "Available after you connect Gmail."
   }
   private var gmailSection: some View {

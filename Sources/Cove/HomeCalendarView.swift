@@ -26,6 +26,9 @@ struct HomeCalendarView: View {
             if store.calendarConnected { await store.refreshHomeCalendar() }
           }
         }.buttonStyle(SecondaryButton()).disabled(store.busy)
+        if let error = store.calendarConnectError {
+          Text(error).font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+        }
       } else {
         if store.calendarSyncing {
           HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Refreshing your schedule…").font(.coveMetadata) }

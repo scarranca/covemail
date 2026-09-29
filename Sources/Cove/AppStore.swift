@@ -47,6 +47,8 @@ import SwiftUI
   var showGoogleCalendar = true
   var calendarSyncing = false
   var calendarSyncError: String?
+  /// Shown beside Connect Calendar actions; Google can return a sign-in without the Calendar scope.
+  var calendarConnectError: String?
   var invitationError: String?
   var invitationNotice: String?
   var respondingEventID: String?
@@ -546,6 +548,7 @@ import SwiftUI
   /// a different Google account or a declined Calendar permission changes nothing.
   func connectCalendar() async {
     guard entered, !isSample, !busy, !calendarConnected else { return }
+    calendarConnectError = nil
     let email = accountEmail
     let generation = mailboxGeneration
     var connected = false
@@ -557,13 +560,18 @@ import SwiftUI
       }
       try pending.session.requireMailbox(email)
       guard pending.session.calendarConnected else {
-        throw CoveError.message("Google didn’t grant Calendar access. Try again and allow Calendar.")
+        let message = "Google didn’t include Calendar access, so nothing changed. If Google only asked about Gmail, Calendar isn’t enabled for Cove’s Google sign-in yet."
+        self.calendarConnectError = message
+        throw CoveError.message(message)
       }
       try self.auth.commit(pending)
       self.calendarConnected = true
       connected = true
     }
     auth.finishBrowserSignIn(success: connected)
+    if !connected && calendarConnectError == nil && generation == mailboxGeneration {
+      calendarConnectError = "Google Calendar wasn’t connected. Try again when you’re ready."
+    }
   }
   func disconnect() {
     guard !busy else { return }
