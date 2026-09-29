@@ -47,7 +47,9 @@ Inbox's filter row is now **Priority · Unread N · All mail**; the three are mu
 
 **Connect Google Calendar** (Home, Calendar, and Settings → Gmail's new Calendar row) adds `calendar.events` to the current Google sign-in. It uses `login_hint` for the connected address and `include_granted_scopes=true`, with the bundled client, so no client ID or secret is needed. The mailbox, screen and selection are not reloaded. A different Google account, a declined Calendar permission, or an account change during sign-in commits nothing. Reconnect Gmail keeps Calendar when it was connected. The custom OAuth client fields stay under Google connection settings for Gmail. The authorization URL is built by `OAuthSupport.authorizationURL`, tested in `OAuthCalendarTests`.
 
-Settings Gmail 900-point render inspected. Live check in Cove QA (not yet connected to Calendar) is **pending the user's report**.
+Settings Gmail 900-point render inspected.
+
+Live check (September 29, Cove QA, real gigstack.io account): the first attempt returned Gmail-only consent. Google silently dropped `calendar.events`, and Cove QA stayed disconnected; an inline explanation is now shown beside Connect. Checked read-only with `gcloud` and Cloud Console: the Calendar API is enabled in `cove-mail-20260922` (project number 1079898814598, which owns the bundled client), and `calendar.events` is registered as a sensitive scope on the consent screen. The cause was the gigstack.io Workspace API controls: Cove was not a configured app. After the user set Cove (client `1079898814598-8vau2s978c3ulmlhsoae7pka15d58o7f`) to **Trusted** in admin.google.com, Connect Google Calendar succeeded and `calendarConnected` became true for `ai.cove.qa`. Other Workspace domains may need the same admin approval. The installed Cove was untouched.
 
 ## September 29 — conversation reader cleanup and Reply all
 
