@@ -81,12 +81,14 @@ extension WritingToolPlan {
     let signals = [
       "find", "search", "look up", "lookup", "latest", "last email", "last message", "conversation", "thread", "previous",
       "earlier", "what did", "when did", "who said", "mention", "meeting", "meet", "calendar", "schedule", "available",
-      "availability", "free", "busy", "slot", "today", "tomorrow", "next week", "this week", "monday", "tuesday",
-      "wednesday", "thursday", "friday", "saturday", "sunday", "attach", "invoice number", "propose", "time", "date",
+      "availability", "busy", "slot", "today", "tomorrow", "next week", "this week", "monday", "tuesday",
+      "wednesday", "thursday", "friday", "saturday", "sunday", "attach", "invoice number", "propose", "date",
       "when", "busca", "encuentra", "propon", "hora", "fecha", "cuando",
       "ultimo", "conversacion", "hilo", "anterior", "reunion", "junta", "calendario", "agenda", "disponib", "libre",
       "manana", "hoy", "semana", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo",
     ]
+    // "free" and "time" only count as whole words ("feel free to shorten" isn't a lookup).
+    if text.range(of: #"(?<!feel )\bfree\b|\btimes?\b"#, options: .regularExpression) != nil { return true }
     return signals.contains { text.contains($0) }
   }
 }

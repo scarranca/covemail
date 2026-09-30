@@ -28,6 +28,22 @@ import XCTest
     XCTAssertTrue(store.visible.isEmpty)
   }
 
+  func testNarrowingWhileTypingAlwaysMatchesAFreshSearch() throws {
+    let typing = try store(400)
+    typing.mails[3].subject = "Renovación de contrato"
+    typing.mails[4].body += " reno contrato"
+    let steps = ["r", "re", "ren", "reno", "reno ", "reno c", "reno co", "reno c", "reno ", "reno", "renov", "renova", "renovacion t", "renovacion"]
+    for step in steps {
+      typing.search = step
+      let narrowed = typing.visible.map(\.id)
+      let cold = try store(400)
+      cold.mails = typing.mails
+      cold.chooseFolder("Inbox")
+      cold.search = step
+      XCTAssertEqual(narrowed, cold.visible.map(\.id), "step '\(step)'")
+    }
+  }
+
   func testVisibleIsComputedOncePerStateAndFastOnFiveThousandEmails() throws {
     let store = try store(5_000)
     store.search = ""

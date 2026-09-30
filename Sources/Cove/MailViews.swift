@@ -405,7 +405,8 @@ struct GmailSearchMoreButton: View {
               let found = try await store.aiSearchMail(query)
               guard store.search.trimmingCharacters(in: .whitespacesAndNewlines) == query else { searching = false; return }
               // Show matches that live outside the current folder, keeping the search.
-              if !found.isEmpty && store.visible.count < found.count { store.folder = "All mail" }
+              let shown = Set(store.visible.map(\.id))
+              if found.contains(where: { !shown.contains($0.id) }) { store.folder = "All mail" }
               result = found.isEmpty ? "Gmail has no other emails matching “\(query)”." : "Found \(found.count) email\(found.count == 1 ? "" : "s") in Gmail."
             } catch is CancellationError {} catch { result = error.localizedDescription }
             searching = false

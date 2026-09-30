@@ -52,10 +52,11 @@ final class WritingContextTests: XCTestCase {
 
 final class WritingLookupSignalTests: XCTestCase {
   func testWordingRequestsSkipLookupsButSearchAndScheduleDoNot() {
-    for request in ["Make this warmer", "shorter please", "translate to English", "hazlo más formal", "fix the grammar"] {
+    for request in ["Make this warmer", "shorter please", "translate to English", "hazlo más formal", "fix the grammar",
+                    "feel free to shorten this", "one more try, sometimes it's too long"] {
       XCTAssertFalse(WritingToolPlan.mightNeedLookup(request), request)
     }
-    for request in ["Find Maya's latest email", "suggest times tomorrow", "¿cuándo es la reunión?", "mention the meeting", "busca el último correo"] {
+    for request in ["Find Maya's latest email", "suggest times tomorrow", "when are you free", "propose a time", "¿cuándo es la reunión?", "mention the meeting", "busca el último correo"] {
       XCTAssertTrue(WritingToolPlan.mightNeedLookup(request), request)
     }
   }

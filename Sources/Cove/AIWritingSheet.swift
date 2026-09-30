@@ -415,12 +415,16 @@ struct AIWritingPanel: View {
         if let suggestion { activity?.preview = suggestion.text }
       }
       do {
+        let showPartial: @MainActor (String) -> Void = { text in
+          streamingText = text
+          activity?.streaming = text
+        }
         let agent = WritingAgent(
           complete: { prompt in
             // Only the final draft streams; lookup plans are JSON and stay hidden.
             let streams = prompt.system.contains("Write an email draft following")
             return try await activeSettings.complete(prompt, provider: selectedProvider, model: selectedModel,
-              onPartial: streams ? { text in streamingText = text; activity?.streaming = text } : nil)
+                                                     onPartial: streams ? showPartial : nil)
           },
           search: { query in
             guard let store else { return [] }

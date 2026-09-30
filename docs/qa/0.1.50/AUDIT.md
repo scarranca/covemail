@@ -22,9 +22,16 @@
 
 - The router's `followup` action (only offered when the previous answer used emails) makes refinements like "make it more 'Hola Jerjes, te encargo…'" reuse the previous answer's emails instead of starting a new 100-email Gmail search. This fixes the user-reported regression and turns a multi-call research run into one call. Test: `AssistantActionTests.testFollowUpReusesPreviousEmailsOnlyWhenTheyExist`.
 
+## Review fixes
+
+- Streaming callbacks are `@MainActor` end to end (`AIProviderSettings`, `ChatGPTConnection`, writing sheet), so UI state is only changed on the main thread.
+- `MailSearchSpeedTests.testNarrowingWhileTypingAlwaysMatchesAFreshSearch` types 14 steps (including a space and backspaces) and asserts the narrowed list equals a cold search every time.
+- **Search all of Gmail** switches to All mail when any match isn't visible in the current folder. It deliberately saves up to 20 matches locally because the user asked for them, unlike Ask Cove research, which saves only cited mail.
+- Lookup signals match "free" and "time(s)" as whole words and ignore "feel free", so "feel free to shorten this" stays one call.
+
 ## Not done / limits
 
 - Parallel research batches (the ChatGPT helper serves one request at a time) and API-provider SSE streaming.
 - Using Jev (TypeSafe) to decide lookups was considered: it can confirm borderline "needs lookup" cases but cannot write queries or extract dates and names, and it sends request text to TypeSafe. Not implemented; its latency would need measuring first.
 - Superhuman also prefetches and indexes the whole mailbox server-side. Cove indexes downloaded mail locally, and model speed is bounded by the user's provider.
-- Full offline suite: 503 tests (291 rendering + 212 core), 0 failures, 7 skipped. Not yet checked live.
+- Full offline suite after review fixes: see commit; not yet checked live.

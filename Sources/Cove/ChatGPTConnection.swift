@@ -20,7 +20,7 @@ import Security
   /// A successful account check is reused for a few minutes while the helper keeps running.
   private var lastAccountCheck: Date?
   /// Receives the answer as it is written (item/agentMessage/delta), for progressive display.
-  private var onPartial: ((String) -> Void)?
+  private var onPartial: (@MainActor (String) -> Void)?
   private var streamed = ""
   private var starting: Task<Void, Error>?
   private var process: Process?
@@ -221,7 +221,7 @@ import Security
     } while cursor != nil
     return models
   }
-  func complete(model: String, prompt: AIPrompt, onPartial: ((String) -> Void)? = nil) async throws -> String {
+  func complete(model: String, prompt: AIPrompt, onPartial: (@MainActor (String) -> Void)? = nil) async throws -> String {
     guard !isGenerating else { throw CoveError.message("A ChatGPT request is already running.") }
     isGenerating = true
     defer { isGenerating = false }

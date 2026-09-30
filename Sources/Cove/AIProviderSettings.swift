@@ -117,7 +117,7 @@ import Observation
     self.provider = provider
   }
   func complete(_ prompt: AIPrompt, provider: AIProvider? = nil, model: String? = nil,
-                onPartial: ((String) -> Void)? = nil) async throws -> String {
+                onPartial: (@MainActor (String) -> Void)? = nil) async throws -> String {
     guard let selected = provider ?? writingProvider() else {
       throw CoveError.message("Connect a writing provider and save a model in Integrations first.")
     }
