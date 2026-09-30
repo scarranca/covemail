@@ -152,3 +152,75 @@ public enum TaskQuickAdd {
     }.prefix(3).map { $0 }
   }
 }
+
+/// Finds the people and mail a task is about ("Call Millet" → Millet and your latest emails with
+/// her). Runs locally over downloaded mail; no model or network.
+public enum TaskContext {
+  /// Verbs and filler that never identify who or what a task is about (English and Spanish).
+  static let filler: Set<String> = [
+    "call", "email", "mail", "send", "reply", "write", "follow", "followup", "check", "ask", "tell", "remind",
+    "review", "update", "add", "make", "book", "schedule", "meet", "meeting", "with", "about", "the", "and",
+    "for", "from", "this", "that", "back", "again", "today", "tomorrow", "next", "week", "please", "their",
+    "his", "her", "our", "your", "llamar", "enviar", "mandar", "revisar", "responder", "escribir", "agendar",
+    "con", "para", "sobre", "los", "las", "una", "del", "hoy", "manana",
+  ]
+  static func fold(_ text: String) -> String {
+    text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+  }
+  /// The task's meaningful words, folded (case- and accent-insensitive).
+  public static func keywords(_ title: String) -> [String] {
+    var seen = Set<String>()
+    return fold(title).components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .filter { $0.count >= 3 && !filler.contains($0) && seen.insert($0).inserted }
+  }
+
+  /// Contacts named in the task, by first name, last name, full name or address; best-known first.
+  public static func people(for title: String, contacts: [MailContact], limit: Int = 2) -> [MailContact] {
+    let words = Set(keywords(title))
+    guard !words.isEmpty else { return [] }
+    let folded = fold(title)
+    return contacts.filter { contact in
+      let names = fold(contact.name).components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count >= 3 }
+      let local = fold(contact.email.split(separator: "@").first.map(String.init) ?? "")
+        .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count >= 3 }
+      let fullName = fold(contact.name)
+      return !Set(names + local).isDisjoint(with: words) || (fullName.count >= 5 && folded.contains(fullName))
+    }
+    .sorted { $0.messages.count != $1.messages.count ? $0.messages.count > $1.messages.count : ($0.lastMessage ?? .distantPast) > ($1.lastMessage ?? .distantPast) }
+    .prefix(limit).map { $0 }
+  }
+
+  /// Latest emails with those people, or else emails mentioning every keyword. Newest first.
+  public static func mails(for title: String, people: [MailContact], in mails: [Mail], excluding: Set<String> = [], limit: Int = 5) -> [Mail] {
+    let usable = { (mail: Mail) in mail.labels.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"]) && !excluding.contains(mail.id) }
+    if !people.isEmpty {
+      var seen = Set<String>()
+      return people.flatMap(\.messages).filter { usable($0) && seen.insert($0.threadID.isEmpty ? $0.id : $0.threadID).inserted }
+        .sorted { $0.date > $1.date }.prefix(limit).map { $0 }
+    }
+    let words = keywords(title)
+    guard !words.isEmpty else { return [] }
+    var seen = Set<String>()
+    return mails.filter { mail in
+      guard usable(mail) else { return false }
+      let text = fold(mail.subject + "\n" + mail.sender + "\n" + mail.senderEmail + "\n" + String(mail.body.prefix(4_000)))
+      return words.allSatisfy { text.contains($0) }
+    }.sorted { $0.date > $1.date }
+      .filter { seen.insert($0.threadID.isEmpty ? $0.id : $0.threadID).inserted }
+      .prefix(limit).map { $0 }
+  }
+
+  /// Upcoming events with those people (as guests) or naming them.
+  public static func events(for people: [MailContact], in events: [LocalEvent], now: Date, days: Int = 30, limit: Int = 2) -> [LocalEvent] {
+    guard !people.isEmpty else { return [] }
+    let emails = Set(people.map { ContactDirectory.normalizedEmail($0.email) })
+    let names = people.compactMap { fold($0.name).split(separator: " ").first.map(String.init) }.filter { $0.count >= 3 }
+    let end = now.addingTimeInterval(Double(days) * 86_400)
+    return events.filter { event in
+      guard event.end > now, event.start < end else { return false }
+      let guests = Set((event.attendees ?? []).compactMap { $0.email.map(ContactDirectory.normalizedEmail) })
+      let title = fold(event.title)
+      return !guests.isDisjoint(with: emails) || names.contains { title.contains($0) }
+    }.sorted { $0.start < $1.start }.prefix(limit).map { $0 }
+  }
+}

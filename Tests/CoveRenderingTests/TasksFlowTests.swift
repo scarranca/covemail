@@ -106,6 +106,13 @@ private actor TasksFlowHTTP: HTTPTransport {
     store.googleTasks.append(step)
     try await render(TaskDetailView(store: store, task: linked, subtasks: [step], close: {}), size: CGSize(width: 600, height: 720), name: "tasks-detail")
     try await render(TasksView(store: store), size: CGSize(width: 1000, height: 560), name: "tasks-screen-grouped")
+    // A quick-added task with no source email still finds who and what it's about.
+    store.mails = [source, Mail(id: "m2", threadID: "t2", sender: "Millet", senderEmail: "millet@uisr.io", subject: "Invoice question",
+                                body: "Quick question on the invoice.", date: Date().addingTimeInterval(-86_400), labels: ["INBOX"])]
+    let call = GoogleTask(id: "5", title: "Call Millet", status: "needsAction")
+    store.googleTasks.append(call)
+    XCTAssertEqual(store.relatedContext(for: call).people.map(\.email), ["millet@uisr.io"])
+    try await render(TaskDetailView(store: store, task: call, close: {}), size: CGSize(width: 600, height: 640), name: "tasks-related")
   }
 
   private func render<V: View>(_ view: V, size: CGSize, name: String) async throws {

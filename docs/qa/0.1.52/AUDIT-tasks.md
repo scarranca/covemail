@@ -43,3 +43,17 @@
   - ✦ Plan my day: the `.planDay` prompt picks at most 3 tasks, limited to real task ids, each with a reason and a duration snapped to 15/30/60/90. Each pick has Find time → Add at the time found.
 - **Tests:** `TaskQuickAddTests`, `TaskDetectionTests` (update and clearing a due date), and `TasksFlowTests` renders (`/tmp/cove-tasks-detail.png`, `/tmp/cove-tasks-screen-grouped.png`), all inspected.
 - **Not verified live:** the model's quality for steps and plans, real subtask ordering in Google Tasks, and the reply draft on a real thread.
+
+## Related context for tasks (September 30)
+
+- **Request:** "Call Millet" should look through the latest emails for anything matching Millet.
+- **`TaskContext`** runs locally, with no model and no network:
+  - It takes the task's meaningful words, ignoring English and Spanish filler verbs.
+  - Contacts are matched by first name, last name, address or full name, ignoring case and accents; the most frequent correspondents come first.
+  - The latest emails with those people are shown, one per conversation. With no matching person, it shows emails containing every keyword.
+  - Upcoming meetings with those people (as guests, or named in the title) are shown too.
+- **Details panel, Related section:** a person card with email and call (when the contact has a phone), the upcoming meeting, and the latest emails.
+  - Each email opens on click; **Link** makes it the task's source, and the link syncs to Google Tasks through its notes.
+  - List rows show the matched person when the task has no source email.
+- **Performance:** `AppStore.contacts` was rebuilt from all mail on every read. It is now cached by mail revision, contact records and account.
+- **Tests:** `TaskContextTests` (names, accents, Spanish, newest-first per conversation, keyword fallback, meetings) and `TasksFlowTests` (the Related render, `/tmp/cove-tasks-related.png`, inspected).

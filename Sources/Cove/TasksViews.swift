@@ -348,6 +348,7 @@ struct TasksView: View {
       parts.append(due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
     }
     if let mail = store.sourceMail(for: task) { parts.append(mail.sender.isEmpty ? mail.senderEmail : mail.sender) }
+    else if let person = TaskContext.people(for: task.title, contacts: store.contacts, limit: 1).first { parts.append(person.name) }
     let steps = children(of: task)
     if !steps.isEmpty { parts.append("\(steps.filter(\.isCompleted).count)/\(steps.count) steps") }
     return parts.joined(separator: " · ")
@@ -487,6 +488,7 @@ struct TaskDetailView: View {
         }
         if hasModel || store.calendarConnected { aiSection }
         if let mail = source { sourceCard(mail) }
+        relatedSection
       }.padding(28).frame(maxWidth: 600, alignment: .leading)
     }
     .onAppear { reset(); loaded = true }
@@ -634,6 +636,65 @@ struct TaskDetailView: View {
       } catch { aiNote = error.localizedDescription }
       working = nil
     }
+  }
+
+  /// People, latest emails and meetings the task is about, found locally from its title.
+  @ViewBuilder private var relatedSection: some View {
+    let related = store.relatedContext(for: task)
+    if !related.isEmpty {
+      VStack(alignment: .leading, spacing: 12) {
+        Text(source == nil ? "Related" : "More context").font(.coveLabel).foregroundStyle(Palette.body)
+        ForEach(related.people) { person in
+          HStack(spacing: 12) {
+            CoveAvatar(initials: person.initials.isEmpty ? String(person.email.prefix(1)).uppercased() : person.initials, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+              Text(person.name).font(.coveLabel)
+              Text([person.email, person.record?.phone ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.coveMetadata).foregroundStyle(Palette.body).textSelection(.enabled).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if let phone = person.record?.phone, !phone.isEmpty,
+              let url = URL(string: "tel:" + phone.filter { $0.isNumber || $0 == "+" }) {
+              Link(destination: url) { Image(systemName: "phone").frame(width: 32, height: 32) }
+                .buttonStyle(ReaderActionStyle()).help("Call \(phone)").accessibilityLabel("Call \(person.name)")
+            }
+            Button { store.composeEmail(to: person, about: task) } label: {
+              Image(systemName: "square.and.pencil").frame(width: 32, height: 32)
+            }.buttonStyle(ReaderActionStyle()).help("Email \(person.name)").accessibilityLabel("Email \(person.name)")
+          }
+        }
+        ForEach(related.events) { event in
+          Label("\(event.title) · \(event.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute()))",
+                systemImage: "calendar").font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(1)
+        }
+        if !related.mails.isEmpty {
+          VStack(spacing: 0) {
+            ForEach(Array(related.mails.enumerated()), id: \.element.id) { index, mail in
+              if index > 0 { Divider() }
+              HStack(spacing: 10) {
+                Button { open(mail) } label: {
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).font(.coveSecondary).lineLimit(1)
+                    Text("\(mail.labels.contains("SENT") ? "You" : (mail.sender.isEmpty ? mail.senderEmail : mail.sender)) · \(mail.date.formatted(.dateTime.month(.abbreviated).day()))")
+                      .font(.coveMetadata).foregroundStyle(Palette.body)
+                  }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain).help("Open email")
+                if source == nil {
+                  Button("Link") { Task { await store.linkTask(task, to: mail) } }
+                    .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+                    .help("Make this the task’s email; the link syncs to Google Tasks")
+                }
+              }.padding(.horizontal, 12).padding(.vertical, 9)
+            }
+          }.background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+        }
+      }
+    }
+  }
+  private func open(_ mail: Mail) {
+    store.chooseFolder(mail.labels.contains("SENT") ? "Sent" : "Inbox")
+    store.selectedID = mail.id
+    store.screen = "mail"
   }
 
   private func sourceCard(_ mail: Mail) -> some View {

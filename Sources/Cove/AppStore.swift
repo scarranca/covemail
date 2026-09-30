@@ -177,6 +177,7 @@ import SwiftUI
   /// Emails whose task check is running, so each is sent to Jev at most once at a time.
   var taskChecksRunning: Set<String> = []
   var tasksClient = GoogleTasksClient()
+  @ObservationIgnored private var contactsCache: (revision: Int, records: [ContactRecord], account: String, value: [MailContact])?
   /// The email whose task suggestions are open.
   var taskSuggestionMail: Mail?
   /// After a send: Jev looks for promises in what was just sent.
@@ -1812,8 +1813,13 @@ import SwiftUI
       try data.write(to: destination, options: .atomic)
     }
   }
+  /// Built from all downloaded mail, so it is cached until mail, contact records or the account change.
   var contacts: [MailContact] {
-    ContactDirectory.build(mails: mails, records: contactRecords, accountEmail: accountEmail)
+    if let cached = contactsCache, cached.revision == mailsRevision, cached.records == contactRecords,
+      cached.account == accountEmail { return cached.value }
+    let value = ContactDirectory.build(mails: mails, records: contactRecords, accountEmail: accountEmail)
+    contactsCache = (mailsRevision, contactRecords, accountEmail, value)
+    return value
   }
   var contactGroups: [String] {
     Array(Set(contactRecords.map(\.group).filter { !$0.isEmpty })).sorted {
@@ -3472,5 +3478,43 @@ enum TaskDetailText {
   }
   static func cove(_ notes: String?) -> [String] {
     (notes ?? "").split(separator: "\n").map(String.init).filter { $0.hasPrefix("From: ") || $0.hasPrefix("https://mail.google.com/") }
+  }
+}
+
+// MARK: - Task context (local, instant)
+struct TaskRelated {
+  var people: [MailContact] = []
+  var mails: [Mail] = []
+  var events: [LocalEvent] = []
+  var isEmpty: Bool { people.isEmpty && mails.isEmpty && events.isEmpty }
+}
+
+extension AppStore {
+  /// Who and what a task is about, from contacts, downloaded mail and the calendar.
+  func relatedContext(for task: GoogleTask) -> TaskRelated {
+    let source = sourceMail(for: task)
+    let people = TaskContext.people(for: task.title, contacts: contacts)
+    let excluded = Set(source.map { mail in mails.filter { $0.threadID == mail.threadID }.map(\.id) } ?? [])
+    return TaskRelated(
+      people: people,
+      mails: TaskContext.mails(for: task.title, people: people, in: mails, excluding: excluded, limit: 4),
+      events: TaskContext.events(for: people, in: events, now: syncClock()))
+  }
+
+  /// Makes an email the task's source: its link is added to the notes, so it follows the task to
+  /// Google Tasks on every device.
+  @discardableResult
+  func linkTask(_ task: GoogleTask, to mail: Mail) async -> Bool {
+    let lines = TaskDetection.notes(for: TaskSuggestion(title: task.title), mail: mail)
+    let notes = [TaskDetailText.userNotes(task.notes), lines].filter { !$0.isEmpty }.joined(separator: "\n")
+    return await updateTask(task, title: task.title, notes: notes, due: task.dueDay)
+  }
+
+  /// Opens a new email to this person, subject from the task. Nothing is sent.
+  func composeEmail(to person: MailContact, about task: GoogleTask) {
+    newDraft()
+    guard let id = composeID else { return }
+    saveComposition(id: id, to: person.name == person.email ? person.email : "\(person.name) <\(person.email)>",
+                    subject: task.title, body: "")
   }
 }
