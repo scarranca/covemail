@@ -62,6 +62,21 @@
 - **Tests:** `GmailCountTests` (exact counting across pages, duplicate ids, cap) and `FilteredCountTests` (the question routes here, the model's search is used, the count is exact, stored copies are reused, and drafts and the sync cursor are untouched).
 - **Limit:** the model chooses the date range ("last week" usually becomes `newer_than:7d`), and it is shown in the answer. The local index (phase 2) is not needed for this, because Gmail counts all mail, not just downloaded mail.
 
+## Ask Cove: "first available time" and calmer chat
+
+- **Report:** "create an event, for tomorrow at the first time available 10 min for focus" got the question "What start time tomorrow should I check…?"
+  - Cause: the planner prompt told the model to ask whenever a start time was missing, and the assistant had no availability tool.
+- **Fix:** a new planner action, `find` (title, day, duration and window: default 09:00–17:00, morning, afternoon, after/before).
+  - Cove reads that day from the calendar and uses `WritingAvailability.firstSlot` to propose the earliest free interval as a reviewable event. Events marked free don't block, and past times are skipped.
+  - A full day, or Calendar not connected, gets a specific question. The model still never invents availability.
+- **Tests:** `AssistantCalendarTests.testFirstAvailableTimeIsFoundFromTheRealCalendarNotAsked`.
+- **Chat UI:**
+  - Answers are plain text instead of bordered cards.
+  - Sources are a small "N sources" chip. Copy and feedback icons are smaller and muted.
+  - The header icon lost its tile.
+  - Mail search is a filled chip rather than a pill with a switch. It keeps an explicit focus outline, and the system focus ring is disabled because it drew clipped marks.
+  - Renders inspected: `AssistantChatRenderingTests` design and compact sizes.
+
 ## Suites
 
-- Full offline run: core 232 passed (1 skipped), rendering 300 passed (7 skipped).
+- Full offline run: core 232 passed (1 skipped), rendering 301 passed (7 skipped).

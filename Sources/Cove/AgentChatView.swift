@@ -115,9 +115,7 @@ struct AssistantView: View {
 
   private var header: some View {
     HStack(spacing: 14) {
-      Image(systemName: "sparkles").font(.cove(size: 18))
-        .frame(width: 32, height: 32)
-        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 8))
+      Image(systemName: "sparkles").font(.cove(size: 16)).foregroundStyle(Palette.body)
         .accessibilityHidden(true)
       Text("Cove assistant").font(.coveSection)
       Spacer()
@@ -311,9 +309,8 @@ struct AssistantView: View {
               Palette.muted)
           }.padding(.vertical, 10)
         }
-      }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.line, lineWidth: 1))
+      // Answers read as plain text, like a document, not as another card competing for attention.
+      }.padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
@@ -325,15 +322,15 @@ struct AssistantView: View {
           else { expandedSources.insert(exchange.id) }
         } label: {
           HStack(spacing: 6) {
-            Image(systemName: "text.magnifyingglass")
-            Text(expandedSources.contains(exchange.id) ? "Hide sources" : "View sources")
-            Image(systemName: expandedSources.contains(exchange.id) ? "chevron.up" : "chevron.down")
-          }.font(.coveSecondary)
+            Text(expandedSources.contains(exchange.id) ? "Hide sources" : "\(Set(exchange.passages.map(\.mail.id)).count) source\(Set(exchange.passages.map(\.mail.id)).count == 1 ? "" : "s")")
+            Image(systemName: expandedSources.contains(exchange.id) ? "chevron.up" : "chevron.down").font(.cove(size: 9))
+          }.font(.coveMetadata).padding(.horizontal, 8).frame(height: 24)
+          .background(Palette.sidebar, in: Capsule())
         }.buttonStyle(.plain).foregroundStyle(Palette.body)
           .accessibilityValue(expandedSources.contains(exchange.id) ? "Expanded" : "Collapsed")
           .help(exchange.source ?? exchange.groundingLabel)
       } else {
-        Text(exchange.groundingLabel).font(.coveSecondary).foregroundStyle(Palette.body)
+        Text(exchange.groundingLabel).font(.coveMetadata).foregroundStyle(Palette.muted)
       }
       Spacer(minLength: 8)
       Button {
@@ -341,8 +338,8 @@ struct AssistantView: View {
         NSPasteboard.general.setString(answer, forType: .string)
         actionNotice = "Answer copied."
       } label: {
-        Image(systemName: "doc.on.doc").font(.cove(size: 14)).frame(width: 24, height: 28)
-      }.buttonStyle(.plain).foregroundStyle(Palette.body).help("Copy answer").accessibilityLabel("Copy answer")
+        Image(systemName: "doc.on.doc").font(.cove(size: 12)).frame(width: 24, height: 28)
+      }.buttonStyle(.plain).foregroundStyle(Palette.muted).help("Copy answer").accessibilityLabel("Copy answer")
       ForEach(AssistantFeedback.allCases, id: \.self) { feedback in
         Button {
           guard let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
@@ -350,7 +347,7 @@ struct AssistantView: View {
           actionNotice = exchanges[index].feedback == nil ? nil : "Feedback noted for this conversation."
         } label: {
           Image(systemName: feedback.symbol + (exchange.feedback == feedback ? ".fill" : ""))
-            .font(.coveBody).frame(width: 24, height: 28)
+            .font(.cove(size: 12)).frame(width: 24, height: 28)
         }.buttonStyle(.plain).foregroundStyle(exchange.feedback == feedback ? Palette.ink : Palette.muted)
           .accessibilityLabel(feedback == .helpful ? "Helpful answer" : "Not helpful")
           .accessibilityValue(exchange.feedback == feedback ? "Selected" : "Not selected")
@@ -446,7 +443,7 @@ struct AssistantView: View {
             .accessibilityLabel("Choose email context")
           modelMenu
           Toggle("Mail search", isOn: $searchingGmail)
-            .toggleStyle(AssistantMailSearchStyle(compact: availableSize.width < 640))
+            .toggleStyle(AssistantMailSearchStyle(compact: availableSize.width < 640)).focusEffectDisabled()
             .disabled(working || !useAI)
             .help("On: search all of Gmail and read up to 100 matching emails. Off: use mail already downloaded to this Mac.")
           Spacer(minLength: 0)
