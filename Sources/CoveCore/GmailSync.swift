@@ -42,6 +42,7 @@ public struct GmailSyncResult {
         }
         mail.draft = previous.draft
         mail.snoozedUntil = previous.snoozedUntil
+        mail.inboxVote = previous.inboxVote
       }
       values[mail.id] = mail
     }
@@ -63,7 +64,7 @@ public struct GmailSyncResult {
   }
 
   /// Applies this result to the live mailbox without damaging stored emails that aren't loaded.
-  /// Their Jev decision, draft and snooze are kept; results `keepsLoaded` rejects are written back
+  /// Their Jev decision, draft, snooze and Inbox vote are kept; results `keepsLoaded` rejects are written back
   /// as archive (untracked), and remote deletions remove their local copies.
   public func merging(
     into live: [Mail], store: Database?, keepsLoaded: (Mail) -> Bool = { _ in true }

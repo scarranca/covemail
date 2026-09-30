@@ -9,10 +9,12 @@ struct MailPageRequest: Hashable {
   let unreadOnly: Bool
   let oldestFirst: Bool
   let cursor: String
+  var inboxTab: InboxSplit? = nil
 
   func hasSameView(as other: Self) -> Bool {
     account == other.account && folder == other.folder && search == other.search
       && priorityOnly == other.priorityOnly && unreadOnly == other.unreadOnly && oldestFirst == other.oldestFirst
+      && inboxTab == other.inboxTab
   }
 }
 
@@ -55,7 +57,8 @@ extension AppStore {
   var nextMailPageRequest: MailPageRequest? {
     guard let cursor = mailScopeLabelID.map({ labelNextPages[$0] }) ?? nextPage else { return nil }
     return MailPageRequest(account: accountEmail, folder: folder, search: search,
-      priorityOnly: priorityOnly, unreadOnly: labelUnreadOnly, oldestFirst: labelOldestFirst, cursor: cursor)
+      priorityOnly: priorityOnly, unreadOnly: labelUnreadOnly, oldestFirst: labelOldestFirst, cursor: cursor,
+      inboxTab: effectiveInboxTab)
   }
   var canLoadNextMailPage: Bool { entered && screen == "mail" && !isSample && !busy && queuedTrashIDs.isEmpty }
 
@@ -66,7 +69,7 @@ extension AppStore {
     else { await sync(older: true) }
     guard accountEmail == expected.account, folder == expected.folder, search == expected.search,
       priorityOnly == expected.priorityOnly, labelUnreadOnly == expected.unreadOnly,
-      labelOldestFirst == expected.oldestFirst else { return nil }
+      labelOldestFirst == expected.oldestFirst, effectiveInboxTab == expected.inboxTab else { return nil }
     let cursor = mailScopeLabelID.map({ labelNextPages[$0] }) ?? nextPage
     return (cursor != expected.cursor, visible.contains { !visibleIDs.contains($0.id) })
   }

@@ -65,53 +65,11 @@ struct MailboxView: View {
                   .menuStyle(.borderlessButton).frame(width: 24).help("Sort emails")
                   .accessibilityLabel("Sort emails")
               }.buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body)
-            } else {
-            HStack(spacing: 20) {
-              let unreadOnly = store.labelUnreadOnly && store.folder == "Inbox"
-              Button {
-                store.priorityOnly = true
-                store.labelUnreadOnly = false
-                store.reconcileSelection()
-              } label: {
-                Text("Priority \(store.attentionCount)").fontWeight(
-                  store.priorityOnly ? .medium : .regular
-                )
-                .foregroundStyle(store.priorityOnly ? Palette.body : Palette.muted)
-              }
-              if store.folder == "Inbox" {
-                Button {
-                  store.priorityOnly = false
-                  store.labelUnreadOnly = true
-                  store.reconcileSelection()
-                } label: {
-                  Text("Unread \(store.inboxUnreadCount)").fontWeight(unreadOnly ? .medium : .regular)
-                    .foregroundStyle(unreadOnly ? Palette.body : Palette.muted)
-                }
-              }
-              Button {
-                store.priorityOnly = false
-                store.labelUnreadOnly = false
-                store.reconcileSelection()
-              } label: {
-                let all = !store.priorityOnly && !unreadOnly
-                Text("All mail").fontWeight(all ? .medium : .regular)
-                  .foregroundStyle(all ? Palette.body : Palette.muted)
-              }
-              Spacer()
-            }.buttonStyle(.plain).font(.coveText).foregroundStyle(Palette.muted)
+            } else if store.folder == "Inbox" || store.priorityOnly {
+              InboxFilterBar(store: store)
             }
           }.padding(.horizontal, 22).padding(.top, 24).padding(.bottom, 18)
           Divider()
-          if !store.isFocusedMailView {
-          HStack(spacing: 10) {
-            Text("\(store.attentionCount) need attention").font(.coveControl)
-            Text("·").foregroundStyle(Palette.muted)
-            Text("\(draftCount) \(draftCount == 1 ? "draft" : "drafts") ready").font(.coveSecondary).foregroundStyle(Palette.muted)
-            Spacer(minLength: 0)
-          }.foregroundStyle(Palette.body).lineLimit(1)
-            .padding(.horizontal, 22).frame(height: 40)
-          Divider()
-          }
           if let error = store.labelMailError, store.isFocusedMailView {
             Text(error).font(.coveMetadata).foregroundStyle(Palette.danger)
               .fixedSize(horizontal: false, vertical: true).padding(12)
@@ -180,6 +138,7 @@ struct MailboxView: View {
             Text("↑ ↓ emails · Esc back").fixedSize().help("Up and Down select emails. Escape or Left returns to the list. Shortcuts pause while you type.")
           }.font(.coveMetadata).foregroundStyle(Palette.muted).padding(12)
         }.frame(width: min(392, max(300, geometry.size.width * 0.328))).background(Palette.surface)
+          .overlay(alignment: .bottom) { InboxMoveToast(store: store).padding(.bottom, 58) }
           .focusable().focusEffectDisabled().focused($listFocused)
         Divider()
         if let mail = store.selected {
@@ -205,6 +164,7 @@ struct MailboxView: View {
     .onChange(of: store.folder) { _, _ in listFocused = true; resetPaginationEnd() }
     .onChange(of: store.accountEmail) { _, _ in resetPaginationEnd() }
     .onChange(of: [store.priorityOnly, store.labelUnreadOnly, store.labelOldestFirst]) { _, _ in resetPaginationEnd() }
+    .onChange(of: store.effectiveInboxTab) { _, _ in resetPaginationEnd() }
     .onChange(of: paginationTrigger) { _, _ in
       Task { await loadNextPage() }
     }
@@ -247,10 +207,6 @@ struct MailboxView: View {
           .buttonStyle(SecondaryButton(compact: true)).disabled(!store.canLoadNextMailPage)
       }
     }.frame(maxWidth: .infinity, minHeight: 1)
-  }
-
-  private var draftCount: Int {
-    store.mails.filter { (!$0.draft.isEmpty || $0.labels.contains("DRAFT")) && !$0.labels.contains("TRASH") }.count
   }
 
   private func daySection(_ date: Date) -> String {
@@ -361,6 +317,8 @@ struct MailListRow: View {
         Button(mail.isUnread ? "Mark as read" : "Mark as unread", systemImage: "envelope") {
           Task { await store.modify(mail, add: mail.isUnread ? [] : ["UNREAD"], remove: mail.isUnread ? ["UNREAD"] : []) }
         }.disabled(store.busy || mail.labels.contains("DRAFT"))
+        InboxSplitMenuItems(store: store, mail: mail)
+        Divider()
         Button("Delete", systemImage: "trash", role: .destructive) { store.queueTrash(mail) }.disabled(store.busy)
       }
   }
@@ -422,5 +380,101 @@ struct GmailSearchMoreButton: View {
         }
       }.frame(maxWidth: .infinity).padding(.vertical, 12)
     }
+  }
+}
+
+/// Important / Other tabs with unread counts, and the Unread filter, which composes with either tab.
+struct InboxFilterBar: View {
+  @Bindable var store: AppStore
+  var body: some View {
+    HStack(spacing: 16) {
+      if store.priorityOnly {
+        Button { store.priorityOnly = false; store.reconcileSelection() } label: {
+          HStack(spacing: 6) {
+            Text("Needs attention \(store.attentionCount)")
+            Image(systemName: "xmark").font(.cove(size: 9, weight: .semibold))
+          }.font(.coveControl).foregroundStyle(Palette.ink)
+            .padding(.horizontal, 10).frame(height: 26)
+            .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 6))
+        }.help("Show the whole Inbox").accessibilityLabel("Clear Needs attention filter")
+      } else if store.splitsInbox && store.folder == "Inbox" {
+        let counts = store.inboxUnreadCounts
+        ForEach(InboxSplit.allCases, id: \.self) { tab in
+          let selected = store.inboxTab == tab && store.search.isEmpty
+          Button { store.chooseInboxTab(tab) } label: {
+            HStack(spacing: 5) {
+              Text(tab.title).fontWeight(selected ? .medium : .regular)
+              if let count = counts[tab], count > 0 {
+                Text("\(count)").font(.coveMetadata).monospacedDigit()
+              }
+            }.foregroundStyle(selected ? Palette.ink : Palette.muted)
+              .padding(.bottom, 6)
+              .overlay(alignment: .bottom) {
+                Rectangle().fill(selected ? Palette.ink : .clear).frame(height: 2)
+              }
+              .fixedSize()
+          }.help(tab == .important ? "People and mail that needs you" : "Newsletters, notifications and automated mail")
+            .accessibilityLabel("\(tab.title), \(counts[tab] ?? 0) unread")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+        }
+      } else {
+        Text("\(store.inboxUnreadCount) unread").foregroundStyle(Palette.body).padding(.bottom, 6)
+      }
+      Spacer(minLength: 0)
+      if store.folder == "Inbox" && !store.priorityOnly {
+        let on = store.labelUnreadOnly
+        Button { store.labelUnreadOnly.toggle(); store.reconcileSelection() } label: {
+          Label("Unread", systemImage: on ? "envelope.badge.fill" : "envelope.badge")
+            .font(.coveControl).foregroundStyle(on ? Palette.canvas : Palette.body)
+            .padding(.horizontal, 10).frame(height: 26)
+            .background {
+              RoundedRectangle(cornerRadius: 6).fill(on ? Palette.ink : Palette.canvas)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(on ? Palette.ink : Palette.line))
+            }
+            .fixedSize()
+        }.focusEffectDisabled().help(on ? "Show read mail too" : "Show only unread mail")
+          .accessibilityLabel("Unread only").accessibilityAddTraits(on ? .isSelected : [])
+      }
+    }.buttonStyle(.plain).font(.coveText).lineLimit(1)
+  }
+}
+
+/// Feedback for the split: this email, or every email from its sender. The vote always wins.
+struct InboxSplitMenuItems: View {
+  @Bindable var store: AppStore
+  let mail: Mail
+  var body: some View {
+    if store.splitsInbox && !mail.labels.contains("DRAFT") && !mail.labels.contains("SENT") {
+      let target = store.inboxSplit(of: mail).opposite
+      let sender = mail.sender.isEmpty ? mail.senderEmail : mail.sender
+      Divider()
+      Button("Move to \(target.title)", systemImage: target == .important ? "star" : "tray.2") {
+        store.moveToInboxTab(mail, target)
+      }
+      Button("Always \(target.title) from \(sender)", systemImage: "person.crop.circle.badge.checkmark") {
+        store.alwaysInboxTab(target, forSenderOf: mail)
+      }
+    }
+  }
+}
+
+struct InboxMoveToast: View {
+  @Bindable var store: AppStore
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var body: some View {
+    Group {
+      if let undo = store.inboxMoveUndo {
+        HStack(spacing: 12) {
+          Text(undo.message).font(.coveControl).lineLimit(1)
+          Button("Undo") { store.undoInboxMove() }
+            .buttonStyle(.plain).font(.coveControl).padding(.horizontal, 10).padding(.vertical, 6)
+            .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 5))
+        }.foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 9)
+          .background(Palette.ink, in: RoundedRectangle(cornerRadius: 10))
+          .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+          .padding(.horizontal, 16)
+          .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+      }
+    }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.inboxMoveUndo?.id)
   }
 }
