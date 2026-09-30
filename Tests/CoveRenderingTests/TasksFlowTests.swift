@@ -94,6 +94,14 @@ private actor TasksFlowHTTP: HTTPTransport {
       GoogleTask(id: "2", title: "Send Sebastián the Q3 report", notes: nil, due: nil, status: "needsAction"),
     ]
     try await render(TasksView(store: store), size: CGSize(width: 900, height: 420), name: "tasks-screen")
+    let source = Mail(id: "m1", threadID: "18f2abc", sender: "Millet", senderEmail: "millet@uisr.io", subject: "Plan for our account",
+                      body: "Could you add the new plan to our account this week? Thanks!", labels: ["INBOX"])
+    store.mails = [source]
+    let linked = GoogleTask(id: "3", title: "Add the plan to Millet's account",
+      notes: "She asked on Sept 30\nFrom: Millet · Plan for our account\nhttps://mail.google.com/mail/u/0/#all/18f2abc",
+      due: "2026-10-02T00:00:00.000Z", status: "needsAction", webViewLink: "https://tasks.google.com/task/3")
+    store.googleTasks.append(linked)
+    try await render(TaskDetailView(store: store, task: linked, close: {}), size: CGSize(width: 560, height: 560), name: "tasks-detail")
   }
 
   private func render<V: View>(_ view: V, size: CGSize, name: String) async throws {

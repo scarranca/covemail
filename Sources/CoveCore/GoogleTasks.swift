@@ -78,6 +78,25 @@ public struct GoogleTasksClient {
     return try JSONDecoder().decode(Page.self, from: data).items ?? []
   }
 
+  /// Changes a task's title, notes and due day (nil removes the due date).
+  public func update(_ task: GoogleTask, title: String, notes: String, due: Date?, token: String,
+                     calendar: Calendar = .current) async throws -> GoogleTask {
+    guard task.id.rangeOfCharacter(from: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).inverted) == nil else {
+      throw CoveError.message("Invalid task ID.")
+    }
+    let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !clean.isEmpty, clean.count <= 300 else { throw CoveError.message("A task needs a short title.") }
+    var body: [String: Any] = ["title": clean, "notes": String(notes.prefix(4_000))]
+    if let due {
+      let parts = calendar.dateComponents([.year, .month, .day], from: due)
+      body["due"] = String(format: "%04d-%02d-%02dT00:00:00.000Z", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
+    } else {
+      body["due"] = NSNull()
+    }
+    return try JSONDecoder().decode(GoogleTask.self,
+      from: await request("lists/@default/tasks/\(task.id)", token: token, method: "PATCH", body: body))
+  }
+
   public func setCompleted(_ task: GoogleTask, completed: Bool, token: String) async throws -> GoogleTask {
     guard task.id.rangeOfCharacter(from: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).inverted) == nil else {
       throw CoveError.message("Invalid task ID.")

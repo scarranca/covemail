@@ -80,6 +80,10 @@ final class TaskDetectionTests: XCTestCase {
     _ = try await client.setCompleted(task, completed: true, token: "t")
     let patched = await http.bodies.last ?? [:]
     XCTAssertEqual(patched["status"] as? String, "completed")
+    _ = try await client.update(task, title: "Add plan today", notes: "Call first", due: nil, token: "t")
+    let updated = await http.bodies.last ?? [:]
+    XCTAssertEqual(updated["title"] as? String, "Add plan today")
+    XCTAssertTrue(updated["due"] is NSNull, "Removing the date clears it in Google Tasks")
     // Google's midnight-UTC date is the same calendar day everywhere, including west of UTC.
     let stored = GoogleTask(id: "x", title: "t", due: "2026-10-02T00:00:00.000Z")
     XCTAssertEqual(stored.dueDay(calendar: calendar).map { calendar.dateComponents([.month, .day], from: $0) }, DateComponents(month: 10, day: 2))

@@ -147,13 +147,18 @@ struct TaskSuggestionsView: View {
   }
 }
 
-/// Google Tasks, open first, with the email each came from.
+/// Google Tasks, open first; selecting one shows its details and the email it came from.
 struct TasksView: View {
   @Bindable var store: AppStore
+  @State private var selectedID: String?
+  private var selected: GoogleTask? { store.googleTasks.first { $0.id == selectedID } }
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack {
         Text("Tasks").font(.coveTitle)
+        if store.tasksConnected && !store.googleTasks.isEmpty {
+          Text("\(store.googleTasks.filter { !$0.isCompleted }.count) open").font(.coveSecondary).foregroundStyle(Palette.body)
+        }
         Spacer()
         if store.tasksConnected {
           Button { Task { await store.refreshTasks() } } label: {
@@ -179,19 +184,30 @@ struct TasksView: View {
       } else if store.googleTasks.isEmpty && !store.tasksLoading {
         empty("No open tasks. Cove suggests them after you send or read an email with a promise.")
       } else {
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(store.googleTasks) { task in
-              row(task)
-              Divider()
-            }
-          }.padding(.horizontal, 32)
+        HStack(spacing: 0) {
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+              ForEach(store.googleTasks) { task in
+                row(task)
+                Divider()
+              }
+            }.padding(.horizontal, 20)
+          }.frame(minWidth: 320, maxWidth: selected == nil ? .infinity : 460)
+          if let selected {
+            Divider()
+            TaskDetailView(store: store, task: selected) { selectedID = nil }
+              .id(selected.id)
+              .frame(maxWidth: .infinity)
+          }
         }
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(Palette.canvas)
     .task { await store.refreshTasks() }
+    .onChange(of: store.googleTasks) { _, tasks in
+      if let selectedID, !tasks.contains(where: { $0.id == selectedID }) { self.selectedID = nil }
+    }
   }
   private func row(_ task: GoogleTask) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -200,7 +216,7 @@ struct TasksView: View {
       }.buttonStyle(.plain).foregroundStyle(task.isCompleted ? Palette.muted : Palette.ink)
         .accessibilityLabel(task.isCompleted ? "Mark \(task.title) not done" : "Mark \(task.title) done")
       VStack(alignment: .leading, spacing: 4) {
-        Text(task.title).font(.coveBody).strikethrough(task.isCompleted)
+        Text(task.title).font(.coveBody).strikethrough(task.isCompleted).lineLimit(2)
           .foregroundStyle(task.isCompleted ? Palette.muted : Palette.ink)
         HStack(spacing: 10) {
           if let due = task.dueDay {
@@ -208,20 +224,122 @@ struct TasksView: View {
               .foregroundStyle(due < Calendar.current.startOfDay(for: Date()) && !task.isCompleted ? Palette.danger : Palette.body)
           }
           if let mail = store.sourceMail(for: task) {
-            Button {
-              store.chooseFolder("Inbox")
-              store.selectedID = mail.id
-              store.screen = "mail"
-            } label: { Label(mail.subject.isEmpty ? "Open email" : mail.subject, systemImage: "envelope").lineLimit(1) }
-              .buttonStyle(.plain)
+            Label(mail.sender.isEmpty ? mail.senderEmail : mail.sender, systemImage: "envelope").lineLimit(1)
           }
         }.font(.coveMetadata).foregroundStyle(Palette.body)
       }
       Spacer(minLength: 0)
-    }.padding(.vertical, 14)
+      Image(systemName: "chevron.right").font(.cove(size: 11)).foregroundStyle(Palette.muted).accessibilityHidden(true)
+    }
+    .padding(.vertical, 14).padding(.horizontal, 12)
+    .background(selectedID == task.id ? Palette.selection : .clear, in: RoundedRectangle(cornerRadius: 8))
+    .contentShape(Rectangle())
+    .onTapGesture { selectedID = task.id }
+    .accessibilityElement(children: .contain)
+    .accessibilityAction(named: "Show details") { selectedID = task.id }
   }
   private func empty(_ text: String) -> some View {
     VStack { Text(text).font(.coveBody).foregroundStyle(Palette.body).frame(maxWidth: 460) }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+/// One task: edit its title, notes and due date, see the email it came from, or finish it.
+struct TaskDetailView: View {
+  @Bindable var store: AppStore
+  let task: GoogleTask
+  let close: () -> Void
+  @State private var title = ""
+  @State private var notes = ""
+  @State private var due: Date?
+  @State private var saving = false
+  private var source: Mail? { store.sourceMail(for: task) }
+  /// Cove's source line and Gmail link are kept out of the editable notes and shown as the email card.
+  private static func editableNotes(_ notes: String?) -> String {
+    (notes ?? "").split(separator: "\n", omittingEmptySubsequences: false).filter {
+      !$0.hasPrefix("https://mail.google.com/") && !$0.hasPrefix("From: ")
+    }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+  private var changed: Bool {
+    title != task.title || notes != Self.editableNotes(task.notes) || due != task.dueDay
+  }
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        HStack {
+          Button { Task { await store.setTask(task, completed: !task.isCompleted) } } label: {
+            Label(task.isCompleted ? "Done" : "Mark done", systemImage: task.isCompleted ? "checkmark.circle.fill" : "circle")
+          }.buttonStyle(ReaderActionStyle()).font(.coveControl)
+          Spacer()
+          if let link = task.webViewLink, let url = URL(string: link), url.scheme == "https" {
+            Link(destination: url) { Image(systemName: "arrow.up.right.square").frame(width: 32, height: 40) }
+              .buttonStyle(ReaderActionStyle()).help("Open in Google Tasks").accessibilityLabel("Open in Google Tasks")
+          }
+          Button(action: close) { Image(systemName: "xmark").frame(width: 32, height: 40) }
+            .buttonStyle(ReaderActionStyle()).help("Close").accessibilityLabel("Close details")
+        }
+        TextField("Task", text: $title, axis: .vertical).font(.coveDetailTitle).textFieldStyle(.plain)
+          .lineLimit(1...4).accessibilityLabel("Task title")
+        HStack(spacing: 10) {
+          Image(systemName: "calendar").foregroundStyle(Palette.body)
+          if let current = due {
+            DatePicker("Due", selection: Binding(get: { current }, set: { due = $0 }), displayedComponents: .date)
+              .labelsHidden()
+            Button("Remove") { due = nil }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+          } else {
+            Button("Add due date") { due = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date())) }
+              .buttonStyle(.plain).font(.coveControl)
+          }
+          Spacer()
+        }
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Notes").font(.coveLabel)
+          TextField("Add notes", text: $notes, axis: .vertical).textFieldStyle(CoveFieldStyle(font: .coveBody))
+            .lineLimit(3...10).accessibilityLabel("Task notes")
+        }
+        if changed {
+          HStack(spacing: 12) {
+            Button("Save changes") {
+              saving = true
+              let fullNotes = [notes] + (task.notes ?? "").split(separator: "\n").map(String.init)
+                .filter { $0.hasPrefix("From: ") || $0.hasPrefix("https://mail.google.com/") }
+              Task {
+                await store.updateTask(task, title: title, notes: fullNotes.filter { !$0.isEmpty }.joined(separator: "\n"), due: due)
+                saving = false
+              }
+            }.buttonStyle(PrimaryButton(compact: true)).disabled(saving || title.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Discard") { reset() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+            if saving { ProgressView().controlSize(.small) }
+          }
+        }
+        if let mail = source {
+          VStack(alignment: .leading, spacing: 10) {
+            Text("From this email").font(.coveLabel)
+            VStack(alignment: .leading, spacing: 6) {
+              Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).font(.coveSubheading).lineLimit(2)
+              Text("\(mail.sender.isEmpty ? mail.senderEmail : mail.sender) · \(mail.date.formatted(date: .abbreviated, time: .shortened))")
+                .font(.coveMetadata).foregroundStyle(Palette.body)
+              Text(String(mail.body.prefix(280))).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(5)
+              Button {
+                store.chooseFolder(mail.labels.contains("SENT") ? "Sent" : "Inbox")
+                store.selectedID = mail.id
+                store.screen = "mail"
+              } label: { Label("Open email", systemImage: "envelope") }
+                .buttonStyle(SecondaryButton(compact: true)).padding(.top, 4)
+            }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+              .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+          }
+        } else if TaskDetection.threadID(inNotes: task.notes) != nil {
+          Text("The email isn’t downloaded on this Mac.").font(.coveMetadata).foregroundStyle(Palette.body)
+        }
+      }.padding(28).frame(maxWidth: 560, alignment: .leading)
+    }
+    .onAppear { reset() }
+    .onChange(of: task) { _, _ in if !saving { reset() } }
+  }
+  private func reset() {
+    title = task.title
+    notes = Self.editableNotes(task.notes)
+    due = task.dueDay
   }
 }

@@ -3327,6 +3327,18 @@ extension AppStore {
     return (created, failed)
   }
 
+  @discardableResult
+  func updateTask(_ task: GoogleTask, title: String, notes: String, due: Date?) async -> Bool {
+    guard entered, !isSample, tasksConnected else { return false }
+    let generation = mailboxGeneration
+    do {
+      let updated = try await tasksClient.update(task, title: title, notes: notes, due: due, token: tasksToken())
+      guard generation == mailboxGeneration, let index = googleTasks.firstIndex(where: { $0.id == task.id }) else { return false }
+      googleTasks[index] = updated
+      return true
+    } catch { self.error = error.localizedDescription; return false }
+  }
+
   func setTask(_ task: GoogleTask, completed: Bool) async {
     guard entered, !isSample, tasksConnected else { return }
     let generation = mailboxGeneration
