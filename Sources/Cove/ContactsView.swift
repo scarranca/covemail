@@ -350,7 +350,7 @@ struct ContactsView: View {
       VStack(spacing: 14) {
         Image(systemName: "person.crop.circle").font(.cove(size: 42)).foregroundStyle(Palette.muted)
         Text("Select a contact").font(.coveSection).foregroundStyle(Palette.body)
-      }.padding(28).frame(maxHeight: .infinity).background(Palette.surface)
+      }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.surface)
     }
   }
   private func info(_ label: String, _ value: String) -> some View {
