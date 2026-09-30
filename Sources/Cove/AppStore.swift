@@ -6,7 +6,17 @@ import PDFKit
 import SwiftUI
 
 @MainActor @Observable final class AppStore {
-  var mails: [Mail] = [] { didSet { scheduleCloudSync() } }
+  var mails: [Mail] = [] { didSet { mailsRevision &+= 1; scheduleCloudSync() } }
+  /// Observed, so views reading the cached `visible` list still refresh when mail changes.
+  private(set) var mailsRevision = 0
+  @ObservationIgnored private let searchIndex = MailSearchIndex()
+  @ObservationIgnored private var visibleCache: (key: VisibleKey, mails: [Mail])?
+  /// Test hook: how many times the visible list was actually recomputed.
+  @ObservationIgnored private(set) var visibleComputations = 0
+  private struct VisibleKey: Hashable {
+    let revision: Int, folder: String, search: String, priorityOnly: Bool, unreadOnly: Bool, oldestFirst: Bool
+    let selectedID: String?, trash: [String], minute: Int
+  }
   var cloudMirror = CloudMirrorState()
   var cloudSnoozes = CloudSnoozeState()
   var cloudStatus = "Cloud sync is off"
@@ -176,8 +186,30 @@ import SwiftUI
   var needsContentRefresh: Bool {
     entered && !isSample && mailDecodingVersion < GmailMessage.decodingVersion
   }
+  /// The mail list for the current folder, filters and search. SwiftUI reads this several times per
+  /// redraw, so it is memoized per state; search uses a folded index instead of per-keystroke folding.
   var visible: [Mail] {
-    mails.filter { mail in
+    let key = VisibleKey(revision: mailsRevision, folder: folder, search: search, priorityOnly: priorityOnly,
+      unreadOnly: labelUnreadOnly, oldestFirst: labelOldestFirst, selectedID: selectedID, trash: queuedTrashIDs,
+      minute: Int(now.timeIntervalSince1970 / 60))
+    if let cached = visibleCache, cached.key == key { return cached.mails }
+    visibleComputations += 1
+    let terms = MailSearchIndex.terms(search)
+    let trash = Set(queuedTrashIDs)
+    let labelID = selectedLabelID
+    let jevFlag = selectedJevFlag
+    let unreadApplies = unreadFilterApplies
+    let oldestFirst = labelOldestFirst && isFocusedMailView
+    // Typing extends the query: narrow the previous results instead of scanning every email again.
+    var candidates = mails
+    if let cached = visibleCache, !cached.key.search.isEmpty,
+      MailSearchIndex.fold(search).hasPrefix(MailSearchIndex.fold(cached.key.search)),
+      VisibleKey(revision: key.revision, folder: key.folder, search: cached.key.search, priorityOnly: key.priorityOnly,
+        unreadOnly: key.unreadOnly, oldestFirst: key.oldestFirst, selectedID: key.selectedID, trash: key.trash, minute: key.minute) == cached.key
+    {
+      candidates = cached.mails
+    }
+    let result = candidates.filter { mail in
       let snoozed = (mail.snoozedUntil ?? .distantPast) > now
       let inFolder: Bool
       switch folder {
@@ -191,15 +223,17 @@ import SwiftUI
         inFolder =
           !mail.labels.contains("INBOX") && !mail.labels.contains("DRAFT")
           && !mail.labels.contains("SENT")
-      default: inFolder = selectedLabelID.map { mail.labels.contains($0) } ?? selectedJevFlag.map { $0.matches(mail.decision) } ?? (mail.decision?.category.rawValue == folder)
+      default: inFolder = labelID.map { mail.labels.contains($0) } ?? jevFlag.map { $0.matches(mail.decision) } ?? (mail.decision?.category.rawValue == folder)
       }
-      let searchable = "\(mail.sender) \(mail.senderEmail) \(mail.subject) \(mail.body)"
-      return !queuedTrashIDs.contains(mail.id) && mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) && inFolder
+      return !trash.contains(mail.id) && mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) && inFolder
         && (!priorityOnly || mail.isPriority)
         // The open message stays listed after it is marked read, until selection moves on.
-        && (!unreadFilterApplies || !labelUnreadOnly || mail.isUnread || mail.id == selectedID)
-        && (search.isEmpty || searchable.localizedCaseInsensitiveContains(search))
-    }.sorted { labelOldestFirst && isFocusedMailView ? $0.date < $1.date : $0.date > $1.date }
+        && (!unreadApplies || !labelUnreadOnly || mail.isUnread || mail.id == selectedID)
+        && searchIndex.matches(mail, terms: terms)
+    }.sorted { oldestFirst ? $0.date < $1.date : $0.date > $1.date }
+    if terms.isEmpty { searchIndex.retain(ids: Set(mails.map(\.id))) }
+    visibleCache = (key, result)
+    return result
   }
   var inboxCount: Int {
     mails.filter {
