@@ -29,6 +29,20 @@ struct CalendarView: View {
     _displayMode = State(initialValue: mode)
   }
   @State private var showingSearch = false
+  @State private var draggingDay: Date?
+  @State private var pendingMove: PendingMove?
+  @State private var moveNotice: MoveNotice?
+  struct PendingMove: Identifiable {
+    let id = UUID()
+    let event: LocalEvent
+    let start: Date
+    let end: Date
+  }
+  struct MoveNotice: Identifiable {
+    let id = UUID()
+    let text: String
+    var undo: (() async -> Void)?
+  }
   @AppStorage("calendar.agendaWidth") private var preferredAgendaWidth = 280.0
   private let focusSuggestionID = "cove-focus-suggestion"
   private var week: [Date] {
@@ -195,6 +209,66 @@ struct CalendarView: View {
     .sheet(item: $eventDraft) { draft in
       CalendarEventEditor(store: store, draft: draft)
     }
+    .confirmationDialog(
+      pendingMove.map { "Move “\($0.event.title)” for everyone?" } ?? "",
+      isPresented: Binding(get: { pendingMove != nil }, set: { if !$0 { pendingMove = nil } }),
+      presenting: pendingMove
+    ) { move in
+      Button("Move event") { Task { await applyMove(move.event, start: move.start, end: move.end) } }
+      Button("Cancel", role: .cancel) {}
+    } message: { move in
+      Text("Guests’ calendars will show the new time. Google won’t email them about the change."
+        + (move.event.recurringEventID == nil ? "" : " Only this occurrence moves."))
+    }
+    .overlay(alignment: .bottom) {
+      if let notice = moveNotice {
+        HStack(spacing: 14) {
+          Text(notice.text).font(.coveSecondary).lineLimit(2)
+          if let undo = notice.undo {
+            Button("Undo") {
+              moveNotice = nil
+              Task { await undo() }
+            }.buttonStyle(.plain).font(.coveControl).underline()
+          }
+        }
+        .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 12)
+        .background(Palette.ink, in: RoundedRectangle(cornerRadius: 8))
+        .padding(24).transition(.opacity)
+        .task(id: notice.id) {
+          try? await Task.sleep(for: .seconds(6))
+          if moveNotice?.id == notice.id { moveNotice = nil }
+        }
+      }
+    }
+  }
+
+  /// Dropped events save right away (with Undo); moving an event with guests asks first because
+  /// it changes their calendars too.
+  private func reschedule(_ event: LocalEvent, to start: Date, end: Date) {
+    guard event.canReschedule, start != event.start || end != event.end else { return }
+    if event.hasOtherGuests && !store.isSample {
+      pendingMove = PendingMove(event: event, start: start, end: end)
+    } else {
+      Task { await applyMove(event, start: start, end: end) }
+    }
+  }
+  private func applyMove(_ event: LocalEvent, start: Date, end: Date, undoable: Bool = true) async {
+    guard !store.busy, !store.calendarSyncing else {
+      moveNotice = MoveNotice(text: "Cove is syncing your calendar. Try moving “\(event.title)” again in a moment.")
+      return
+    }
+    let before = (start: event.start, end: event.end)
+    let saved = await store.createEvent(
+      title: event.title, start: start, end: end, onGoogle: event.googleID != nil,
+      editing: event, localCalendar: event.effectiveLocalCalendar)
+    guard saved, let moved = store.events.first(where: { $0.id == store.calendarEventID }) else {
+      moveNotice = MoveNotice(text: store.error ?? "Couldn’t move “\(event.title)”. Please try again.")
+      return
+    }
+    let when = start.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    moveNotice = MoveNotice(
+      text: undoable ? "Moved “\(event.title)” to \(when)" : "Moved “\(event.title)” back",
+      undo: undoable ? { await applyMove(moved, start: before.start, end: before.end, undoable: false) } : nil)
   }
   /// Event actions read like the email reader's toolbar: quiet icons with tooltips, not a stack of
   /// buttons competing for attention.
@@ -296,19 +370,25 @@ struct CalendarView: View {
                 ).offset(y: 5).id(hour)
               }
             }
-            ForEach(week, id: \.self) { day in
+            ForEach(Array(week.enumerated()), id: \.element) { index, day in
               CalendarDayColumn(
                 events: gridEvents, day: day, selectedID: store.calendarEventID,
-                suggestionID: focusSuggestionID
-              ) { event in
-                if event.id == focusSuggestionID {
-                  reviewFocus(DateInterval(start: event.start, end: event.end))
-                } else {
-                  select(event, on: day)
-                }
-              }
+                suggestionID: focusSuggestionID, dayRange: -index...(week.count - 1 - index),
+                select: { event in
+                  if event.id == focusSuggestionID {
+                    reviewFocus(DateInterval(start: event.start, end: event.end))
+                  } else {
+                    select(event, on: day)
+                  }
+                },
+                create: { start, end in eventDraft = CalendarEventDraft(start: start, end: end) },
+                reschedule: { event, start, end in reschedule(event, to: start, end: end) },
+                dragging: { active in draggingDay = active ? day : nil }
+              )
               .frame(height: CalendarEventLayout.hourHeight * 24)
               .frame(maxWidth: .infinity)
+              // The column being dragged from draws above its neighbours so a moved event stays visible.
+              .zIndex(draggingDay == day ? 1 : 0)
             }
           }
         }
@@ -539,26 +619,60 @@ struct CalendarDayColumn: View {
   let day: Date
   let selectedID: String?
   var suggestionID: String = "cove-focus-suggestion"
+  /// Columns this day may move an event by (negative is earlier in the visible week).
+  var dayRange: ClosedRange<Int> = 0...0
   let select: (LocalEvent) -> Void
+  var create: ((Date, Date) -> Void)? = nil
+  var reschedule: ((LocalEvent, Date, Date) -> Void)? = nil
+  var dragging: (Bool) -> Void = { _ in }
+
+  @State private var creation: (start: Double, end: Double)?
+  @State private var moving: (id: String, translation: CGSize)?
+  @State private var resizing: (id: String, translation: Double)?
+  private let hour = CalendarEventLayout.hourHeight
 
   var body: some View {
     GeometryReader { geometry in
       ZStack(alignment: .topLeading) {
         VStack(spacing: 0) {
           ForEach(0..<24) { _ in
-            Color.clear.frame(height: CalendarEventLayout.hourHeight)
+            Color.clear.frame(height: hour)
               .overlay(alignment: .top) { CalendarRule() }
               .overlay { CalendarRule(secondary: true) }
           }
         }
+        .contentShape(Rectangle())
+        .gesture(createGesture, including: create == nil ? .none : .all)
+        if let creation {
+          creationPreview(creation).frame(width: max(0, geometry.size.width - CalendarEventLayout.gap * 2))
+            .offset(x: CalendarEventLayout.gap, y: creation.start * hour / 60)
+        }
         ForEach(CalendarEventLayout.arrange(events, on: day)) { placement in
           let columnWidth = geometry.size.width / Double(placement.columns)
+          let movable = reschedule != nil && placement.event.canReschedule && placement.id != suggestionID
+          let active = moving?.id == placement.id || resizing?.id == placement.id
           CalendarTimedEvent(
-            event: placement.event, height: placement.height,
+            event: placement.event, height: height(for: placement),
             selected: selectedID == placement.id, suggested: suggestionID == placement.id
           ) { select(placement.event) }
-          .frame(width: max(0, columnWidth - CalendarEventLayout.gap * 2), height: placement.height)
+          .overlay(alignment: .bottom) {
+            if movable { resizeHandle(placement.event) }
+          }
+          .overlay(alignment: .topTrailing) {
+            if active, let span = proposedSpan(placement.event, columnWidth: geometry.size.width) {
+              Text(span.label).font(.coveMetadata).padding(.horizontal, 6).padding(.vertical, 3)
+                .background(Palette.ink, in: RoundedRectangle(cornerRadius: 4)).foregroundStyle(.white)
+                .fixedSize().offset(y: -24).allowsHitTesting(false)
+            }
+          }
+          .frame(width: max(0, columnWidth - CalendarEventLayout.gap * 2), height: height(for: placement))
+          .highPriorityGesture(dragGesture(placement.event, columnWidth: geometry.size.width,
+                                           bottom: placement.top + placement.height),
+                               including: movable ? .all : .subviews)
           .offset(x: Double(placement.column) * columnWidth + CalendarEventLayout.gap, y: placement.top)
+          .offset(offset(for: placement.event, columnWidth: geometry.size.width))
+          .shadow(color: active ? .black.opacity(0.18) : .clear, radius: 8, y: 3)
+          .zIndex(active ? 1 : 0)
         }
         TimelineView(.everyMinute) { context in
           if let minute = CalendarLayout.currentTimeMinute(on: day, now: context.date) {
@@ -566,15 +680,119 @@ struct CalendarDayColumn: View {
               Circle().fill(Palette.ink).frame(width: 6, height: 6)
               Rectangle().fill(Palette.ink).frame(height: 1)
             }
-            .offset(y: minute * CalendarEventLayout.hourHeight / 60 - 3)
+            .offset(y: minute * hour / 60 - 3)
             .allowsHitTesting(false)
             .accessibilityLabel("Current time, " + context.date.formatted(date: .omitted, time: .shortened))
           }
         }
       }
     }
+    .coordinateSpace(name: Self.space)
     .background(Palette.canvas)
     .overlay(alignment: .leading) { CalendarRule(vertical: true) }
+  }
+
+  private func date(_ minute: Double) -> Date {
+    Calendar.current.startOfDay(for: day).addingTimeInterval(minute * 60)
+  }
+  private var createGesture: some Gesture {
+    DragGesture(minimumDistance: 0)
+      .onChanged { value in
+        if creation == nil { dragging(true) }
+        creation = CalendarDrag.creation(fromY: value.startLocation.y, toY: value.location.y, hourHeight: hour)
+      }
+      .onEnded { value in
+        let span = CalendarDrag.creation(fromY: value.startLocation.y, toY: value.location.y, hourHeight: hour)
+        creation = nil
+        dragging(false)
+        create?(date(span.start), date(span.end))
+      }
+  }
+  private func creationPreview(_ span: (start: Double, end: Double)) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text("New event").font(.coveCaption)
+      Text("\(date(span.start).formatted(date: .omitted, time: .shortened)) – \(date(span.end).formatted(date: .omitted, time: .shortened))")
+        .font(.coveMetadata).foregroundStyle(Palette.body)
+    }
+    .padding(.horizontal, 8).padding(.vertical, 6)
+    .frame(height: max(CalendarEventLayout.minimumHeight, (span.end - span.start) * hour / 60 - CalendarEventLayout.gap), alignment: .topLeading)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Palette.selection.opacity(0.7), in: RoundedRectangle(cornerRadius: 5))
+    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Palette.ink, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+    .allowsHitTesting(false).accessibilityHidden(true)
+  }
+  /// One gesture per event: pressing within the bottom edge resizes, anywhere else moves. A click
+  /// never reaches the drag's minimum distance, so it still opens the event.
+  private func dragGesture(_ event: LocalEvent, columnWidth: Double, bottom: Double) -> some Gesture {
+    // Measured in the column, which never moves; the event itself follows the pointer while dragging.
+    DragGesture(minimumDistance: 4, coordinateSpace: .named(Self.space))
+      .onChanged { value in
+        if moving == nil && resizing == nil {
+          dragging(true)
+          if value.startLocation.y >= bottom - Self.edge {
+            resizing = (event.id, value.translation.height)
+          } else {
+            moving = (event.id, value.translation)
+          }
+        }
+        if resizing?.id == event.id { resizing = (event.id, value.translation.height) }
+        else { moving = (event.id, value.translation) }
+      }
+      .onEnded { value in
+        let resized = resizing?.id == event.id
+        moving = nil
+        resizing = nil
+        dragging(false)
+        if resized {
+          let end = CalendarDrag.resizedEnd(start: event.start, end: event.end, translationY: value.translation.height, hourHeight: hour)
+          reschedule?(event, event.start, end)
+        } else {
+          let target = CalendarDrag.moved(
+            start: event.start, end: event.end, translationX: value.translation.width,
+            translationY: value.translation.height, columnWidth: columnWidth, hourHeight: hour, dayRange: dayRange)
+          reschedule?(event, target.start, target.end)
+        }
+      }
+  }
+  private static let edge = 8.0
+  private static let space = "calendarDayColumn"
+  /// Shows the resize cursor along the bottom edge; the event's own drag gesture does the work.
+  private func resizeHandle(_ event: LocalEvent) -> some View {
+    Color.clear.frame(height: Self.edge).contentShape(Rectangle())
+      .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+      .help("Drag to change the end time").accessibilityHidden(true)
+  }
+  private func height(for placement: CalendarEventLayout.Placement) -> Double {
+    guard let resizing, resizing.id == placement.id else { return placement.height }
+    let end = CalendarDrag.resizedEnd(start: placement.event.start, end: placement.event.end,
+                                      translationY: resizing.translation, hourHeight: hour)
+    return max(CalendarEventLayout.minimumHeight, end.timeIntervalSince(placement.event.start) / 60 * hour / 60 - CalendarEventLayout.gap)
+  }
+  /// The pointer's snapped target, so the preview lands where the event will.
+  private func offset(for event: LocalEvent, columnWidth: Double) -> CGSize {
+    guard let moving, moving.id == event.id else { return .zero }
+    let target = CalendarDrag.moved(start: event.start, end: event.end, translationX: moving.translation.width,
+                                    translationY: moving.translation.height, columnWidth: columnWidth,
+                                    hourHeight: hour, dayRange: dayRange)
+    let calendar = Calendar.current
+    let (from, to) = (calendar.startOfDay(for: event.start), calendar.startOfDay(for: target.start))
+    let days = calendar.dateComponents([.day], from: from, to: to).day ?? 0
+    let minutes = (target.start.timeIntervalSince(to) - event.start.timeIntervalSince(from)) / 60
+    return CGSize(width: Double(days) * columnWidth, height: minutes * hour / 60)
+  }
+  private func proposedSpan(_ event: LocalEvent, columnWidth: Double) -> (start: Date, end: Date, label: String)? {
+    var span: (start: Date, end: Date)
+    if let moving, moving.id == event.id {
+      span = CalendarDrag.moved(start: event.start, end: event.end, translationX: moving.translation.width,
+                                translationY: moving.translation.height, columnWidth: columnWidth,
+                                hourHeight: hour, dayRange: dayRange)
+    } else if let resizing, resizing.id == event.id {
+      span = (event.start, CalendarDrag.resizedEnd(start: event.start, end: event.end, translationY: resizing.translation, hourHeight: hour))
+    } else { return nil }
+    let sameDay = Calendar.current.isDate(span.start, inSameDayAs: event.start)
+    let label = (sameDay ? "" : span.start.formatted(.dateTime.weekday(.abbreviated)) + " ")
+      + span.start.formatted(date: .omitted, time: .shortened) + " – " + span.end.formatted(date: .omitted, time: .shortened)
+    return (span.start, span.end, label)
   }
 }
 
