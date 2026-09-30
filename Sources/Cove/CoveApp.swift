@@ -1,12 +1,62 @@
 import SwiftUI
 
+/// Reopens Cove's window from the Dock or Finder. Closing the window keeps Cove running (sync,
+/// drafts and state live in the app), but AppKit can count leftover helper windows as "visible",
+/// so SwiftUI's default reopen may never create a new window. This decides explicitly.
+final class CoveAppDelegate: NSObject, NSApplicationDelegate {
+  /// Opens a new main window; set by the first window that appears (valid after it closes).
+  @MainActor static var openMainWindow: (() -> Void)?
+  /// Windows showing Cove's main view; a window leaves this set when it closes. Helper windows
+  /// (toolbars, previews) are never candidates.
+  @MainActor static let mainWindows = NSHashTable<NSWindow>.weakObjects()
+  @MainActor static func track(_ window: NSWindow) {
+    guard !mainWindows.contains(window) else { return }
+    mainWindows.add(window)
+    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { note in
+      MainActor.assumeIsolated { if let closed = note.object as? NSWindow { mainWindows.remove(closed) } }
+    }
+  }
+
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    MainActor.assumeIsolated { Self.showMainWindow(in: Self.mainWindows.allObjects) }
+    return false
+  }
+
+  enum ReopenAction: Equatable { case none, restore, open }
+  /// Pure decision, testable without AppKit windows: a showing main window needs nothing; a
+  /// minimized or hidden one is restored; otherwise a new window opens.
+  static func reopenAction(windows: [(canBecomeMain: Bool, visible: Bool, minimized: Bool)]) -> ReopenAction {
+    let main = windows.filter(\.canBecomeMain)
+    if main.contains(where: { $0.visible && !$0.minimized }) { return .none }
+    return main.isEmpty ? .open : .restore
+  }
+
+  @MainActor static func showMainWindow(in windows: [NSWindow], activate: () -> Void = { NSApp.activate() }) {
+    let candidates = windows
+    switch reopenAction(windows: candidates.map { (true, $0.isVisible, $0.isMiniaturized) }) {
+    case .none:
+      activate()
+    case .restore:
+      let window = candidates.first { $0.isMiniaturized } ?? candidates[0]
+      if window.isMiniaturized { window.deminiaturize(nil) }
+      window.makeKeyAndOrderFront(nil)
+      activate()
+    case .open:
+      openMainWindow?()
+      activate()
+    }
+  }
+}
+
 @main struct CoveApp: App {
+  @NSApplicationDelegateAdaptor(CoveAppDelegate.self) private var appDelegate
   @State private var store = AppStore()
   @StateObject private var updater = AppUpdater.shared
   init() { DesignAssets.registerFonts() }
   var body: some Scene {
-    WindowGroup {
+    WindowGroup(id: "main") {
       RootView(store: store)
+        .modifier(MainWindowOpener())
         .task { updater.start(store: store) }
         .frame(minWidth: 1040, minHeight: 700)
         .preferredColorScheme(.light)
@@ -281,4 +331,28 @@ struct Sidebar: View {
         ).contentShape(Rectangle())
     }.buttonStyle(.plain)
   }
+}
+
+/// Captures SwiftUI's window opener so the Dock can open a new window after the last one closed.
+private struct MainWindowOpener: ViewModifier {
+  @Environment(\.openWindow) private var openWindow
+  func body(content: Content) -> some View {
+    content
+      .background(MainWindowReporter())
+      .onAppear {
+        let open = openWindow
+        CoveAppDelegate.openMainWindow = { open(id: "main") }
+      }
+  }
+}
+
+private struct MainWindowReporter: NSViewRepresentable {
+  final class Probe: NSView {
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      if let window { CoveAppDelegate.track(window) }
+    }
+  }
+  func makeNSView(context: Context) -> Probe { Probe() }
+  func updateNSView(_ view: Probe, context: Context) {}
 }

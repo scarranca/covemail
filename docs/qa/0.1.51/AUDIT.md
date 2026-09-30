@@ -31,6 +31,18 @@
   - Moving the confirmation for guests into a Google-style "notify guests?" choice.
   - An end-to-end drag through the whole `CalendarView` (the commit path reuses `createEvent(editing:)`, which is already covered).
 
+## Reopening the window
+
+- **Report:** "sometimes the app can't open, it shows the dot of open, but is not opening again."
+- **Evidence:** the user's running 0.1.50 (pid 61924, idle at 0% CPU) had no main window, only two 39-point off-screen helper windows (window metadata read via `CGWindowListCopyWindowInfo`, no contents). The window had been closed and the Dock click never created a new one.
+- **Fix:** `CoveAppDelegate.applicationShouldHandleReopen` decides explicitly.
+  - Cove's own main windows are tracked (a window is removed when it closes).
+  - A minimized or hidden window is restored.
+  - With none left, a new window opens via SwiftUI's `openWindow(id: "main")`.
+  - The mailbox, drafts and sync live in app-level state, so a new window keeps them.
+- **Tests:** `AppReopenTests` covers the decision rules, closed windows being forgotten, and the open path, with activation stubbed so tests never take focus.
+- **Still to check:** a real Dock click in a QA build.
+
 ## Suites
 
-- Full offline run: core 230 passed (1 skipped), rendering 296 passed (7 skipped).
+- Full offline run: core 230 passed (1 skipped), rendering 298 passed (7 skipped).
