@@ -17,6 +17,11 @@ import Security
   }
   var status = "Not connected"
   var connected = false
+  /// A successful account check is reused for a few minutes while the helper keeps running.
+  private var lastAccountCheck: Date?
+  /// Receives the answer as it is written (item/agentMessage/delta), for progressive display.
+  private var onPartial: ((String) -> Void)?
+  private var streamed = ""
   private var starting: Task<Void, Error>?
   private var process: Process?
   private var input: FileHandle?
@@ -151,6 +156,7 @@ import Security
     let result = try await rpc("account/read", ["refreshToken": false])
     connected = (result["account"] as? [String: Any])?["type"] as? String == "chatgpt"
     status = connected ? "Connected with ChatGPT" : "Not connected"
+    lastAccountCheck = connected ? Date() : nil
   }
   private static func defaultKeychainPath() throws -> String {
     var keychain: SecKeychain?
@@ -215,11 +221,14 @@ import Security
     } while cursor != nil
     return models
   }
-  func complete(model: String, prompt: AIPrompt) async throws -> String {
+  func complete(model: String, prompt: AIPrompt, onPartial: ((String) -> Void)? = nil) async throws -> String {
     guard !isGenerating else { throw CoveError.message("A ChatGPT request is already running.") }
     isGenerating = true
     defer { isGenerating = false }
-    try await refresh()
+    // Skip the account round-trip when the helper is running and was verified recently.
+    if process == nil || !connected || Date().timeIntervalSince(lastAccountCheck ?? .distantPast) > 300 {
+      try await refresh()
+    }
     try Task.checkCancellation()
     guard connected, !model.isEmpty else {
       throw CoveError.message("Connect ChatGPT and choose a model in Integrations.")
@@ -238,6 +247,8 @@ import Security
     try Task.checkCancellation()
     activeThread = id
     output = ""
+    streamed = ""
+    self.onPartial = onPartial
     return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         turn = continuation
@@ -286,9 +297,12 @@ import Security
     turn = nil
     activeThread = nil
     output = ""
+    streamed = ""
+    onPartial = nil
     continuation?.resume(with: result)
   }
   private func stopped() {
+    lastAccountCheck = nil
     process = nil
     input = nil
     buffer = Data()
@@ -361,6 +375,11 @@ import Security
       case "account/login/completed":
         connected = params["success"] as? Bool == true
         status = connected ? "Connected with ChatGPT" : "Sign-in did not complete"
+      case "item/agentMessage/delta":
+        if params["threadId"] as? String == activeThread, let delta = params["delta"] as? String, streamed.count < 32_000 {
+          streamed += delta
+          onPartial?(streamed)
+        }
       case "item/completed":
         if params["threadId"] as? String == activeThread,
           let item = params["item"] as? [String: Any], item["type"] as? String == "agentMessage",

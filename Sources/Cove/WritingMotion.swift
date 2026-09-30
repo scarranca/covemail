@@ -7,11 +7,13 @@ import CoreText
   var working = false
   var stage = ""
   var preview: String?
+  /// Draft text arriving from the model while it writes; replaced by the finished suggestion.
+  var streaming: String?
   var revision = 0
   var previewSelection = NSRange(location: 0, length: 0)
   var applyRequest = 0
   var rewriteRequest = 0
-  func reset() { working = false; stage = ""; preview = nil; previewSelection = NSRange(location: 0, length: 0) }
+  func reset() { working = false; stage = ""; preview = nil; streaming = nil; previewSelection = NSRange(location: 0, length: 0) }
 }
 
 struct WritingCanvasPreview: View {

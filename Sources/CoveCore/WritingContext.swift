@@ -72,3 +72,21 @@ public struct WritingToolPlan: Decodable, Sendable {
     return plan
   }
 }
+
+extension WritingToolPlan {
+  /// Whether a writing request could need a mail or calendar lookup. Wording, tone, length and
+  /// translation requests don't, so the planning call is skipped and the draft arrives in one call.
+  public static func mightNeedLookup(_ request: String) -> Bool {
+    let text = request.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    let signals = [
+      "find", "search", "look up", "lookup", "latest", "last email", "last message", "conversation", "thread", "previous",
+      "earlier", "what did", "when did", "who said", "mention", "meeting", "meet", "calendar", "schedule", "available",
+      "availability", "free", "busy", "slot", "today", "tomorrow", "next week", "this week", "monday", "tuesday",
+      "wednesday", "thursday", "friday", "saturday", "sunday", "attach", "invoice number", "propose", "time", "date",
+      "when", "busca", "encuentra", "propon", "hora", "fecha", "cuando",
+      "ultimo", "conversacion", "hilo", "anterior", "reunion", "junta", "calendario", "agenda", "disponib", "libre",
+      "manana", "hoy", "semana", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo",
+    ]
+    return signals.contains { text.contains($0) }
+  }
+}

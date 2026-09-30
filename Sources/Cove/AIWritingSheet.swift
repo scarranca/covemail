@@ -72,6 +72,7 @@ struct AIWritingPanel: View {
   @State private var lookupEnabled = true
   @State private var lookupActivity: [String] = []
   @State private var workingStage = "Preparing your draft"
+  @State private var streamingText = ""
   @State private var useRecipientContext = true
 
 
@@ -184,7 +185,15 @@ struct AIWritingPanel: View {
   }
 
   private var progressRow: some View {
-    WritingProgressRow(stage: workingStage) { task?.cancel() }
+    VStack(alignment: .leading, spacing: 10) {
+      WritingProgressRow(stage: workingStage) { task?.cancel() }
+      if !streamingText.isEmpty && !reviewOnCanvas {
+        Text(streamingText).font(.coveBody).lineSpacing(6).foregroundStyle(Palette.body)
+          .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+          .background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+          .accessibilityLabel("Draft being written")
+      }
+    }
   }
 
   private var instructionComposer: some View {
@@ -402,12 +411,17 @@ struct AIWritingPanel: View {
     let requestIsSample = store?.isSample
     task = Task { @MainActor in
       defer {
-        task = nil; activity?.working = false
+        task = nil; activity?.working = false; activity?.streaming = nil; streamingText = ""
         if let suggestion { activity?.preview = suggestion.text }
       }
       do {
         let agent = WritingAgent(
-          complete: { prompt in try await activeSettings.complete(prompt, provider: selectedProvider, model: selectedModel) },
+          complete: { prompt in
+            // Only the final draft streams; lookup plans are JSON and stay hidden.
+            let streams = prompt.system.contains("Write an email draft following")
+            return try await activeSettings.complete(prompt, provider: selectedProvider, model: selectedModel,
+              onPartial: streams ? { text in streamingText = text; activity?.streaming = text } : nil)
+          },
           search: { query in
             guard let store else { return [] }
             guard store.accountEmail == requestAccount, store.isSample == requestIsSample else { throw CancellationError() }

@@ -117,14 +117,17 @@ struct MailboxView: View {
               .fixedSize(horizontal: false, vertical: true).padding(12)
           }
           if store.visible.isEmpty {
-            ContentUnavailableView(
-              store.search.isEmpty ? (store.isFocusedMailView ? "No emails in this view" : "A little breathing room") : "No matching mail",
-              systemImage: store.search.isEmpty ? "tray" : "magnifyingglass",
-              description: Text(
-                store.search.isEmpty
-                  ? "Messages in this view will appear here."
-                  : "Try a name, subject, or phrase in your downloaded mail.")
-            ).frame(maxHeight: .infinity)
+            VStack(spacing: 12) {
+              ContentUnavailableView(
+                store.search.isEmpty ? (store.isFocusedMailView ? "No emails in this view" : "A little breathing room") : "No matching mail",
+                systemImage: store.search.isEmpty ? "tray" : "magnifyingglass",
+                description: Text(
+                  store.search.isEmpty
+                    ? "Messages in this view will appear here."
+                    : "Nothing matches in mail on this Mac.")
+              )
+              GmailSearchMoreButton(store: store)
+            }.frame(maxHeight: .infinity)
           } else {
             ScrollViewReader { proxy in
               GeometryReader { viewport in
@@ -142,6 +145,7 @@ struct MailboxView: View {
                       MailListRow(store: store, mail: mail) { listFocused = true }.id(mail.id)
                       Divider()
                     }
+                    GmailSearchMoreButton(store: store)
                     paginationFooter
                       .background(GeometryReader { end in
                         Color.clear.preference(key: MailListEndKey.self,
@@ -380,5 +384,42 @@ extension View {
     self.font(.coveCaption).foregroundStyle(Palette.body).padding(
       .horizontal, 7
     ).padding(.vertical, 3).background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 4))
+  }
+}
+
+
+/// Searches all of Gmail for the current search words and brings up to 20 matches onto this Mac.
+struct GmailSearchMoreButton: View {
+  @Bindable var store: AppStore
+  @State private var searching = false
+  @State private var result: String?
+  @State private var lastQuery = ""
+  var body: some View {
+    let query = store.search.trimmingCharacters(in: .whitespacesAndNewlines)
+    if query.count >= 2 && !store.isSample {
+      VStack(spacing: 6) {
+        Button {
+          searching = true; result = nil; lastQuery = query
+          Task {
+            do {
+              let found = try await store.aiSearchMail(query)
+              guard store.search.trimmingCharacters(in: .whitespacesAndNewlines) == query else { searching = false; return }
+              // Show matches that live outside the current folder, keeping the search.
+              if !found.isEmpty && store.visible.count < found.count { store.folder = "All mail" }
+              result = found.isEmpty ? "Gmail has no other emails matching “\(query)”." : "Found \(found.count) email\(found.count == 1 ? "" : "s") in Gmail."
+            } catch is CancellationError {} catch { result = error.localizedDescription }
+            searching = false
+          }
+        } label: {
+          HStack(spacing: 8) {
+            if searching { ProgressView().controlSize(.small) } else { Image(systemName: "magnifyingglass") }
+            Text(searching ? "Searching Gmail…" : "Search all of Gmail for “\(query)”").lineLimit(1)
+          }.font(.coveControl).padding(.horizontal, 14).frame(height: 36)
+        }.buttonStyle(.plain).foregroundStyle(Palette.body).disabled(searching || store.busy)
+        if let result, lastQuery == query {
+          Text(result).font(.coveMetadata).foregroundStyle(Palette.body)
+        }
+      }.frame(maxWidth: .infinity).padding(.vertical, 12)
+    }
   }
 }

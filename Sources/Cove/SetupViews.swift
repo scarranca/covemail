@@ -250,6 +250,12 @@ struct ComposerView: View {
           WritingCanvasPreview(text: preview, onEdit: writingActivity.working ? nil : { writingActivity.preview = $0 },
             onSelection: { writingActivity.previewSelection = $0 }, selectedRange: writingActivity.previewSelection)
             .id(writingActivity.revision)
+        } else if writingActivity.working, let streaming = writingActivity.streaming, !streaming.isEmpty {
+          // The draft appears as it is written; it becomes the reviewable preview when complete.
+          ScrollView {
+            Text(streaming).font(.coveBody).lineSpacing(6).foregroundStyle(Palette.ink)
+              .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.vertical, 18)
+          }.background(Palette.canvas).accessibilityLabel("Draft being written")
         } else if writingActivity.working && text.isEmpty {
           WritingCanvasLoading(stage: writingActivity.stage)
         }

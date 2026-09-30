@@ -45,6 +45,42 @@ import XCTest
     try await connection.logout()
     XCTAssertFalse(connection.connected)
   }
+  func testDraftStreamsAndAccountCheckIsReusedBetweenRequests() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let executable = directory.appendingPathComponent("fake-codex")
+    let log = directory.appendingPathComponent("account-checks")
+    let script = #"""
+      #!/bin/sh
+      while IFS= read -r line; do
+        id=$(printf '%s' "$line" | /usr/bin/sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+        case "$line" in
+          *'"method":"initialize"'*) printf '{"id":%s,"result":{"userAgent":"test"}}\n' "$id" ;;
+          *'"method":"account/read"'*) printf 'x' >> "$COVE_TEST_LOG"; printf '{"id":%s,"result":{"account":{"type":"chatgpt"}}}\n' "$id" ;;
+          *'"method":"thread/start"'*) printf '{"id":%s,"result":{"thread":{"id":"fixture-thread"}}}\n' "$id" ;;
+          *'"method":"turn/start"'*)
+            printf '{"id":%s,"result":{"turn":{"id":"fixture-turn"}}}\n' "$id"
+            printf '{"method":"item/agentMessage/delta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"i","delta":"Hola "}}\n'
+            printf '{"method":"item/agentMessage/delta","params":{"threadId":"fixture-thread","turnId":"fixture-turn","itemId":"i","delta":"Jerjes"}}\n'
+            printf '{"method":"item/completed","params":{"threadId":"fixture-thread","item":{"type":"agentMessage","text":"Hola Jerjes"}}}\n'
+            printf '{"method":"turn/completed","params":{"threadId":"fixture-thread","turn":{"status":"completed"}}}\n' ;;
+        esac
+      done
+      """#.replacingOccurrences(of: "$COVE_TEST_LOG", with: log.path)
+    try script.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    let connection = ChatGPTConnection(runtimeDirectory: directory, executable: executable.path)
+    defer { connection.shutdown() }
+    var partials: [String] = []
+    let text = try await connection.complete(model: "fixture-model",
+      prompt: AIPrompt(intent: .write, instruction: "Say hello", mails: []), onPartial: { partials.append($0) })
+    XCTAssertEqual(text, "Hola Jerjes")
+    XCTAssertEqual(partials, ["Hola ", "Hola Jerjes"])
+    _ = try await connection.complete(model: "fixture-model", prompt: AIPrompt(intent: .write, instruction: "Again", mails: []))
+    XCTAssertEqual(try String(contentsOf: log, encoding: .utf8), "x", "one account check serves back-to-back requests")
+  }
+
   func testRepeatedModelCursorFailsInsteadOfLoopingOrReturningPartialCatalog() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

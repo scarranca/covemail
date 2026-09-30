@@ -53,6 +53,9 @@ struct WritingSession {
     var activity: [String] = []
     var requiredMeetingLabels: [String] = []
     var resolvedAvailability = session.availability
+    // Pure wording/tone/translation requests skip the planning call: one model call instead of two.
+    let useTools = useTools && (needsAvailability || session.availability != nil
+      || WritingToolPlan.mightNeedLookup(userRequest))
     if useTools {
       progress("Finding the right context")
       // Mail bodies and quoted drafts cannot direct additional mailbox searches.

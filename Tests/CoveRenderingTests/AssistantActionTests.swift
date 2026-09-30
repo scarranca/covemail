@@ -125,3 +125,20 @@ private struct OfflineHTTP: HTTPTransport {
     return (Data("{}".utf8), HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!)
   }
 }
+
+@MainActor final class WritingCallCountTests: XCTestCase {
+  func testWordingEditUsesOneModelCallAndSearchStillPlans() async throws {
+    var calls: [String] = []
+    let agent = WritingAgent(complete: { prompt in
+      calls.append(prompt.system.contains("You plan read-only evidence lookups") ? "plan" : "write")
+      return prompt.system.contains("You plan read-only evidence lookups") ? #"{"tools":[]}"# : "Warmer draft"
+    }, search: { _ in [] }, calendar: { _, _ in [] }, calendarAvailable: false)
+    _ = try await agent.draft(instruction: "Make this warmer", draft: "Hi.", mails: [], envelope: "To: a@example.com",
+      useTools: true, progress: { _ in })
+    XCTAssertEqual(calls, ["write"])
+    calls = []
+    _ = try await agent.draft(instruction: "Find Maya's latest email and reply", draft: "", mails: [], envelope: "To: a@example.com",
+      useTools: true, progress: { _ in })
+    XCTAssertEqual(calls.first, "plan")
+  }
+}

@@ -57,7 +57,7 @@ import XCTest
     let agent = WritingAgent(complete: { _ in completions += 1; return #"{"tools":[{"name":"send_email","query":"x"}]}"# },
       search: { _ in XCTFail("Invalid plan executed"); return [] }, calendar: { _, _ in XCTFail("Invalid plan executed"); return [] }, calendarAvailable: true)
     do {
-      _ = try await agent.draft(instruction: "Draft", draft: "", mails: [], envelope: "", useTools: true) { _ in }
+      _ = try await agent.draft(instruction: "Draft a reply to Maya's latest email", draft: "", mails: [], envelope: "", useTools: true) { _ in }
       XCTFail("Expected rejection")
     } catch { XCTAssertEqual(completions, 1) }
   }
@@ -69,7 +69,7 @@ import XCTest
       return #"{"tools":[{"name":"search_mail","query":"from:x@example.com"}]}"#
     }, search: { _ in throw CancellationError() }, calendar: { _, _ in [] }, calendarAvailable: false)
     do {
-      _ = try await agent.draft(instruction: "Draft", draft: "", mails: [], envelope: "", useTools: true) { _ in }
+      _ = try await agent.draft(instruction: "Draft a reply to Maya's latest email", draft: "", mails: [], envelope: "", useTools: true) { _ in }
       XCTFail("Expected account cancellation")
     } catch is CancellationError {} catch { XCTFail("Wrong error") }
     XCTAssertEqual(completions, 1)
@@ -84,7 +84,7 @@ import XCTest
       await withCheckedContinuation { continuePlan = $0; ready.fulfill() }
       return #"{"tools":[{"name":"search_mail","query":"from:x@example.com"}]}"#
     }, search: { _ in XCTFail("Cancelled search ran"); return [] }, calendar: { _, _ in []; }, calendarAvailable: false)
-    let task = Task { try await agent.draft(instruction: "Draft", draft: "", mails: [], envelope: "", useTools: true) { _ in } }
+    let task = Task { try await agent.draft(instruction: "Draft a reply to Maya's latest email", draft: "", mails: [], envelope: "", useTools: true) { _ in } }
     await fulfillment(of: [ready], timeout: 1)
     task.cancel(); continuePlan?.resume()
     do { _ = try await task.value; XCTFail("Expected cancellation") } catch is CancellationError {} catch { XCTFail("Unexpected error") }
