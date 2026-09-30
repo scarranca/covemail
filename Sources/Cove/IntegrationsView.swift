@@ -25,6 +25,8 @@ struct IntegrationsView: View {
   @State private var upcomingExpanded = false
   @AppStorage("integrations.writingExpanded") private var writingExpanded = true
   @State private var connectionExpanded = false
+  @State private var expandedStep: SetupStep?
+  @State private var setupRefresh = 0
 
   init(store: AppStore, settings: AIProviderSettings? = nil, initialProvider: AIProvider? = nil, upcomingExpanded: Bool = false) {
     self.store = store
@@ -37,15 +39,14 @@ struct IntegrationsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Text("Integrations").font(.coveTitle).accessibilityAddTraits(.isHeader)
+      Text("Connections").font(.coveTitle).accessibilityAddTraits(.isHeader)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 32).padding(.vertical, 24)
       Divider()
       GeometryReader { _ in
         ScrollView {
-          VStack(alignment: .leading, spacing: 20) {
-            writingPanel
-            tasksPanel
+          VStack(alignment: .leading, spacing: 14) {
+            connectionsHub
             DisclosureGroup("More integrations · Coming later", isExpanded: $upcomingExpanded) {
               VStack(alignment: .leading, spacing: 12) {
                 Label("GitHub · Assigned issues", systemImage: "chevron.left.forwardslash.chevron.right")
@@ -60,7 +61,12 @@ struct IntegrationsView: View {
         }
       }
     }.background(Palette.canvas).foregroundStyle(Palette.ink)
-      .onAppear { load(selectedProvider) }
+      .onAppear {
+        load(selectedProvider)
+        if let focus = store.integrationsFocus { expandedStep = focus; store.integrationsFocus = nil }
+        else if expandedStep == nil { expandedStep = Setup.remaining(store).first { $0 == .ai || $0 == .jev } }
+      }
+      .onChange(of: store.integrationsFocus) { _, focus in if let focus { expandedStep = focus; store.integrationsFocus = nil } }
       .onDisappear { task?.cancel() }
       .onChange(of: selectedProvider) { _, provider in load(provider) }
       .onChange(of: connection.connected) { _, connected in
@@ -447,28 +453,33 @@ private struct CTAStyle: ViewModifier {
 }
 
 extension IntegrationsView {
-  /// Google Tasks: where Cove adds the promises and requests it finds, once the user approves.
-  var tasksPanel: some View {
-    HStack(alignment: .center, spacing: 14) {
-      Image(systemName: "checklist").font(.cove(size: 18)).frame(width: 32)
-      VStack(alignment: .leading, spacing: 3) {
-        Text("Google Tasks").font(.coveSubheading)
-        Text(store.tasksConnected ? "Connected · tasks you approve are added to your default list"
-             : "Turn promises and requests in your email into tasks").font(.coveSecondary).foregroundStyle(Palette.body)
-        if let error = store.tasksConnectError, !store.tasksConnected {
-          Text(error).font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
-        }
+  /// Every connection in setup order, each with what it powers and one action.
+  @ViewBuilder var connectionsHub: some View {
+    let done = SetupStep.allCases.filter { Setup.isDone($0, store: store) }.count
+    VStack(alignment: .leading, spacing: 14) {
+      SetupProgress(done: done, total: SetupStep.allCases.count).padding(.bottom, 6).id(setupRefresh)
+      ConnectionRow(step: .gmail, done: Setup.isDone(.gmail, store: store), action: { store.showConnections = true },
+                    manageTitle: store.isSample ? nil : store.accountEmail, manage: { store.showConnections = true }) { EmptyView() }
+      ConnectionRow(step: .ai, done: Setup.isDone(.ai, store: store), actionTitle: "Set up", action: { toggle(.ai) },
+                    expanded: expandedStep == .ai, manageTitle: expandedStep == .ai ? "Done" : "Change", manage: { toggle(.ai) }) {
+        writingContent
       }
-      Spacer(minLength: 12)
-      if store.tasksConnected {
-        Button("Open Tasks") { store.screen = "tasks" }.buttonStyle(SecondaryButton(compact: true))
-      } else {
-        Button("Connect") { Task { await store.connectTasks() } }
-          .buttonStyle(PrimaryButton(compact: true)).disabled(store.busy || store.isSample || !store.entered)
+      ConnectionRow(step: .jev, done: Setup.isDone(.jev, store: store) && expandedStep != .jev, actionTitle: "Add key",
+                    action: { toggle(.jev) }, expanded: expandedStep == .jev, manageTitle: "Replace key", manage: { toggle(.jev) }) {
+        JevKeyField { expandedStep = nil; setupRefresh += 1 }
+      }
+      ConnectionRow(step: .calendar, done: Setup.isDone(.calendar, store: store),
+                    action: { Task { await store.connectCalendar() } }, expanded: store.calendarConnectError != nil) {
+        if let error = store.calendarConnectError { Text(error).font(.coveMetadata).foregroundStyle(Palette.body) }
+      }
+      ConnectionRow(step: .tasks, done: Setup.isDone(.tasks, store: store),
+                    action: { Task { await store.connectTasks() } }, expanded: store.tasksConnectError != nil,
+                    manageTitle: "Open Tasks", manage: { store.screen = "tasks" }) {
+        if let error = store.tasksConnectError { Text(error).font(.coveMetadata).foregroundStyle(Palette.body) }
       }
     }
-    .padding(18).frame(maxWidth: .infinity, alignment: .leading)
-    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
-    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
+  }
+  private func toggle(_ step: SetupStep) {
+    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { expandedStep = expandedStep == step ? nil : step }
   }
 }

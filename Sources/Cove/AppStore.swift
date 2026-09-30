@@ -180,6 +180,8 @@ import SwiftUI
   @ObservationIgnored private var contactsCache: (revision: Int, records: [ContactRecord], account: String, value: [MailContact])?
   /// The email whose task suggestions are open.
   var taskSuggestionMail: Mail?
+  /// Integrations opens with this connection expanded (from the setup checklist or a gate).
+  var integrationsFocus: SetupStep?
   /// After a send: Jev looks for promises in what was just sent.
   var postSend: PostSendTaskCheck?
   let auth = GoogleAuth()

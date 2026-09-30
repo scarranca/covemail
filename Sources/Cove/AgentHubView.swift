@@ -70,6 +70,7 @@ struct AgentHubView: View {
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 25) {
+            SetupChecklistCard(store: store)
             briefingBanner(compact: geometry.size.width < 960, viewportHeight: geometry.size.height - 62)
             if geometry.size.width >= 900 {
               hubColumns(width: geometry.size.width)

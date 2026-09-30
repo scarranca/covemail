@@ -29,7 +29,7 @@ struct SettingsSidebar: View {
           }.buttonStyle(.plain)
         }
         Button { store.screen = "integrations" } label: {
-          Label("Integrations", systemImage: "square.stack.3d.up").font(.coveLabel)
+          Label("Connections", systemImage: "square.stack.3d.up").font(.coveLabel)
             .frame(maxWidth: .infinity, alignment: .leading).padding(11)
         }.buttonStyle(.plain)
           .background(section == "Integrations" ? Palette.selection : .clear, in: RoundedRectangle(cornerRadius: 7))

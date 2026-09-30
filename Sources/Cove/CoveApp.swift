@@ -88,7 +88,7 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
         Button("Tasks") { store.screen = "tasks" }.keyboardShortcut("5").disabled(!store.entered)
         Button("Your Agents") { store.screen = "agents" }.keyboardShortcut("3")
         Button("Categories") { store.screen = "categories" }.disabled(!store.entered)
-        Button("Integrations") { store.screen = "integrations" }.disabled(!store.entered)
+        Button("Connections") { store.screen = "integrations" }.disabled(!store.entered)
       }
       CommandGroup(replacing: .appSettings) {
         Button("Settings…") { store.showConnections = true }.keyboardShortcut(",")
@@ -271,7 +271,9 @@ struct Sidebar: View {
           .font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
       }
       VStack(spacing: 2) {
-        nav("Integrations", icon: "square.stack.3d.up", selected: store.screen == "integrations") {
+        // The count of what's left to connect nudges new users here without a separate onboarding screen.
+        nav("Connections", icon: "square.stack.3d.up", selected: store.screen == "integrations",
+            badge: store.isSample ? nil : Setup.remaining(store).count.nonZero) {
           store.screen = "integrations"
         }
         nav("Settings", icon: "gearshape", selected: false, shortcut: "⌘,") { store.showConnections = true }

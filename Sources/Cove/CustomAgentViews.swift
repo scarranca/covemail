@@ -39,6 +39,9 @@ struct CustomAgentsView: View {
                 Text("Jev checks new inbox mail against your rules, in order. The first confident match can apply a Gmail label, prepare a reply, or both. Your writing model prepares replies for review in Activity; nothing sends automatically. Uncertain results stay in Activity for your review, without changing Gmail labels. Agents run during Gmail sync while Cove is open. They cannot send, delete, or make purchases. Tests send the chosen content to TypeSafe but never change Gmail.")
                   .font(.coveBody).foregroundStyle(Palette.body).lineSpacing(5).padding(18).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
               }
+              if !store.isSample {
+                JevRequiredBanner(reason: "Agents use Jev to check each new email against your rules. Add your TypeSafe key to create and run them.")
+              }
               notices
               if let pending = store.customAgents.runs.first(where: { $0.replySuggestion != nil && $0.replyApplied != true }) {
                 Button { store.agentActivityID = pending.agentID } label: {

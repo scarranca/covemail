@@ -134,9 +134,12 @@ struct SettingsView: View {
 
   private var jevSection: some View {
     VStack(alignment: .leading, spacing: 20) {
+      if !Setup.jevKeySaved && !store.isSample {
+        JevRequiredBanner(reason: "Jev organizes new mail, runs your agents and finds tasks. It needs a TypeSafe key.")
+      }
       Toggle(isOn: Binding(get: { store.preferences.autoClassify }, set: { store.setAutoOrganization($0) })) {
         copy("Organize new mail with Jev", "")
-      }.toggleStyle(CoveToggleStyle()).disabled(!store.entered || store.isSample || store.busy)
+      }.toggleStyle(CoveToggleStyle()).disabled(!store.entered || store.isSample || store.busy || !Setup.jevKeySaved)
         .accessibilityLabel("Organize new mail with Jev")
         .help("Categorize new emails, score urgency, and select a key passage")
       DisclosureGroup(key.isEmpty ? "TypeSafe connection · Add a key" : "TypeSafe connection · Manage key") {
@@ -222,6 +225,7 @@ struct SettingsView: View {
       let typesafe = key.trimmingCharacters(in: .whitespacesAndNewlines)
       if keyLoaded || !typesafe.isEmpty {
         try Vault.save(typesafe, name: "typesafeKey")
+        Setup.recordJevKey(saved: !typesafe.isEmpty)
         // Never report success unless the key can actually be read back from the Keychain.
         if !typesafe.isEmpty, !Vault.aiKeysRequireTouchID, try readSecret("typesafeKey") != typesafe {
           throw CoveError.message("Your TypeSafe key couldn’t be saved to the Keychain. Try again, or quit and reopen Cove.")
