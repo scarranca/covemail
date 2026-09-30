@@ -21,17 +21,6 @@ struct SettingsView: View {
     }
   }
 
-  private var sectionDescription: String {
-    switch selectedSection {
-    case "Jev · Mail agent": return "Organization, writing voice, and instructions."
-    case "Reading": return "Choose how emails look when you open them."
-    case "Cloud sync": return "Manage your optional cloud copy."
-    case "Privacy": return "Manage the data stored on this Mac."
-    case "App updates": return "Keep Cove up to date."
-    default: return "Manage your inbox and Google connection."
-    }
-  }
-
   var body: some View {
     HStack(spacing: 0) {
       SettingsSidebar(store: store, section: selectedSection) { destination in
@@ -39,11 +28,9 @@ struct SettingsView: View {
       }.frame(width: 224)
       Divider()
       VStack(alignment: .leading, spacing: 0) {
-        VStack(alignment: .leading, spacing: 6) {
-          Text(selectedSection == "Privacy" ? "Privacy & local data" : selectedSection)
-            .font(.coveTitle)
-          Text(sectionDescription).font(.coveSecondary).foregroundStyle(Palette.body)
-        }.padding(.horizontal, 32).padding(.vertical, 24)
+        Text(selectedSection).font(.coveTitle)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 32).padding(.vertical, 24).accessibilityAddTraits(.isHeader)
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 24) {
@@ -90,17 +77,15 @@ struct SettingsView: View {
 
   private var calendarDescription: String {
     if store.isSample { return "Sample events stay on this Mac." }
-    if store.calendarConnected { return "Connected · uses your Google sign-in for your primary calendar." }
-    if store.auth.isConnected {
-      return store.calendarConnectError ?? "Adds Calendar to your Google sign-in. Your mail stays as it is."
-    }
-    return "Available after you connect Gmail."
+    if store.calendarConnected { return "Connected" }
+    if store.auth.isConnected { return store.calendarConnectError ?? "Not connected" }
+    return "Connect Gmail first"
   }
   private var gmailSection: some View {
     VStack(alignment: .leading, spacing: 20) {
       HStack(spacing: 16) {
         copy(store.entered ? (store.isSample ? "Sample mailbox" : store.accountEmail) : "Connect your Gmail account",
-             store.auth.isConnected ? "Connected · \(syncDescription)" : "Secure sign-in with Google. No separate Cove password.")
+             store.auth.isConnected ? "Connected · \(syncDescription)" : "")
         Spacer(minLength: 0)
         if store.auth.isConnected {
           Menu("Manage account") {
@@ -114,28 +99,27 @@ struct SettingsView: View {
         }
       }
       Toggle(isOn: $store.backgroundSyncEnabled) {
-        copy("Sync mail in the background", "Check for new mail about every two minutes while Cove is open.")
+        copy("Sync mail in the background", "")
       }.toggleStyle(CoveToggleStyle()).accessibilityLabel("Sync mail in the background")
+        .help("Check for new mail about every two minutes while Cove is open")
       HStack(spacing: 16) {
         copy("Google Calendar", calendarDescription)
         Spacer(minLength: 0)
         if store.auth.isConnected && !store.isSample && !store.calendarConnected {
           Button("Connect Calendar") { Task { await store.connectCalendar() } }
             .buttonStyle(SecondaryButton()).disabled(store.busy)
+            .help("Adds Calendar to your Google sign-in. Your mail stays as it is.")
         }
       }
 
       DisclosureGroup("Google connection settings", isExpanded: $showAdvancedGoogle) {
         VStack(alignment: .leading, spacing: 16) {
-          Text("Optional: use your own Desktop OAuth client. Leave the client ID blank to use Cove’s included configuration. Disconnect before changing the client for an existing connection.")
+          Text("Optional. Leave blank to use Cove’s built-in Google client.")
             .font(.coveSecondary).foregroundStyle(Palette.body)
           TextField("Custom Google OAuth client ID", text: $clientID).textFieldStyle(CoveFieldStyle())
           SecureField("Custom desktop client secret", text: $secret).textFieldStyle(CoveFieldStyle())
-          HStack {
-            Button("Save credentials") { save() }.buttonStyle(SecondaryButton()).disabled(store.busy)
-            Button(store.auth.isConnected ? "Reconnect Gmail" : "Connect Gmail") { connect() }
-              .buttonStyle(PrimaryButton()).disabled(store.busy || !selectedGoogleConfiguration.isConfigured)
-          }
+          Button("Save credentials") { save() }.buttonStyle(SecondaryButton()).disabled(store.busy)
+            .help("Disconnect before changing the client for an existing connection")
         }.padding(.top, 16)
       }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle())
       if store.busy {
@@ -151,9 +135,10 @@ struct SettingsView: View {
   private var jevSection: some View {
     VStack(alignment: .leading, spacing: 20) {
       Toggle(isOn: Binding(get: { store.preferences.autoClassify }, set: { store.setAutoOrganization($0) })) {
-        copy("Organize new mail with Jev", "Categorize new emails, score urgency, and select a key passage.")
+        copy("Organize new mail with Jev", "")
       }.toggleStyle(CoveToggleStyle()).disabled(!store.entered || store.isSample || store.busy)
         .accessibilityLabel("Organize new mail with Jev")
+        .help("Categorize new emails, score urgency, and select a key passage")
       DisclosureGroup(key.isEmpty ? "TypeSafe connection · Add a key" : "TypeSafe connection · Manage key") {
         VStack(alignment: .leading, spacing: 14) {
           SecureField("TypeSafe API key", text: $key).textFieldStyle(CoveFieldStyle())
@@ -170,7 +155,7 @@ struct SettingsView: View {
       }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle())
       Divider()
       HStack(spacing: 16) {
-        copy("Writing voice", "The tone of your reply templates.")
+        copy("Writing voice", "").help("The tone of your reply templates")
         Spacer()
         CoveMenuPicker("Writing voice", selection: Binding(get: { store.preferences.voice }, set: {
           store.preferences.voice = $0; store.persistPreferences()
@@ -194,11 +179,12 @@ struct SettingsView: View {
 
   private var privacySection: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Label("Credentials and mailbox keys stay in macOS Keychain. Real-account mail is encrypted on this Mac. Disconnect keeps the local cache.", systemImage: "lock.shield")
+      Label("Keys stay in macOS Keychain. Mail is encrypted on this Mac.", systemImage: "lock.shield")
         .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       AIKeyProtectionSettings()
       if store.entered {
         Button("Remove local data and disconnect…", role: .destructive) { confirmErasure = true }
+          .help("Disconnect alone keeps the encrypted local cache")
           .buttonStyle(SecondaryButton()).disabled(store.busy)
       }
     }
@@ -210,8 +196,10 @@ struct SettingsView: View {
   private func copy(_ title: String, _ help: String) -> some View {
     VStack(alignment: .leading, spacing: 5) {
       Text(title).font(.coveLabel)
-      Text(help).font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: 580, alignment: .leading)
+      if !help.isEmpty {
+        Text(help).font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: 580, alignment: .leading)
+      }
     }
   }
   private func connect() {
@@ -261,8 +249,8 @@ private struct VoiceProfileSettings: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("Your voice").font(.coveLabel)
           Text(store.preferences.voiceProfile == nil
-            ? "Cove can read your recent sent emails once and learn how you write, so drafts sound like you."
-            : "Learned from \(store.preferences.voiceProfile!.sampleCount) sent emails on \(store.preferences.voiceProfile!.learnedAt.formatted(date: .abbreviated, time: .omitted)). Used in every AI draft.")
+            ? "Make AI drafts sound like you."
+            : "Learned from \(store.preferences.voiceProfile!.sampleCount) sent emails on \(store.preferences.voiceProfile!.learnedAt.formatted(date: .abbreviated, time: .omitted)).")
             .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         }
         Spacer(minLength: 0)
@@ -297,8 +285,11 @@ private struct VoiceProfileSettings: View {
       if let failure {
         Text(failure).font(.coveSecondary).foregroundStyle(Palette.danger).fixedSize(horizontal: false, vertical: true)
       }
-      Text("Learning sends short, quote-free excerpts of up to 25 recent sent emails to your connected writing model. Only the style description is saved: encrypted with this mailbox and in Cove’s Keychain entry on this Mac, so every Gmail account you connect here uses it and it stays after you sign out and back in.")
-        .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      DisclosureGroup("What’s sent and saved") {
+        Text("Learning sends short, quote-free excerpts of up to 25 recent sent emails to your connected writing model. Only the style description is saved: encrypted with this mailbox and in Cove’s Keychain entry on this Mac, so every Gmail account you connect here uses it and it stays after you sign out and back in.")
+          .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          .padding(.top, 8)
+      }.font(.coveSecondary)
     }
   }
 }
@@ -323,10 +314,13 @@ private struct AIKeyProtectionSettings: View {
         VStack(alignment: .leading, spacing: 5) {
           Text("Require Touch ID for AI keys").font(.coveLabel)
           Text(hardened
-            ? "AI and TypeSafe keys are stored only on this Mac and readable only while it’s unlocked. With Touch ID on, Cove asks before using them (at most every 5 minutes) and pauses automatic agent checks."
-            : "AI and TypeSafe keys are in your login Keychain, encrypted and readable only by Cove. Touch ID protection is available in the hardened, signed Cove build.")
+            ? "Asks at most every 5 minutes and pauses automatic agent checks."
+            : "Available in the signed Cove build.")
             .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: 580, alignment: .leading)
+            .help(hardened
+              ? "AI and TypeSafe keys are stored only on this Mac and readable only while it’s unlocked."
+              : "AI and TypeSafe keys are in your login Keychain, encrypted and readable only by Cove.")
         }
       }.toggleStyle(CoveToggleStyle()).disabled(!hardened || working)
       if let failure {

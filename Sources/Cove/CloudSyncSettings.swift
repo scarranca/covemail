@@ -33,7 +33,7 @@ struct CloudSyncSettings: View {
   }
   private var content: some View {
       VStack(alignment: .leading, spacing: 16) {
-        Text("Keep recent mail and reminders in sync for future mobile access. Sync runs while Cove is open on this Mac. Notifications are not available yet.")
+        Text("A copy of recent mail on Cove’s servers. Not end-to-end encrypted.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         Label(store.cloudStatus, systemImage: store.cloudSyncing ? "arrow.triangle.2.circlepath" : "icloud")
           .font(.coveLabel).accessibilityAddTraits(.updatesFrequently)
@@ -48,7 +48,7 @@ struct CloudSyncSettings: View {
               .disabled(store.cloudSyncing)
             Button("Pause sync") { store.pauseCloudSync() }.buttonStyle(SecondaryButton())
           } else {
-            Button("Enable cloud sync…") { confirmEnable = true }.buttonStyle(SecondaryButton())
+            Button("Enable cloud sync…") { confirmEnable = true }.buttonStyle(PrimaryButton())
               .disabled(store.cloudSyncing || store.busy || !store.entered || store.isSample)
           }
           if store.cloudMirror.accountID != nil {
@@ -60,10 +60,14 @@ struct CloudSyncSettings: View {
           Button("Reconnect Google…") { Task { await store.enableCloudSync(resume: false) } }
             .buttonStyle(SecondaryButton()).disabled(store.cloudSyncing || store.busy)
         }
-        Text("Private pilot · one Mac uploads up to 1,000 downloaded emails from the last 30 days, including labels and Jev results. Snooze times sync separately, including for older mail. Your learned writing-voice description (not your emails) also syncs so it follows this Google account to your other Macs. Drafts, Spam, Trash and attachments are excluded. Large bodies are shortened. Google credentials stay on this Mac.")
+        DisclosureGroup("What’s stored") {
+          VStack(alignment: .leading, spacing: 10) {
+        Text("Sync runs while Cove is open on this Mac, for future mobile access. Notifications are not available yet. One Mac uploads up to 1,000 downloaded emails from the last 30 days, including labels and Jev results. Snooze times sync separately, including for older mail. Your learned writing-voice description (not your emails) also syncs so it follows this Google account to your other Macs. Drafts, Spam, Trash and attachments are excluded. Large bodies are shortened. Google credentials stay on this Mac.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         Text("Cove stores encrypted mail headers and Jev results in PlanetScale, and encrypted bodies in Google Cloud. Reminder dates and message IDs are stored in PlanetScale so the server can find due reminders. Cove’s server holds the decryption keys. Pausing keeps the existing cloud copy; removing local data does not remove it.")
           .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          }.padding(.top, 8)
+        }.font(.coveSecondary)
       }
   }
 
