@@ -159,6 +159,7 @@ struct ReaderView: View {
       }
       if assessmentHidden { Button("Show Jev assessment") { assessmentHidden = false } }
       if !isConversation { TranslateMenu(store: store, mail: current) }
+      InboxSplitMenuItems(store: store, mail: current)
       Divider()
       Button("Move to Trash", systemImage: "trash", role: .destructive) { store.queueTrash(current) }
     } label: { actionLabel("More", icon: "ellipsis", compact: compact) }

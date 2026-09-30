@@ -80,7 +80,7 @@ struct SettingsView: View {
   @ViewBuilder private var sectionContent: some View {
     switch selectedSection {
     case "Jev · Mail agent": jevSection
-    case "Reading": ReadingSettingsView(showsHeading: false)
+    case "Reading": ReadingSettingsView(showsHeading: false, store: store)
     case "Cloud sync": CloudSyncSettings(store: store, showsHeading: false)
     case "Privacy": privacySection
     case "App updates": AppUpdateSettings(showsHeading: false)

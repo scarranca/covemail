@@ -16,6 +16,7 @@ import SwiftUI
   private struct VisibleKey: Hashable {
     let revision: Int, folder: String, search: String, priorityOnly: Bool, unreadOnly: Bool, oldestFirst: Bool
     let selectedID: String?, trash: [String], minute: Int
+    var inboxTab: InboxSplit? = nil, senderRules: [String: InboxSplit] = [:]
   }
   var cloudMirror = CloudMirrorState()
   var cloudSnoozes = CloudSnoozeState()
@@ -205,7 +206,7 @@ import SwiftUI
   var visible: [Mail] {
     let key = VisibleKey(revision: mailsRevision, folder: folder, search: search, priorityOnly: priorityOnly,
       unreadOnly: labelUnreadOnly, oldestFirst: labelOldestFirst, selectedID: selectedID, trash: queuedTrashIDs,
-      minute: Int(now.timeIntervalSince1970 / 60))
+      minute: Int(now.timeIntervalSince1970 / 60), inboxTab: effectiveInboxTab, senderRules: inboxSenderRules)
     if let cached = visibleCache, cached.key == key { return cached.mails }
     visibleComputations += 1
     let terms = MailSearchIndex.terms(search)
@@ -214,12 +215,15 @@ import SwiftUI
     let jevFlag = selectedJevFlag
     let unreadApplies = unreadFilterApplies
     let oldestFirst = labelOldestFirst && isFocusedMailView
+    let tab = key.inboxTab
+    let rules = key.senderRules
     // Typing extends the query: narrow the previous results instead of scanning every email again.
     var candidates = mails
     if let cached = visibleCache, !cached.key.search.isEmpty,
       MailSearchIndex.fold(search).hasPrefix(MailSearchIndex.fold(cached.key.search)),
       VisibleKey(revision: key.revision, folder: key.folder, search: cached.key.search, priorityOnly: key.priorityOnly,
-        unreadOnly: key.unreadOnly, oldestFirst: key.oldestFirst, selectedID: key.selectedID, trash: key.trash, minute: key.minute) == cached.key
+        unreadOnly: key.unreadOnly, oldestFirst: key.oldestFirst, selectedID: key.selectedID, trash: key.trash, minute: key.minute,
+        inboxTab: key.inboxTab, senderRules: key.senderRules) == cached.key
     {
       candidates = cached.mails
     }
@@ -241,6 +245,8 @@ import SwiftUI
       }
       return !trash.contains(mail.id) && mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) && inFolder
         && (!priorityOnly || mail.isPriority)
+        // A vote on the open message keeps it listed until selection moves on, like reading it.
+        && (tab == nil || mail.id == selectedID || InboxSplit.split(mail, senderRules: rules) == tab)
         // The open message stays listed after it is marked read, until selection moves on.
         && (!unreadApplies || !labelUnreadOnly || mail.isUnread || mail.id == selectedID)
         && searchIndex.matches(mail, terms: terms)
@@ -268,6 +274,100 @@ import SwiftUI
       !queuedTrashIDs.contains($0.id) && $0.isPriority && $0.labels.contains("INBOX") && $0.labels.isDisjoint(with: ["TRASH", "SPAM"])
     }
     .count
+  }
+  // MARK: Important / Other Inbox split
+  /// The Inbox tab. Applies while the split is on, in the Inbox, without a search or Needs attention filter.
+  var inboxTab: InboxSplit = .important
+  /// The last Important/Other move, offered for Undo in a small toast.
+  var inboxMoveUndo: InboxMoveUndo?
+  @ObservationIgnored private var inboxCountsCache: (key: VisibleKey, counts: [InboxSplit: Int])?
+  struct InboxMoveUndo: Identifiable {
+    let id = UUID()
+    let message: String
+    let votes: [String: InboxSplit?]
+    let senderRules: [String: InboxSplit]?
+  }
+  var splitsInbox: Bool { preferences.splitsInbox }
+  var inboxSenderRules: [String: InboxSplit] { preferences.inboxSenderRules ?? [:] }
+  var effectiveInboxTab: InboxSplit? {
+    // Search looks through both tabs, so a match never hides behind the other one.
+    folder == "Inbox" && splitsInbox && !priorityOnly && !isFocusedMailView && search.isEmpty ? inboxTab : nil
+  }
+  func inboxSplit(of mail: Mail) -> InboxSplit { InboxSplit.split(mail, senderRules: inboxSenderRules) }
+  /// Unread Inbox mail per tab, memoized like `visible` so tab labels never rescan on each redraw.
+  var inboxUnreadCounts: [InboxSplit: Int] {
+    let key = VisibleKey(revision: mailsRevision, folder: "", search: "", priorityOnly: false, unreadOnly: true,
+      oldestFirst: false, selectedID: nil, trash: queuedTrashIDs, minute: Int(now.timeIntervalSince1970 / 60),
+      senderRules: inboxSenderRules)
+    if let cached = inboxCountsCache, cached.key == key { return cached.counts }
+    let trash = Set(queuedTrashIDs)
+    let rules = key.senderRules
+    var counts: [InboxSplit: Int] = [.important: 0, .other: 0]
+    for mail in mails where mail.isUnread && mail.labels.contains("INBOX") && !trash.contains(mail.id)
+      && mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) && (mail.snoozedUntil ?? .distantPast) <= now {
+      counts[InboxSplit.split(mail, senderRules: rules), default: 0] += 1
+    }
+    inboxCountsCache = (key, counts)
+    return counts
+  }
+  func chooseInboxTab(_ tab: InboxSplit) {
+    priorityOnly = false
+    inboxTab = tab
+    if let selected, inboxSplit(of: selected) != tab { selectedID = nil }
+    reconcileSelection()
+  }
+  func setSplitInbox(_ enabled: Bool) {
+    preferences.splitInbox = enabled
+    persistPreferences()
+    reconcileSelection()
+  }
+  /// Stores the user's vote on this email. It overrides every rule and survives Gmail syncs.
+  func moveToInboxTab(_ mail: Mail, _ split: InboxSplit) {
+    guard let index = mails.firstIndex(where: { $0.id == mail.id }) else { return }
+    let previous = mails[index].inboxVote
+    mails[index].inboxVote = split
+    persistMessage(mails[index])
+    offerInboxUndo(.init(message: "Moved to \(split.title)", votes: [mail.id: previous], senderRules: nil))
+  }
+  /// Remembers a tab for every email from this sender, now and later. Clears conflicting votes on its emails.
+  func alwaysInboxTab(_ split: InboxSplit, forSenderOf mail: Mail) {
+    let key = InboxSplit.senderKey(mail.senderEmail)
+    guard !key.isEmpty else { return }
+    let previousRules = preferences.inboxSenderRules
+    var votes: [String: InboxSplit?] = [:]
+    for index in mails.indices where InboxSplit.senderKey(mails[index].senderEmail) == key
+      && mails[index].inboxVote != nil && mails[index].inboxVote != split {
+      votes[mails[index].id] = mails[index].inboxVote
+      mails[index].inboxVote = nil
+      persistMessage(mails[index])
+    }
+    var rules = previousRules ?? [:]
+    rules[key] = split
+    preferences.inboxSenderRules = rules
+    persistPreferences()
+    let name = mail.sender.isEmpty ? key : mail.sender
+    offerInboxUndo(.init(message: "\(name) · always \(split.title)", votes: votes,
+      senderRules: previousRules ?? [:]))
+  }
+  func undoInboxMove() {
+    guard let undo = inboxMoveUndo else { return }
+    inboxMoveUndo = nil
+    for (id, vote) in undo.votes {
+      guard let index = mails.firstIndex(where: { $0.id == id }) else { continue }
+      mails[index].inboxVote = vote
+      persistMessage(mails[index])
+    }
+    if let rules = undo.senderRules {
+      preferences.inboxSenderRules = rules.isEmpty ? nil : rules
+      persistPreferences()
+    }
+  }
+  private func offerInboxUndo(_ undo: InboxMoveUndo) {
+    inboxMoveUndo = undo
+    Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(6))
+      if self?.inboxMoveUndo?.id == undo.id { self?.inboxMoveUndo = nil }
+    }
   }
   init() {
     SystemAgentNotifier.shared.install()

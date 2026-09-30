@@ -51,6 +51,8 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable {
   public var availableAttachments: [MailAttachment] { attachments ?? [] }
   // Header-derived bulk/automation signal. Nil means an older snapshot needs a content refresh.
   public var isBulkOrAutomated: Bool?
+  // The user's Important/Other vote for this email; local state kept across Gmail syncs.
+  public var inboxVote: InboxSplit?
   public var isUnread: Bool { labels.contains("UNREAD") }
   public var isStarred: Bool { labels.contains("STARRED") }
   public var replyRecipient: String {
@@ -137,6 +139,11 @@ public struct Preferences: Codable, Sendable {
   public var autoClassifySince: Date?
   // Optional so mailboxes saved before voice learning continue to decode.
   public var voiceProfile: VoiceProfile?
+  // Optional so older preferences decode; nil means the split Inbox is on.
+  public var splitInbox: Bool?
+  // Lowercased sender address → the tab the user always wants for that sender.
+  public var inboxSenderRules: [String: InboxSplit]?
+  public var splitsInbox: Bool { splitInbox ?? true }
   public init() {}
 }
 public enum LocalCalendar: String, Codable, CaseIterable, Sendable {
