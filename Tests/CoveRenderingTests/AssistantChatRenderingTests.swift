@@ -59,6 +59,24 @@ import XCTest
     var failed = exchange; failed.answer = nil; failed.error = "The model couldn’t complete this request. Please try again."
     try await render(store: store, settings: settings, exchanges: [failed], available: CGSize(width: 800, height: 848), name: "error")
     XCTAssertEqual(store.mails.first?.draft, mail.draft, "Viewing chat must preserve the original draft")
+
+    // Approval cards: an event to add, a drafted email to review, and a memory with Undo.
+    let start = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date()))!.addingTimeInterval(10 * 3600)
+    var event = ChatExchange(question: "Block the first free 10 minutes tomorrow for focus", mail: nil, scope: .email)
+    event.isCalendar = true
+    event.answer = "Here’s your event to review. It hasn’t been added yet."
+    event.eventProposal = AssistantCalendar.Proposal(title: "Focus time", start: start, end: start.addingTimeInterval(600),
+      availability: "Your first free 10 minutes between 9:00 AM and 5:00 PM, from your primary Google Calendar and Cove’s local events.")
+    var draft = ChatExchange(question: "Email Maya to move our sync to Friday", mail: nil, scope: .email)
+    draft.answer = "Here’s your draft to Maya Chen. It’s saved in Drafts; nothing has been sent."
+    draft.draft = AssistantDraftArtifact(mailID: mail.id, to: "Maya Chen <maya@example.com>", subject: "Moving our sync to Friday",
+      body: "Hi Maya,\n\nCould we move our sync to Friday at 10? Thursday got busy on my side.\n\nThanks,\nAlex", isReply: false)
+    var memory = ChatExchange(question: "Remember that I prefer morning meetings", mail: nil, scope: .email)
+    memory.answer = "I’ll remember that."
+    memory.rememberedMemory = "I prefer morning meetings"
+    try await render(store: store, settings: settings, exchanges: [event, draft, memory], available: CGSize(width: 800, height: 1400), name: "artifacts")
+    try await render(store: store, settings: settings, exchanges: [draft, memory], available: CGSize(width: 800, height: 1400), name: "artifacts-draft")
+    XCTAssertTrue(store.events.isEmpty, "Showing a proposal never creates an event")
   }
 
   func testGroundingCountsDistinctSourcesAndDoesNotClaimFailedLookupWasLive() {

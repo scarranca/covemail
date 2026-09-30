@@ -107,17 +107,71 @@ struct AssistantView: View {
       CalendarEventEditor(store: store, draft: review.draft, reviewingProposal: true) { saved in
         guard let index = exchanges.firstIndex(where: { $0.id == review.exchangeID }) else { return }
         exchanges[index].eventCreated = true
+        exchanges[index].addedEvent = store.events.first { $0.id == store.calendarEventID }
         exchanges[index].source = "Calendar · event created"
         exchanges[index].answer = "Added “\(saved.title)” to \(saved.onGoogle ? "Google Calendar" : saved.localCalendar.title + " on this Mac") for \(saved.start.formatted(date: .complete, time: .shortened))."
       }
     }
   }
 
+  private func update(_ id: UUID, _ change: (inout ChatExchange) -> Void) {
+    guard let index = exchanges.firstIndex(where: { $0.id == id }) else { return }
+    change(&exchanges[index])
+  }
+  /// Approve in place: the explicit Add click is the commit, as in the event editor.
+  private func addProposal(_ id: UUID, _ proposal: AssistantCalendar.Proposal) {
+    guard proposal.start > Date().addingTimeInterval(-120) else {
+      actionNotice = "That start time has passed. Choose Edit to pick a new time."
+      return
+    }
+    let onGoogle = store.calendarConnected && !store.isSample
+    Task {
+      let saved = await store.createEvent(title: proposal.title, start: proposal.start, end: proposal.end, onGoogle: onGoogle)
+      guard saved, let event = store.events.first(where: { $0.id == store.calendarEventID }) else {
+        actionNotice = store.error ?? "Couldn’t add the event. Try Edit to review it."
+        return
+      }
+      update(id) {
+        $0.eventCreated = true
+        $0.addedEvent = event
+        $0.source = "Calendar · event created"
+      }
+    }
+  }
+  private func undoProposal(_ id: UUID) {
+    guard let event = exchanges.first(where: { $0.id == id })?.addedEvent else { return }
+    Task {
+      await store.deleteEvent(event)
+      guard !store.events.contains(where: { $0.id == event.id }) else {
+        actionNotice = store.error ?? "Couldn’t remove the event."
+        return
+      }
+      update(id) {
+        $0.eventCreated = false
+        $0.addedEvent = nil
+        $0.source = "Calendar · nothing created"
+      }
+    }
+  }
+  /// Opens the saved draft where the user sends it themselves; the assistant never sends.
+  private func reviewDraft(_ draft: AssistantDraftArtifact) {
+    guard let mail = store.mails.first(where: { $0.id == draft.mailID }) else {
+      actionNotice = "This draft is no longer available."
+      return
+    }
+    store.showAssistant = false
+    if draft.isReply {
+      store.screen = "mail"
+      store.select(mail)
+    } else {
+      store.composeID = mail.id
+      store.showComposer = true
+    }
+  }
+
   private var header: some View {
     HStack(spacing: 14) {
-      Image(systemName: "sparkles").font(.cove(size: 18))
-        .frame(width: 32, height: 32)
-        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 8))
+      Image(systemName: "sparkles").font(.cove(size: 16)).foregroundStyle(Palette.body)
         .accessibilityHidden(true)
       Text("Cove assistant").font(.coveSection)
       Spacer()
@@ -254,11 +308,36 @@ struct AssistantView: View {
                 if replyReview == nil { actionNotice = "This email is no longer available. Search for it again." }
               })
           } else { ChatMarkdown(answer) }
-          if let proposal = exchange.eventProposal, !exchange.eventCreated {
-            AssistantEventCard(proposal: proposal, created: exchange.eventCreated) {
-              var draft = CalendarEventDraft(title: proposal.title, start: proposal.start, end: proposal.end)
-              draft.onGoogle = store.calendarConnected && !store.isSample
-              eventReview = AssistantEventReview(exchangeID: exchange.id, draft: draft)
+          if let proposal = exchange.eventProposal {
+            AssistantEventCard(
+              proposal: proposal, destination: store.calendarConnected && !store.isSample ? "Google Calendar" : "This Mac",
+              added: exchange.addedEvent, dismissed: exchange.eventDismissed, busy: store.busy || store.calendarSyncing,
+              add: { addProposal(exchange.id, proposal) },
+              edit: {
+                var draft = CalendarEventDraft(title: proposal.title, start: proposal.start, end: proposal.end)
+                draft.onGoogle = store.calendarConnected && !store.isSample
+                eventReview = AssistantEventReview(exchangeID: exchange.id, draft: draft)
+              },
+              dismiss: { update(exchange.id) { $0.eventDismissed = true } },
+              undo: { undoProposal(exchange.id) },
+              open: { event in
+                store.selectCalendarDay(event.start)
+                store.calendarEventID = event.id
+                store.screen = "calendar"
+                store.showAssistant = false
+              })
+          }
+          if let draft = exchange.draft {
+            AssistantDraftCard(draft: draft, review: { reviewDraft(draft) }, copy: {
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(draft.body, forType: .string)
+              actionNotice = "Draft copied."
+            })
+          }
+          if let memory = exchange.rememberedMemory {
+            AssistantMemoryCard(memory: memory, undone: exchange.memoryUndone) {
+              store.forgetMemory(exactly: memory)
+              update(exchange.id) { $0.memoryUndone = true }
             }
           }
           responseFeedback(exchange, answer: answer)
@@ -311,9 +390,8 @@ struct AssistantView: View {
               Palette.muted)
           }.padding(.vertical, 10)
         }
-      }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.line, lineWidth: 1))
+      // Answers read as plain text, like a document, not as another card competing for attention.
+      }.padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
@@ -325,15 +403,15 @@ struct AssistantView: View {
           else { expandedSources.insert(exchange.id) }
         } label: {
           HStack(spacing: 6) {
-            Image(systemName: "text.magnifyingglass")
-            Text(expandedSources.contains(exchange.id) ? "Hide sources" : "View sources")
-            Image(systemName: expandedSources.contains(exchange.id) ? "chevron.up" : "chevron.down")
-          }.font(.coveSecondary)
+            Text(expandedSources.contains(exchange.id) ? "Hide sources" : "\(Set(exchange.passages.map(\.mail.id)).count) source\(Set(exchange.passages.map(\.mail.id)).count == 1 ? "" : "s")")
+            Image(systemName: expandedSources.contains(exchange.id) ? "chevron.up" : "chevron.down").font(.cove(size: 9))
+          }.font(.coveMetadata).padding(.horizontal, 8).frame(height: 24)
+          .background(Palette.sidebar, in: Capsule())
         }.buttonStyle(.plain).foregroundStyle(Palette.body)
           .accessibilityValue(expandedSources.contains(exchange.id) ? "Expanded" : "Collapsed")
           .help(exchange.source ?? exchange.groundingLabel)
       } else {
-        Text(exchange.groundingLabel).font(.coveSecondary).foregroundStyle(Palette.body)
+        Text(exchange.groundingLabel).font(.coveMetadata).foregroundStyle(Palette.muted)
       }
       Spacer(minLength: 8)
       Button {
@@ -341,8 +419,8 @@ struct AssistantView: View {
         NSPasteboard.general.setString(answer, forType: .string)
         actionNotice = "Answer copied."
       } label: {
-        Image(systemName: "doc.on.doc").font(.cove(size: 14)).frame(width: 24, height: 28)
-      }.buttonStyle(.plain).foregroundStyle(Palette.body).help("Copy answer").accessibilityLabel("Copy answer")
+        Image(systemName: "doc.on.doc").font(.cove(size: 12)).frame(width: 24, height: 28)
+      }.buttonStyle(.plain).foregroundStyle(Palette.muted).help("Copy answer").accessibilityLabel("Copy answer")
       ForEach(AssistantFeedback.allCases, id: \.self) { feedback in
         Button {
           guard let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
@@ -350,7 +428,7 @@ struct AssistantView: View {
           actionNotice = exchanges[index].feedback == nil ? nil : "Feedback noted for this conversation."
         } label: {
           Image(systemName: feedback.symbol + (exchange.feedback == feedback ? ".fill" : ""))
-            .font(.coveBody).frame(width: 24, height: 28)
+            .font(.cove(size: 12)).frame(width: 24, height: 28)
         }.buttonStyle(.plain).foregroundStyle(exchange.feedback == feedback ? Palette.ink : Palette.muted)
           .accessibilityLabel(feedback == .helpful ? "Helpful answer" : "Not helpful")
           .accessibilityValue(exchange.feedback == feedback ? "Selected" : "Not selected")
@@ -446,7 +524,7 @@ struct AssistantView: View {
             .accessibilityLabel("Choose email context")
           modelMenu
           Toggle("Mail search", isOn: $searchingGmail)
-            .toggleStyle(AssistantMailSearchStyle(compact: availableSize.width < 640))
+            .toggleStyle(AssistantMailSearchStyle(compact: availableSize.width < 640)).focusEffectDisabled()
             .disabled(working || !useAI)
             .help("On: search all of Gmail and read up to 100 matching emails. Off: use mail already downloaded to this Mac.")
           Spacer(minLength: 0)
@@ -628,7 +706,17 @@ struct AssistantView: View {
         var source: String?
         var passages: [MailPassage] = []
         var response: AssistantResponse?
-        if let mailboxQuestion {
+        if mailboxQuestion == .unsupportedCount, useAI, searchingGmail, !store.isSample, let choice = modelChoice {
+          let counted = try await store.countMatchingMail(question, history: conversationHistory) { prompt in
+            try await aiSettings.complete(prompt, provider: choice.provider, model: choice.model)
+          }
+          guard !Task.isCancelled, store.entered, store.accountEmail == account else { return }
+          answer = counted.answer.text
+          source = "\(choice.provider.title) · \(choice.model) wrote the search · " + counted.answer.source
+          passages = counted.examples.enumerated().map { index, mail in
+            MailPassage(mail: mail, text: "[\(index + 1)] " + String(mail.body.prefix(300)))
+          }
+        } else if let mailboxQuestion {
           let reply = try await store.mailboxAnswer(mailboxQuestion)
           answer = reply.text
           source = reply.source
@@ -685,7 +773,7 @@ struct AssistantView: View {
             return
           case .compose(let request):
             exchanges[index].progress = "Finding contacts and writing your draft…"
-            let outcome = try await store.draftNewEmail(request, question: question) { prompt in
+            let outcome = try await store.draftNewEmail(request, question: question, present: false) { prompt in
               try await aiSettings.complete(prompt, provider: provider, model: model)
             }
             guard !Task.isCancelled, store.accountEmail == account,
@@ -695,28 +783,33 @@ struct AssistantView: View {
               exchanges[index].answer = question
               exchanges[index].source = "Your contacts · nothing drafted"
             case .opened(let recipients, _):
-              exchanges[index].answer = "Here’s your draft to \(recipients.map(\.name).joined(separator: " and ")), open in the composer for review. Nothing has been sent."
+              exchanges[index].answer = "Here’s your draft to \(recipients.map(\.name).joined(separator: " and ")). It’s saved in Drafts; nothing has been sent."
               exchanges[index].source = "Draft · \(provider.title) · \(model)"
-              store.showAssistant = false
+              if let id = store.composeID, let saved = store.mails.first(where: { $0.id == id }) {
+                exchanges[index].draft = AssistantDraftArtifact(mailID: id, to: saved.to, subject: saved.subject, body: saved.body, isReply: false)
+              }
             }
             return
           case .reply(let instruction):
             guard let mail else { return }
             exchanges[index].progress = "Writing your reply…"
-            _ = try await store.draftReply(to: mail, request: instruction, write: { prompt in
+            let text = try await store.draftReply(to: mail, request: instruction, write: { prompt in
               try await aiSettings.complete(prompt, provider: provider, model: model)
             }, progress: { stage in
               if let current = exchanges.firstIndex(where: { $0.id == exchange.id }) { exchanges[current].progress = stage }
             })
             guard !Task.isCancelled, store.accountEmail == account,
               let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
-            exchanges[index].answer = "Your reply to \(mail.sender) is open in the reader for review. Nothing has been sent."
+            exchanges[index].answer = "Here’s your reply to \(mail.sender). It’s saved with the email; nothing has been sent."
             exchanges[index].source = "Draft · \(provider.title) · \(model)"
-            store.showAssistant = false
+            exchanges[index].draft = AssistantDraftArtifact(
+              mailID: mail.id, to: MailConversation.replyRecipient(for: mail, accountEmail: store.accountEmail),
+              subject: mail.subject.lowercased().hasPrefix("re:") ? mail.subject : "Re: \(mail.subject)", body: text, isReply: true)
             return
           case .remember(let memory):
             let saved = store.remember(memory) ?? memory
-            exchanges[index].answer = "I’ll remember: “\(saved)”." + (store.preferences.useMemories
+            exchanges[index].rememberedMemory = saved
+            exchanges[index].answer = "I’ll remember that." + (store.preferences.useMemories
               ? " You can review or forget it in Agents → Memories."
               : " Memories are turned off, so I won’t use it until you turn them on in Agents → Memories.")
             exchanges[index].source = "Saved on this Mac · encrypted with your mailbox"
@@ -903,9 +996,16 @@ struct ChatExchange: Identifiable {
   var agenda: AssistantAgenda?
   var response: AssistantResponse?
   var eventCreated = false
+  var addedEvent: LocalEvent?
+  var eventDismissed = false
+  var draft: AssistantDraftArtifact?
+  var rememberedMemory: String?
+  var memoryUndone = false
   var feedback: AssistantFeedback?
   var groundingLabel: String {
     if isCalendar { return eventCreated ? "Event added" : eventProposal == nil ? "Calendar" : "Event ready to review" }
+    if let draft { return draft.isReply ? "Reply ready to review" : "Draft ready to review" }
+    if rememberedMemory != nil { return memoryUndone ? "Memory removed" : "Saved to memories" }
     let count = Set(passages.map { $0.mail.id }).count
     if count > 0 { return "\(count) email\(count == 1 ? "" : "s") used" }
     if source?.hasPrefix("Live Gmail message count") == true { return "Live Gmail count" }
@@ -939,28 +1039,135 @@ private struct AssistantEventReview: Identifiable {
   let draft: CalendarEventDraft
 }
 
+struct AssistantDraftArtifact: Equatable {
+  let mailID: String
+  let to: String
+  let subject: String
+  let body: String
+  let isReply: Bool
+}
+
+/// Inline approval card for a proposed event: add it right here, edit it, or let it go.
 struct AssistantEventCard: View {
   let proposal: AssistantCalendar.Proposal
-  let created: Bool
-  let review: () -> Void
+  let destination: String
+  let added: LocalEvent?
+  let dismissed: Bool
+  let busy: Bool
+  let add: () -> Void
+  let edit: () -> Void
+  let dismiss: () -> Void
+  let undo: () -> Void
+  let open: (LocalEvent) -> Void
+  private var clear: Bool {
+    proposal.availability.hasPrefix("No overlaps") || proposal.availability.hasPrefix("Your first free")
+  }
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      Label(proposal.title, systemImage: "calendar").font(.coveSection)
-      Text(proposal.start, format: .dateTime.weekday(.wide).month(.wide).day().year())
-        .font(.coveControl)
-      Text("\(proposal.start.formatted(date: .omitted, time: .shortened)) – \(proposal.end.formatted(date: Calendar.current.isDate(proposal.start, inSameDayAs: proposal.end) ? .omitted : .abbreviated, time: .shortened)) · \(TimeZone.current.identifier)")
-        .font(.coveBody)
-      Text(proposal.availability).font(.coveMetadata).foregroundStyle(Palette.body)
-        .fixedSize(horizontal: false, vertical: true)
-      if created {
-        Label("Added to calendar", systemImage: "checkmark.circle").font(.coveControl)
-      } else {
-        Button("Review event", action: review).buttonStyle(PrimaryButton())
-        Text("Choose Google Calendar or this Mac in the review. Nothing is created until you click Add event.")
-          .font(.coveMetadata).foregroundStyle(Palette.muted)
+    VStack(alignment: .leading, spacing: 14) {
+      HStack(alignment: .top, spacing: 14) {
+        VStack(spacing: 0) {
+          Text(proposal.start.formatted(.dateTime.month(.abbreviated)).uppercased())
+            .font(.cove(size: 10, weight: .semibold)).foregroundStyle(.white)
+            .frame(maxWidth: .infinity).padding(.vertical, 3).background(Palette.ink)
+          Text(proposal.start.formatted(.dateTime.day())).font(.cove(size: 20, weight: .medium))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }.frame(width: 48, height: 52).background(Palette.canvas)
+          .clipShape(RoundedRectangle(cornerRadius: 8))
+          .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.line))
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(proposal.title).font(.coveSubheading)
+          Text(proposal.start.formatted(.dateTime.weekday(.wide)) + " · "
+               + proposal.start.formatted(date: .omitted, time: .shortened) + " – "
+               + proposal.end.formatted(date: Calendar.current.isDate(proposal.start, inSameDayAs: proposal.end) ? .omitted : .abbreviated, time: .shortened))
+            .font(.coveSecondary).foregroundStyle(Palette.body)
+          Label(destination, systemImage: destination == "Google Calendar" ? "calendar" : "laptopcomputer")
+            .font(.coveMetadata).foregroundStyle(Palette.muted)
+        }
+        Spacer(minLength: 0)
       }
-    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-      .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line))
+      Label(proposal.availability, systemImage: clear ? "checkmark.circle" : "exclamationmark.circle")
+        .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      if let added {
+        HStack(spacing: 12) {
+          Label("Added", systemImage: "checkmark.circle.fill").font(.coveControl)
+          Spacer(minLength: 0)
+          Button("Undo", action: undo).buttonStyle(SecondaryButton(compact: true)).disabled(busy)
+          Button("Open in Calendar") { open(added) }.buttonStyle(SecondaryButton(compact: true))
+        }
+      } else if dismissed {
+        Text("Not added.").font(.coveSecondary).foregroundStyle(Palette.muted)
+      } else {
+        HStack(spacing: 10) {
+          Button { add() } label: { Label("Add to calendar", systemImage: "plus") }
+            .buttonStyle(PrimaryButton(compact: true)).disabled(busy)
+          Button("Edit", action: edit).buttonStyle(SecondaryButton(compact: true)).disabled(busy)
+          Spacer(minLength: 0)
+          Button("Not now", action: dismiss).buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+        }
+      }
+    }
+    .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line))
+    .accessibilityElement(children: .contain)
+  }
+}
+
+/// Inline preview of a drafted email. Sending always happens in the composer or reader.
+struct AssistantDraftCard: View {
+  let draft: AssistantDraftArtifact
+  let review: () -> Void
+  let copy: () -> Void
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: 6) {
+        field("To", draft.to.isEmpty ? "No recipient yet" : draft.to)
+        field("Subject", draft.subject.isEmpty ? "(No subject)" : draft.subject)
+      }.padding(16)
+      Divider()
+      Text(draft.body).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing).lineLimit(10)
+        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+      Divider()
+      HStack(spacing: 10) {
+        Button { review() } label: { Label("Review & send", systemImage: "paperplane") }
+          .buttonStyle(PrimaryButton(compact: true))
+        Button("Copy", action: copy).buttonStyle(SecondaryButton(compact: true))
+        Spacer(minLength: 0)
+        Text(draft.isReply ? "Saved as your reply" : "Saved in Drafts").font(.coveMetadata).foregroundStyle(Palette.muted)
+      }.padding(12)
+    }
+    .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line))
+    .accessibilityElement(children: .contain)
+  }
+  private func field(_ name: String, _ value: String) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+      Text(name).font(.coveMetadata).foregroundStyle(Palette.muted).frame(width: 52, alignment: .leading)
+      Text(value).font(.coveSecondary).foregroundStyle(Palette.ink).lineLimit(2)
+    }
+  }
+}
+
+/// A saved memory, shown with Undo so nothing is remembered by accident.
+struct AssistantMemoryCard: View {
+  let memory: String
+  let undone: Bool
+  let undo: () -> Void
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: undone ? "brain" : "brain.head.profile").font(.cove(size: 15)).foregroundStyle(Palette.body)
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(undone ? "Forgotten" : "Remembered").font(.coveMetadata).foregroundStyle(Palette.muted)
+        Text(memory).font(.coveSecondary).strikethrough(undone).foregroundStyle(undone ? Palette.muted : Palette.ink)
+      }
+      Spacer(minLength: 0)
+      if !undone { Button("Undo", action: undo).buttonStyle(SecondaryButton(compact: true)) }
+    }
+    .padding(14).background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line))
   }
 }
 

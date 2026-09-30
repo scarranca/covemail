@@ -53,6 +53,11 @@ import SwiftUI
   var agentNotice: String?
   var agentFailure: String?
   var agentsRunning = false
+  /// "Try on recent mail" for the agent being edited: preview first, then an explicit apply.
+  var agentBackfill: AgentBackfillState?
+  @ObservationIgnored private var agentBackfillTask: Task<Void, Never>?
+  /// Local notifications for agents with Notify on. Tests inject a recorder.
+  @ObservationIgnored var agentNotifier: AgentNotifying = SystemAgentNotifier.shared
   var preferences = Preferences()
   var events: [LocalEvent] = []
   var calendarDay = Calendar.current.startOfDay(for: Date())
@@ -265,6 +270,8 @@ import SwiftUI
     .count
   }
   init() {
+    SystemAgentNotifier.shared.install()
+    SystemAgentNotifier.shared.open = { [weak self] mailID, account in self?.openNotifiedMail(mailID, account: account) }
     do { try LegacyNetworkCache.remove() } catch {
       self.error =
         "Cove could not remove its old network cache. Close other Cove instances and retry."
@@ -755,7 +762,7 @@ import SwiftUI
   /// then opens it in the composer for review. Nothing is sent.
   func draftNewEmail(
     _ request: AssistantCalendar.ComposeRequest, question: String,
-    write: @escaping (AIPrompt) async throws -> String
+    present: Bool = true, write: @escaping (AIPrompt) async throws -> String
   ) async throws -> AssistantDraftOutcome {
     guard entered else { throw CoveError.message("Open a mailbox before drafting.") }
     let generation = mailboxGeneration
@@ -783,7 +790,7 @@ import SwiftUI
     guard !body.isEmpty else { throw CoveError.message("The writing model returned an empty draft. Try again.") }
     let subject = !request.subject.isEmpty ? request.subject
       : request.intro && people.count == 2 ? "Intro: \(firstNames[0]) ⟷ \(firstNames[1])" : ""
-    newDraft()
+    newDraft(present: present)
     guard let id = composeID else { throw CoveError.message("Couldn’t open a new draft.") }
     saveComposition(id: id, to: to, subject: subject, body: body)
     return .opened(recipients: people, subject: subject)
@@ -798,6 +805,12 @@ import SwiftUI
     return memory
   }
   /// Removes memories that contain the text; returns what was removed.
+  /// Undo for a memory just saved: removes only that exact memory.
+  func forgetMemory(exactly memory: String) {
+    guard entered, preferences.memories.contains(memory) else { return }
+    preferences.memories.removeAll { $0 == memory }
+    persistPreferences()
+  }
   func forgetMemories(matching text: String) -> [String] {
     let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard entered, !needle.isEmpty else { return [] }
@@ -1393,11 +1406,47 @@ import SwiftUI
       }
     }
   }
+  /// Counts with a sender, date or topic ("how many emails from ICE last week?"): the writing model
+  /// turns the question into a Gmail search and Gmail counts every match exactly (ids only). The
+  /// newest matches are shown as sources; only those are saved, like other cited emails.
+  func countMatchingMail(
+    _ question: String, history: String, complete: @escaping (AIPrompt) async throws -> String
+  ) async throws -> (answer: MailboxAnswer, examples: [Mail]) {
+    guard entered, !isSample else { throw CoveError.message("Connect Gmail to count by sender or date.") }
+    let generation = mailboxGeneration
+    let email = accountEmail
+    let followUp = history.isEmpty ? "" : "Recent conversation (resolves follow-ups only):\n" + String(history.suffix(2_000))
+    let query = try await complete(AIPrompt(intent: .search, instruction: question, mails: [], evidence: followUp))
+      .trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "`", with: "")
+    try Task.checkCancellation()
+    guard !query.isEmpty else { throw CoveError.message("Couldn’t turn that into a Gmail search. Try naming a sender or a date.") }
+    let token: String
+    if let gmailTokenProvider { token = try await gmailTokenProvider() } else { token = try await auth.token() }
+    let result = try await gmail.countMatches(query: query, token: token)
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration, email == accountEmail else { throw CancellationError() }
+    var examples: [Mail] = []
+    for id in result.newestIDs {
+      if let local = mails.first(where: { $0.id == id }) { examples.append(local); continue }
+      if let fetched = try await gmail.message(id: id, token: token) { examples.append(fetched) }
+    }
+    guard generation == mailboxGeneration, email == accountEmail else { throw CancellationError() }
+    keepResearchSources(examples)
+    let number = result.capped ? "More than \(result.count.formatted())" : result.count.formatted()
+    let noun = result.count == 1 && !result.capped ? "email matches" : "emails match"
+    let text = result.count == 0
+      ? "No emails match “\(query)” in Gmail."
+      : "\(number) \(noun) “\(query)” in Gmail." + (examples.isEmpty ? "" : " The most recent are below.")
+    return (MailboxAnswer(
+      text: text,
+      source: "Exact Gmail count (Trash, Spam and Drafts excluded) · checked \(Date().formatted(date: .omitted, time: .shortened))"),
+      examples)
+  }
   func mailboxAnswer(_ question: MailboxQuestion?) async throws -> MailboxAnswer {
     guard case .count(let query) = question else {
       return MailboxAnswer(
         text: question == .unsupportedCount
-          ? "I can check whole-mailbox and folder counts. Counts filtered by sender, date, or topic aren’t supported here yet. Try ‘How many unread emails are in my inbox?’"
+          ? "To count by sender, date or topic, turn on Mail search and connect a writing provider in Integrations. Without them I can count whole folders, like ‘How many unread emails are in my inbox?’"
           : "Ask how many unread messages you have, or how many messages are in your inbox. To ask about a sender’s words, choose an email from the scope menu below.",
         source: "Mailbox help")
     }
@@ -1704,14 +1753,15 @@ import SwiftUI
     return [email] + addresses.filter { $0.caseInsensitiveCompare(email) != .orderedSame }
   }
 
-  func newDraft() {
+  /// Creates an empty local draft; `present: false` keeps it closed (the assistant shows it inline).
+  func newDraft(present: Bool = true) {
     let mail = Mail(
       id: "local-\(UUID().uuidString)", sender: accountEmail, senderEmail: accountEmail,
       subject: "", body: "", labels: ["DRAFT"])
     mails.insert(mail, at: 0)
     composeID = mail.id
     persistMessage(mail)
-    showComposer = true
+    if present { showComposer = true }
   }
   func saveComposition(id: String, to: String, subject: String, body: String, from: String? = nil) {
     guard let index = mails.firstIndex(where: { $0.id == id }) else { return }
@@ -2018,7 +2068,7 @@ extension AppStore {
     customAgents = library
   }
   func newCustomAgent() { var agent = CustomAgent(); agent.rules = [CustomAgentRule()]; agentEditor = agent; agentActivityID = nil; screen = "agents" }
-  @discardableResult func saveCustomAgent(_ draft: CustomAgent, status: CustomAgentStatus) -> Bool {
+  @discardableResult func saveCustomAgent(_ draft: CustomAgent, status: CustomAgentStatus, closeEditor: Bool = true) -> Bool {
     do {
       var agent = try draft.validated(allowIncomplete: status == .draft)
       let old = customAgents.agents.first { $0.id == agent.id }
@@ -2035,7 +2085,7 @@ extension AppStore {
       if let index = library.agents.firstIndex(where: { $0.id == agent.id }) { library.agents[index] = agent }
       else { library.agents.append(agent) }
       try saveAgentLibrary(library)
-      agentEditor = nil; agentFailure = nil
+      agentEditor = closeEditor ? nil : agent; agentFailure = nil
       agentNotice = status == .active ? "\(agent.name) is on. It will check new inbox mail while Cove is open." : "\(agent.name) saved as \(status.rawValue)."
       return true
     } catch { agentFailure = error.localizedDescription; return false }
@@ -2058,9 +2108,9 @@ extension AppStore {
       agentNotice = "\(agent.name) deleted. Existing Gmail labels are unchanged."
     } catch { agentFailure = error.localizedDescription }
   }
-  func previewCustomAgent(_ agent: CustomAgent, mail: Mail, synthetic: Bool) async throws -> CustomAgentDecision {
+  func previewCustomAgent(_ agent: CustomAgent, mail: Mail, synthetic: Bool, key: String? = nil) async throws -> CustomAgentDecision {
     let generation = mailboxGeneration
-    let key = try agentKey()
+    let key = try key ?? agentKey()
     // Sample text may be evaluated, but sample attachment IDs must never reach Gmail.
     _ = try agent.validated()
     let context = try await customAgentAttachments(mail, agent: agent, synthetic: synthetic || isSample)
@@ -2155,21 +2205,7 @@ extension AppStore {
             guard let decision = record.decision else { continue }
             record.matchedCondition = decision.rule(for: agent)?.condition
             if record.appliedLabel == nil, let name = decision.label(for: agent) {
-              let token = try await self.agentToken()
-              try Task.checkCancellation(); guard isCurrent() else { continue }
-              let label = try await self.gmail.ensureUserLabel(named: name, token: token)
-              try Task.checkCancellation(); guard isCurrent() else { continue }
-              try await self.gmail.modify(id: mail.id, token: token, add: [label.id])
-              guard generation == self.mailboxGeneration else { throw CancellationError() }
-              if let index = self.mails.firstIndex(where: { $0.id == mail.id }) {
-                var updated = self.mails[index]; updated.labels.insert(label.id)
-                try self.database?.saveMessage(updated); self.mails[index] = updated
-              }
-              if !self.gmailLabels.contains(where: { $0.id == label.id }) {
-                let labels = (self.gmailLabels + [label]).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-                try self.database?.save(labels, key: "gmailLabels")
-                self.gmailLabels = labels
-              }
+              guard try await self.applyAgentLabel(named: name, to: mail.id, generation: generation, isCurrent: isCurrent) != nil else { continue }
               record.appliedLabel = name
               try self.persistAgentRun(record)
             }
@@ -2185,6 +2221,11 @@ extension AppStore {
             guard generation == self.mailboxGeneration, self.customAgents.agents.contains(where: { $0.id == agent.id }) else { continue }
             record.completed = true; record.error = nil; record.retryAfter = nil; record.date = self.syncClock()
             try self.persistAgentRun(record)
+            // New mail only: backfill never reaches this loop, so it can never notify.
+            if agent.notifies, decision.outcome == .match {
+              self.agentNotifier.post(agentName: agent.name, sender: mail.sender.isEmpty ? mail.senderEmail : mail.sender,
+                                      subject: mail.subject, mailID: mail.id, account: account)
+            }
           } catch {
             guard generation == self.mailboxGeneration, self.customAgents.agents.contains(where: { $0.id == agent.id }) else { throw CancellationError() }
             if error is CancellationError { throw error }
@@ -2249,6 +2290,170 @@ extension AppStore {
     if let index = library.runs.firstIndex(where: { $0.id == run.id }) { library.runs[index] = run }
     else { library.runs.append(run) }
     try saveAgentLibrary(library)
+  }
+  // MARK: Try on recent mail
+
+  /// Classifies up to 200 inbox emails from the last 14 days with the same path as a single test.
+  /// Nothing changes in Gmail or in Activity until `applyAgentBackfill()`.
+  func previewAgentBackfill(_ draft: CustomAgent) {
+    agentBackfillTask?.cancel(); agentBackfillTask = nil
+    let runID = UUID()
+    do {
+      guard !isSample else { throw CoveError.message("Connect Gmail to try an agent on your recent mail.") }
+      let agent = try draft.validated()
+      let key = try agentKey()
+      let stored = customAgents.agents.first { $0.id == agent.id } ?? agent
+      let candidates = CustomAgentBackfill.candidates(in: mails, agent: stored, runs: customAgents.runs,
+                                                      account: accountEmail, now: syncClock())
+      agentBackfill = AgentBackfillState(runID: runID, agentID: agent.id, phase: .checking, total: candidates.count,
+                                         preview: CustomAgentBackfillPreview(agent: agent))
+      let generation = mailboxGeneration
+      agentBackfillTask = Task { [weak self] in
+        await self?.checkBackfill(agent, candidates: candidates, key: key, generation: generation, runID: runID)
+      }
+    } catch {
+      agentBackfill = AgentBackfillState(runID: runID, agentID: draft.id, phase: .failed,
+                                         preview: CustomAgentBackfillPreview(agent: draft), message: error.localizedDescription)
+    }
+  }
+  private func checkBackfill(_ agent: CustomAgent, candidates: [Mail], key: String, generation: UUID, runID: UUID) async {
+    var preview = CustomAgentBackfillPreview(agent: agent)
+    var stopped: String?
+    await withTaskGroup(of: (Mail, Result<CustomAgentDecision, Error>).self) { group in
+      var next = 0
+      func classify(_ mail: Mail) {
+        group.addTask { @MainActor in
+          do { return (mail, .success(try await self.previewCustomAgent(agent, mail: mail, synthetic: false, key: key))) }
+          catch { return (mail, .failure(error)) }
+        }
+      }
+      while next < min(CustomAgentBackfill.concurrency, candidates.count) { classify(candidates[next]); next += 1 }
+      while let (mail, result) = await group.next() {
+        if Task.isCancelled || generation != mailboxGeneration { group.cancelAll(); stopped = "Cancelled"; break }
+        switch result {
+        case .success(let decision): preview.items.append(CustomAgentBackfillItem(mail: mail, decision: decision))
+        case .failure(let error):
+          if error is CancellationError { group.cancelAll(); stopped = "Cancelled"; break }
+          preview.failed += 1
+          if JevAutomation.shouldStopBatch(after: error) { stopped = error.localizedDescription; group.cancelAll() }
+        }
+        if stopped != nil { break }
+        if agentBackfill?.runID == runID { agentBackfill?.done += 1 }
+        if next < candidates.count { classify(candidates[next]); next += 1 }
+      }
+    }
+    guard agentBackfill?.runID == runID else { return }
+    if stopped == "Cancelled" { agentBackfill = nil; return }
+    let order = Dictionary(uniqueKeysWithValues: candidates.enumerated().map { ($0.element.id, $0.offset) })
+    preview.items.sort { (order[$0.mailID] ?? 0) < (order[$1.mailID] ?? 0) }
+    agentBackfill?.preview = preview
+    if let stopped { agentBackfill?.phase = .failed; agentBackfill?.message = stopped }
+    else { agentBackfill?.phase = .ready }
+  }
+  /// Labels exactly the previewed matches, sends unclear ones to Activity, and prepares (never sends)
+  /// replies. Saves the agent first, keeping its status, so every run belongs to it.
+  func applyAgentBackfill() {
+    guard let state = agentBackfill, state.phase == .ready, !isSample else { return }
+    let draft = state.preview.agent
+    let status = customAgents.agents.first { $0.id == draft.id }?.status ?? .draft
+    guard saveCustomAgent(draft, status: status, closeEditor: false),
+      let saved = customAgents.agents.first(where: { $0.id == draft.id }) else { return }
+    let work = state.preview.items.filter { $0.decision.outcome == .review || state.preview.matches.contains($0) }
+    agentBackfill?.phase = .applying; agentBackfill?.done = 0; agentBackfill?.total = work.count
+    let generation = mailboxGeneration
+    let runID = state.runID
+    agentBackfillTask = Task { [weak self] in
+      await self?.applyBackfill(work, agent: saved, generation: generation, runID: runID)
+    }
+  }
+  private func applyBackfill(_ work: [CustomAgentBackfillItem], agent: CustomAgent, generation: UUID, runID: UUID) async {
+    var result = CustomAgentBackfillResult()
+    let isCurrent = { generation == self.mailboxGeneration && self.entered && self.customAgents.agents.contains { $0.id == agent.id } }
+    for item in work {
+      if Task.isCancelled { result.stopped = "Cancelled"; break }
+      guard isCurrent() else { result.stopped = "Cancelled"; break }
+      guard let mail = mails.first(where: { $0.id == item.mailID }), mail.labels.contains("INBOX"),
+        mail.labels.isDisjoint(with: ["TRASH", "SPAM"]), !queuedTrashIDs.contains(mail.id) else {
+        result.failed += 1; if agentBackfill?.runID == runID { agentBackfill?.done += 1 }; continue
+      }
+      var record = CustomAgentRun(agent: agent, mail: mail, date: syncClock())
+      record.decision = item.decision
+      record.matchedCondition = item.decision.rule(for: agent)?.condition
+      do {
+        if item.decision.outcome == .review {
+          // Unclear: Activity only, never labeled.
+          record.completed = true; try persistAgentRun(record); result.unclear += 1
+        } else {
+          var skipped = false
+          if let name = item.decision.label(for: agent) {
+            guard let wrote = try await applyAgentLabel(named: name, to: mail.id, generation: generation, isCurrent: isCurrent)
+            else { result.stopped = "Cancelled"; break }
+            if wrote { record.appliedLabel = name } else { skipped = true }
+          }
+          if skipped { result.alreadyLabeled += 1 }
+          else {
+            if let rule = item.decision.rule(for: agent), rule.action.drafts {
+              let context = try await customAgentAttachments(mail, agent: agent)
+              try Task.checkCancellation(); guard isCurrent() else { result.stopped = "Cancelled"; break }
+              guard context.1.isEmpty else { throw CoveError.message("Some attachment text could not be read.") }
+              record.replySuggestion = try await prepareCustomAgentReply(rule: rule, mail: mail, attachments: context.0)
+            }
+            record.completed = true; try persistAgentRun(record); result.applied += 1
+          }
+        }
+      } catch {
+        if error is CancellationError { result.stopped = "Cancelled"; break }
+        if record.appliedLabel != nil { record.completed = true; try? persistAgentRun(record) }
+        result.failed += 1
+        if JevAutomation.shouldStopBatch(after: error) { result.stopped = error.localizedDescription; break }
+      }
+      if agentBackfill?.runID == runID { agentBackfill?.done += 1 }
+    }
+    guard generation == mailboxGeneration else { return }
+    agentNotice = agent.name + ": " + result.summary + (result.stopped.map { " · stopped (\($0))" } ?? "")
+    if agentBackfill?.runID == runID { agentBackfill?.phase = .done; agentBackfill?.result = result }
+  }
+  func cancelAgentBackfill() {
+    agentBackfillTask?.cancel()
+    if agentBackfill?.phase != .applying { agentBackfill = nil }
+  }
+  /// Tests await the running backfill.
+  func waitForAgentBackfill() async { await agentBackfillTask?.value }
+
+  // MARK: Notify
+
+  func agentNotificationPermission(request: Bool) async -> AgentNotificationPermission {
+    request ? await agentNotifier.requestPermission() : await agentNotifier.permission()
+  }
+  /// A clicked agent notification opens its email, only in the account it came from.
+  func openNotifiedMail(_ mailID: String, account: String) {
+    guard entered, !isSample, account.caseInsensitiveCompare(accountEmail) == .orderedSame else { return }
+    chooseFolder("All mail"); selectedID = mailID
+  }
+
+  /// The one idempotent label-apply path for agents. Returns false when the email already carries
+  /// the label (no Gmail write), and nil when the run went stale before writing.
+  private func applyAgentLabel(named name: String, to mailID: String, generation: UUID,
+                               isCurrent: () -> Bool) async throws -> Bool? {
+    if let known = gmailLabels.first(where: { $0.type == "user" && $0.name.caseInsensitiveCompare(name) == .orderedSame }),
+      mails.first(where: { $0.id == mailID })?.labels.contains(known.id) == true { return false }
+    let token = try await agentToken()
+    try Task.checkCancellation(); guard isCurrent() else { return nil }
+    let label = try await gmail.ensureUserLabel(named: name, token: token)
+    try Task.checkCancellation(); guard isCurrent() else { return nil }
+    if mails.first(where: { $0.id == mailID })?.labels.contains(label.id) == true { return false }
+    try await gmail.modify(id: mailID, token: token, add: [label.id])
+    guard generation == mailboxGeneration else { throw CancellationError() }
+    if let index = mails.firstIndex(where: { $0.id == mailID }) {
+      var updated = mails[index]; updated.labels.insert(label.id)
+      try database?.saveMessage(updated); mails[index] = updated
+    }
+    if !gmailLabels.contains(where: { $0.id == label.id }) {
+      let labels = (gmailLabels + [label]).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+      try database?.save(labels, key: "gmailLabels")
+      gmailLabels = labels
+    }
+    return true
   }
 }
 

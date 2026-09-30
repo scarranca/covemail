@@ -30,11 +30,8 @@ struct CustomAgentsView: View {
           Divider()
           ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-              HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                  Text("Your agents").font(.coveTitle)
-                  Text("A little help with the things you do every day.").font(.coveBody).foregroundStyle(Palette.body)
-                }
+              HStack(alignment: .center) {
+                Text("Your agents").font(.coveTitle)
                 Spacer()
                 Button { store.newCustomAgent() } label: { Label("Create agent", systemImage: "plus") }.buttonStyle(PrimaryButton())
               }
@@ -46,19 +43,22 @@ struct CustomAgentsView: View {
               if let pending = store.customAgents.runs.first(where: { $0.replySuggestion != nil && $0.replyApplied != true }) {
                 Button { store.agentActivityID = pending.agentID } label: {
                   Label("Replies ready for your review", systemImage: "square.and.pencil")
-                }.buttonStyle(SecondaryButton(compact: true))
+                }.buttonStyle(.plain).font(.coveControl)
               }
-              ViewThatFits(in: .horizontal) {
-                HStack { filters; Spacer(minLength: 20); searchField.frame(width: 210) }
-                VStack(alignment: .leading, spacing: 14) { filters; searchField }
+              // Filters only help once there are several agents to sift through.
+              if store.customAgents.agents.count > 5 {
+                ViewThatFits(in: .horizontal) {
+                  HStack { filters; Spacer(minLength: 20); searchField.frame(width: 210) }
+                  VStack(alignment: .leading, spacing: 14) { filters; searchField }
+                }
               }
               if agents.isEmpty {
                 VStack(alignment: .leading, spacing: 14) {
                   Image(systemName: "sparkles").font(.system(size: 26)).foregroundStyle(Palette.body)
                   Text(store.customAgents.agents.isEmpty ? "Give a small task to Jev." : "No agents found").font(.coveSection)
-                  Text(store.customAgents.agents.isEmpty ? "Find invoices, spot customer requests, or group project updates. Describe what matters and test it before turning it on." : "Try another search or status filter.").font(.coveBody).foregroundStyle(Palette.body).lineSpacing(5)
+                  Text(store.customAgents.agents.isEmpty ? "Describe what matters, try it, then turn it on." : "Try another search or status filter.").font(.coveBody).foregroundStyle(Palette.body).lineSpacing(5)
                   if store.customAgents.agents.isEmpty {
-                    Button("Start with an invoice classifier") { store.agentEditor = .invoiceTemplate }.buttonStyle(SecondaryButton())
+                    Button("Or start from an invoice example") { store.agentEditor = .invoiceTemplate }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
                   }
                 }.frame(maxWidth: 520, alignment: .leading).padding(.vertical, 45)
               } else {
@@ -69,7 +69,7 @@ struct CustomAgentsView: View {
                       Text("Agent").frame(maxWidth: .infinity, alignment: .leading)
                       Text("Status").frame(width: 85, alignment: .leading)
                       Text("Last activity").frame(width: 190, alignment: .leading)
-                      Text("Actions").frame(width: 100, alignment: .trailing)
+                      Color.clear.frame(width: 44, height: 1)
                     }.font(.coveMetadata).foregroundStyle(Palette.muted).frame(maxWidth: .infinity).padding(.bottom, 12)
                   }
                   ForEach(agents) { agent in
@@ -78,16 +78,8 @@ struct CustomAgentsView: View {
                   }
                 }
               }
-              HStack(spacing: 10) {
-                Image(systemName: "shield.lefthalf.filled")
-                Text("You’re in control. Pause an agent anytime without losing its instructions.")
-              }.font(.coveSecondary).foregroundStyle(Palette.body).padding(.top, 12)
-              HStack {
-                Button("Built-in organizer & writing preferences") { store.screen = "agent" }.buttonStyle(.plain)
-                Spacer()
-                Button(store.agentsRunning ? "Checking…" : "Check new mail now") { Task { await store.sync() } }
-                  .buttonStyle(SecondaryButton(compact: true)).disabled(store.busy || store.isSample)
-              }.font(.coveControl)
+              Button("Built-in organizer & writing preferences") { store.screen = "agent" }
+                .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).padding(.top, 12)
             }.padding(32)
           }
         }.background(Palette.canvas)
@@ -136,7 +128,7 @@ struct CustomAgentsView: View {
         }.frame(width: 190, alignment: .leading)
       }
       HStack(spacing: 12) {
-        Button("Edit") { store.agentEditor = agent }.buttonStyle(SecondaryButton(compact: true))
+        Spacer(minLength: 0)
         Menu {
           Button("Edit agent") { store.agentEditor = agent }
           Button(agent.status == .active ? "Pause agent" : "Turn on agent") { store.setCustomAgentStatus(agent, agent.status == .active ? .paused : .active) }
@@ -146,8 +138,9 @@ struct CustomAgentsView: View {
           Button("Delete agent…", role: .destructive) { deleting = agent }
         } label: { Image(systemName: "ellipsis").frame(width: 20, height: 30) }
         .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Actions for \(agent.name)")
-      }.frame(width: 100)
-    }.padding(.vertical, 20)
+      }.frame(width: 44)
+    }.padding(.vertical, 20).contentShape(Rectangle())
+      .onTapGesture { store.agentEditor = agent }
   }
   private func activityTitle(_ run: CustomAgentRun?) -> String {
     guard let run else { return "Not run yet" }
@@ -161,7 +154,12 @@ struct CustomAgentsView: View {
 struct CustomAgentEditor: View {
   @Bindable var store: AppStore
   @State var agent: CustomAgent
-  @State private var sample = true
+  @State private var source = TestSource.sample
+  @State private var notifyPermission: AgentNotificationPermission?
+  private enum TestSource: Hashable { case sample, inbox, recent }
+  private var sample: Bool { source == .sample }
+  /// The agent as it was opened; leaving without changes needs no confirmation.
+  private var original: CustomAgent? { store.agentEditor }
   @State private var sampleText = CustomAgentEditor.example.body
   @State private var mailID = ""
   @State private var mailSearch = ""
@@ -174,6 +172,7 @@ struct CustomAgentEditor: View {
   private var isNew: Bool { !store.customAgents.agents.contains { $0.id == agent.id } }
   private var inbox: [Mail] { store.mails.filter { $0.labels.contains("INBOX") && $0.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"]) && (mailSearch.isEmpty || ($0.subject + $0.senderEmail).localizedCaseInsensitiveContains(mailSearch)) }.sorted { $0.date > $1.date } }
   private var selected: Mail? {
+    if source == .recent { return nil }
     if sample { var mail = Self.example; mail.body = sampleText; return mail }
     return store.mails.first { $0.id == mailID }
   }
@@ -187,21 +186,14 @@ struct CustomAgentEditor: View {
     GeometryReader { geometry in
       VStack(alignment: .leading, spacing: 0) {
         HStack {
-          Button { discard = true } label: { Label("Agents", systemImage: "chevron.left") }.buttonStyle(.plain)
-          Text("/  " + (isNew ? "Create agent" : "Edit agent")).foregroundStyle(Palette.muted)
+          Button { leave() } label: { Label("All agents", systemImage: "chevron.left") }.buttonStyle(.plain)
+            .accessibilityLabel("Back to all agents")
           Spacer()
         }.font(.coveControl).padding(.horizontal, 32).padding(.vertical, 18)
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 28) {
-            HStack(alignment: .top) {
-              VStack(alignment: .leading, spacing: 8) {
-                Text(isNew ? "Create an agent" : "Edit your agent").font(.coveTitle)
-                Text("Tell your agent what to look for. Decide what happens next.").font(.coveBody).foregroundStyle(Palette.body)
-              }
-              Spacer()
-              Text(isNew ? "Draft · Not running" : agent.status.title).font(.coveMetadata).foregroundStyle(Palette.muted)
-            }
+            Text(isNew ? "Create an agent" : agent.name.isEmpty ? "Edit your agent" : agent.name).font(.coveTitle)
             if geometry.size.width >= 920 {
               HStack(alignment: .top, spacing: 32) { form.frame(maxWidth: .infinity); Divider(); preview.frame(width: 320) }
             } else { form; Divider(); preview }
@@ -217,46 +209,47 @@ struct CustomAgentEditor: View {
         }.padding(.horizontal, 32).padding(.vertical, 18).background(Palette.canvas)
       }
     }.background(Palette.canvas)
-      .onChange(of: agent) { _, _ in cancelTest() }
+      .onChange(of: agent) { old, new in
+        cancelTest()
+        // A preview belongs to the instructions it was made with. Applying is left to finish.
+        var before = old; before.notifyOnMatch = new.notifyOnMatch
+        if before != new, store.agentBackfill?.phase != .applying { store.cancelAgentBackfill() }
+      }
       .onChange(of: sampleText) { _, _ in cancelTest() }
-      .onChange(of: sample) { _, _ in cancelTest() }
+      .onChange(of: source) { _, _ in cancelTest() }
       .onChange(of: mailID) { _, _ in cancelTest() }
-      .onDisappear { cancelTest() }
+      .onDisappear {
+        cancelTest()
+        if store.agentEditor?.id != agent.id { store.cancelAgentBackfill() }
+      }
+      .onAppear { if store.agentBackfill?.agentID == agent.id { source = .recent } }
+      .task { if agent.notifies { notifyPermission = await store.agentNotificationPermission(request: false) } }
       .confirmationDialog("Leave this agent?", isPresented: $discard, titleVisibility: .visible) {
         Button("Discard unsaved changes", role: .destructive) { store.agentEditor = nil; store.agentFailure = nil }
         Button("Keep editing", role: .cancel) {}
       } message: { Text("Save your changes before leaving if you want to keep them.") }
   }
+  /// Three steps in the order people think about an agent. Details that rarely change live under
+  /// Options; the safety promise is one quiet line instead of repeated notes.
   private var form: some View {
-    VStack(alignment: .leading, spacing: 25) {
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Your agent").font(.coveSection)
-        Text("Name").font(.coveControl)
-        TextField("e.g. Financial agent", text: $agent.name).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Agent name")
+    VStack(alignment: .leading, spacing: 30) {
+      step(1, "What should it look for?") {
+        TextField("e.g. Invoices and receipts from suppliers. Skip newsletters and marketing.",
+                  text: $agent.instructions, axis: .vertical)
+          .lineLimit(4...10).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Classification instructions")
       }
-      VStack(alignment: .leading, spacing: 10) {
-        Text("When should it run?").font(.coveSection)
-        Label("A new email arrives", systemImage: "tray").font(.coveBody)
-        Text("\(store.accountEmail) · Inbox · While Cove is open").font(.coveSecondary).foregroundStyle(Palette.body)
-        Toggle("Include readable PDF and text attachments", isOn: $agent.includeAttachments).toggleStyle(CoveToggleStyle()).font(.coveSecondary)
-        Text("Up to 5 files, 5 MB each. Scans and unsupported files go to review.").font(.coveMetadata).foregroundStyle(Palette.muted)
-      }
-      VStack(alignment: .leading, spacing: 10) {
-        Text(agent.rules == nil ? "What should it look for?" : "Overall task").font(.coveSection)
-        Text("Describe the task in your own words. Be specific about what counts.").font(.coveSecondary).foregroundStyle(Palette.body)
-        TextField("Look for… Exclude… If uncertain…", text: $agent.instructions, axis: .vertical)
-          .lineLimit(3...8).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Classification instructions")
-      }
-      VStack(alignment: .leading, spacing: 12) {
-        Text("What happens next?").font(.coveSection)
+      step(2, "Then") {
         if agent.rules == nil {
-          Text("If it matches, apply this Gmail label").font(.coveControl)
-          TextField("e.g. Finance / Invoices", text: $agent.labelName).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Gmail label for matches")
-          Button("Add conditional rules & replies") {
+          Text("Apply this Gmail label").font(.coveControl)
+          TextField("e.g. Finance / Invoices", text: $agent.labelName)
+            .textFieldStyle(CoveFieldStyle()).accessibilityLabel("Gmail label for matches")
+            .help("Existing labels are reused; new ones are created when needed.")
+          Button {
             agent.rules = [CustomAgentRule(condition: "Matches the task described above", labelName: agent.labelName)]
-          }.buttonStyle(SecondaryButton(compact: true))
+          } label: { Label("Add rules or draft replies", systemImage: "plus") }
+            .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
         } else {
-          Text("Rules run from top to bottom. Only the first match runs.").font(.coveSecondary).foregroundStyle(Palette.body)
+          Text("Rules run top to bottom; the first match wins.").font(.coveSecondary).foregroundStyle(Palette.body)
           ForEach(ruleBinding) { $rule in
             CustomAgentRuleEditor(rule: $rule,
               position: (agent.rules?.firstIndex(where: { $0.id == rule.id }) ?? 0) + 1,
@@ -268,22 +261,63 @@ struct CustomAgentEditor: View {
               }, remove: { agent.rules?.removeAll { $0.id == rule.id } })
           }
           Button { agent.rules?.append(CustomAgentRule()) } label: { Label("Add another rule", systemImage: "plus") }
-            .buttonStyle(SecondaryButton(compact: true)).disabled((agent.rules?.count ?? 0) >= 8)
+            .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+            .disabled((agent.rules?.count ?? 0) >= 8)
         }
-        Text("Existing custom labels are reused. New labels are created when needed.").font(.coveMetadata).foregroundStyle(Palette.muted)
-        Label("If it’s unclear → Review in Activity", systemImage: "list.bullet").font(.coveText)
-        Text("Otherwise, leave the email as it is.").font(.coveSecondary).foregroundStyle(Palette.body)
+        Toggle("Notify me when it matches", isOn: Binding(get: { agent.notifies }, set: { setNotify($0) }))
+          .toggleStyle(CoveToggleStyle()).font(.coveControl)
+        if let note = notifyNote {
+          HStack(spacing: 8) {
+            Text(note).font(.coveMetadata).foregroundStyle(Palette.danger)
+            if notifyPermission == .denied {
+              Button("Open Settings") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
+              }.buttonStyle(.plain).font(.coveMetadata)
+            }
+          }
+        }
+        Label("Unclear emails wait in Activity for you. Agents never send, delete or pay.", systemImage: "checkmark.shield")
+          .font(.coveMetadata).foregroundStyle(Palette.muted)
       }
-      Label("Replies are saved in Activity for your review. Agents can’t send, delete or pay invoices.", systemImage: "shield.lefthalf.filled").font(.coveSecondary).foregroundStyle(Palette.body)
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
+      step(3, "Name it") {
+        TextField("e.g. Invoices", text: $agent.name).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Agent name")
+      }
+      DisclosureGroup {
+        VStack(alignment: .leading, spacing: 10) {
+          Label("Runs when a new email arrives in \(store.accountEmail)’s Inbox, while Cove is open.", systemImage: "tray")
+            .font(.coveSecondary).foregroundStyle(Palette.body)
+          Toggle("Read PDF and text attachments", isOn: $agent.includeAttachments).toggleStyle(CoveToggleStyle()).font(.coveSecondary)
+          Text("Up to 5 files, 5 MB each. Scans and unsupported files go to review.").font(.coveMetadata).foregroundStyle(Palette.muted)
+        }.padding(.top, 12)
+      } label: {
+        Text("Options").font(.coveControl).foregroundStyle(Palette.body)
+      }
+    }
+  }
+  private func step<Content: View>(_ number: Int, _ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 10) {
+        Text("\(number)").font(.coveMetadata).foregroundStyle(Palette.body)
+          .frame(width: 22, height: 22).overlay(Circle().stroke(Palette.inputBorder))
+          .accessibilityHidden(true)
+        Text(title).font(.coveSection)
+      }
+      content()
     }
   }
   private var preview: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Try it on an email").font(.coveSection)
-      Text("Check your agent’s decisions before turning it on. Tests won’t change your inbox.").font(.coveSecondary).foregroundStyle(Palette.body).lineSpacing(4)
-      Picker("Test source", selection: $sample) { Text("Sample email").tag(true); Text("Choose from inbox").tag(false) }.pickerStyle(.segmented).labelsHidden()
-      if !sample {
+      Text("Try it").font(.coveSection)
+      Picker("Test source", selection: $source) {
+        Text("Sample").tag(TestSource.sample); Text("Inbox email").tag(TestSource.inbox); Text("Recent mail").tag(TestSource.recent)
+      }.pickerStyle(.segmented).labelsHidden()
+      if source == .recent {
+        CustomAgentBackfillPanel(store: store, agent: agent)
+      } else { singleTest }
+    }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+  @ViewBuilder private var singleTest: some View {
+      if source == .inbox {
         TextField("Find an inbox email", text: $mailSearch).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Find a test email")
         Picker("Email", selection: $mailID) {
           Text("Choose an email…").tag("")
@@ -322,13 +356,13 @@ struct CustomAgentEditor: View {
         else if result.outcome != .match { Text("Would leave the email unchanged.").font(.coveControl) }
         Text("Routing preview only. No labels or replies have been created.").font(.coveMetadata).foregroundStyle(Palette.muted)
       }
-      Text("Tests send instructions, the chosen email and enabled attachment text to TypeSafe. When a reply rule runs, that email and attachment text also go to your writing provider from Integrations. Provider charges apply.").font(.coveMetadata).foregroundStyle(Palette.muted).lineSpacing(3)
-    }.frame(maxWidth: .infinity, alignment: .leading)
+      Text("Tests never change your inbox. They send your instructions and this email (with enabled attachment text) to TypeSafe; reply rules also use your writing provider. Provider charges apply.")
+        .font(.coveMetadata).foregroundStyle(Palette.muted).lineSpacing(3)
   }
   private var footerText: some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text("Ready when you are.").font(.coveControl)
-      Text("Runs on new emails only. You can pause it anytime.").font(.coveMetadata).foregroundStyle(Palette.body)
+      Text(isNew ? "Draft · not running" : agent.status.title).font(.coveControl)
+      Text("Runs on new emails only. Pause it anytime.").font(.coveMetadata).foregroundStyle(Palette.body)
     }
   }
   private var saveButtons: some View {
@@ -337,9 +371,34 @@ struct CustomAgentEditor: View {
         _ = store.saveCustomAgent(agent, status: agent.status)
       }.buttonStyle(SecondaryButton())
       if agent.status != .active {
-        Button(isNew ? "Create & turn on" : "Save & turn on") { _ = store.saveCustomAgent(agent, status: .active) }.buttonStyle(PrimaryButton())
+        // While a recent-mail preview waits for Apply, that is the view's one primary action.
+        if store.agentBackfill?.agentID == agent.id && store.agentBackfill?.phase == .ready {
+          Button(isNew ? "Create & turn on" : "Save & turn on") { _ = store.saveCustomAgent(agent, status: .active) }.buttonStyle(SecondaryButton())
+        } else {
+          Button(isNew ? "Create & turn on" : "Save & turn on") { _ = store.saveCustomAgent(agent, status: .active) }.buttonStyle(PrimaryButton())
+        }
       }
     }
+  }
+  private var notifyNote: String? {
+    switch notifyPermission {
+    case .denied?: return "Notifications are off for Cove."
+    case .unavailable?: return "Notifications aren’t available in this build."
+    default: return nil
+    }
+  }
+  private func setNotify(_ on: Bool) {
+    agent.notifyOnMatch = on
+    guard on else { notifyPermission = nil; return }
+    Task { @MainActor in
+      let permission = await store.agentNotificationPermission(request: true)
+      notifyPermission = permission
+      // Honest state: stay off when macOS won't show them.
+      if permission == .denied || permission == .unavailable { agent.notifyOnMatch = false }
+    }
+  }
+  private func leave() {
+    if let original, original == agent { store.agentEditor = nil; store.agentFailure = nil } else { discard = true }
   }
   private func cancelTest() {
     testTask?.cancel(); testTask = nil; testID = UUID(); testing = false; result = nil; testError = nil
@@ -368,7 +427,8 @@ struct CustomAgentActivity: View {
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 24) {
-      Button { store.agentActivityID = nil } label: { Label("Your agents", systemImage: "chevron.left") }.buttonStyle(.plain).font(.coveControl)
+      Button { store.agentActivityID = nil } label: { Label("All agents", systemImage: "chevron.left") }.buttonStyle(.plain).font(.coveControl)
+        .accessibilityLabel("Back to all agents")
       HStack {
         VStack(alignment: .leading, spacing: 8) {
           Text(agent.name).font(.coveTitle)
@@ -436,8 +496,8 @@ private struct CustomAgentRuleEditor: View {
         Spacer()
         Button { move(-1) } label: { Image(systemName: "arrow.up") }.disabled(position == 1).accessibilityLabel("Move rule up")
         Button { move(1) } label: { Image(systemName: "arrow.down") }.disabled(position == count).accessibilityLabel("Move rule down")
-        Button("Remove", action: remove).disabled(count <= 1)
-      }.buttonStyle(.plain).font(.coveSecondary)
+        Button(action: remove) { Image(systemName: "trash") }.disabled(count <= 1).accessibilityLabel("Remove rule \(position)").help("Remove rule")
+      }.buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body)
       Text("When").font(.coveControl)
       TextField("e.g. The buyer is Happy Finances for All or Cherry", text: $rule.condition, axis: .vertical)
         .lineLimit(2...5).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Rule \(position) condition")
@@ -450,7 +510,6 @@ private struct CustomAgentRuleEditor: View {
       if rule.action.drafts {
         TextField("What should the reply say? e.g. Acknowledge the invoice and ask for the missing purchase order.", text: $rule.replyInstructions, axis: .vertical)
           .lineLimit(3...8).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Rule \(position) reply instructions")
-        Text("Your writing model prepares a suggestion. You decide whether to use and send it.").font(.coveMetadata).foregroundStyle(Palette.body)
       }
     }.padding(16).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
   }

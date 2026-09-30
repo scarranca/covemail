@@ -10,6 +10,43 @@ import XCTest
   private let zone = TimeZone(identifier: "America/Los_Angeles")!
   private let plan = #"{"action":"propose","title":"Focus time","start":"2026-09-23T10:30:00-07:00","end":"2026-09-23T11:00:00-07:00"}"#
 
+  func testFirstAvailableTimeIsFoundFromTheRealCalendarNotAsked() async throws {
+    // "create an event, for tomorrow at the first time available 10 min for focus" used to get a question back.
+    let find = #"{"action":"find","title":"Focus time","day":"2026-09-24","durationMinutes":10}"#
+    var calendar = Calendar(identifier: .gregorian); calendar.timeZone = zone
+    let day = calendar.date(from: DateComponents(year: 2026, month: 9, day: 24))!
+    func at(_ minute: Double) -> Date { day.addingTimeInterval(minute * 60) }
+    var busy = [LocalEvent(title: "Standup", start: at(540), end: at(570)), LocalEvent(title: "Review", start: at(570), end: at(600))]
+    var free = LocalEvent(title: "Optional", start: at(600), end: at(630)); free.blocksTime = false
+    busy.append(free)
+    var prompts: [AIPrompt] = []
+    let agent = AssistantCalendar(complete: { prompt in prompts.append(prompt); return find },
+      calendar: { from, to in
+        XCTAssertEqual(from, day); XCTAssertEqual(to, at(1440))
+        return busy
+      }, calendarAvailable: true, now: now, timeZone: zone)
+    guard case .proposal(let proposal) = try await agent.respond(
+      "create an event, for tomorrow at the first time available 10 min for focus", progress: { _ in })
+    else { return XCTFail("Expected a proposal, not a question") }
+    XCTAssertEqual(proposal.title, "Focus time")
+    XCTAssertEqual(proposal.start, at(600), "The first gap after busy time; a free-marked event doesn't block")
+    XCTAssertEqual(proposal.end, at(610))
+    XCTAssertTrue(prompts.first?.system.contains("\"action\":\"find\"") == true)
+
+    let full = AssistantCalendar(complete: { _ in find }, calendar: { _, _ in
+      [LocalEvent(title: "Offsite", start: at(0), end: at(1440))]
+    }, calendarAvailable: true, now: now, timeZone: zone)
+    guard case .clarification(let question) = try await full.respond("first free 10 minutes tomorrow", progress: { _ in })
+    else { return XCTFail("A full day asks what to try next") }
+    XCTAssertTrue(question.contains("no free 10 minutes"), question)
+
+    let disconnected = AssistantCalendar(complete: { _ in find }, calendar: { _, _ in XCTFail("No calendar to read"); return [] },
+      calendarAvailable: false, now: now, timeZone: zone)
+    guard case .clarification(let connect) = try await disconnected.respond("first free 10 minutes tomorrow", progress: { _ in })
+    else { return XCTFail("Without Calendar, say how to fix it") }
+    XCTAssertTrue(connect.contains("Connect Google Calendar"))
+  }
+
   func testInvitationReachesRouterAsEvidenceBeforeItChoosesEmailOrCalendar() async throws {
     let invitation = Mail(id: "invitation", sender: "Showcase", senderEmail: "events@example.com",
       subject: "Meet 12 startups from Japan", body: "Startup Showcase. October 15, 2026, 5:30pm–8:30pm in San Francisco. Direct conversations with founders. Registration approval required.")
@@ -136,14 +173,15 @@ import XCTest
 
   func testProductionEventPreviewRendersAtNarrowWidth() throws {
     let proposal = AssistantCalendar.Proposal(title: "Focus time", start: now.addingTimeInterval(1800), end: now.addingTimeInterval(3600), availability: "No overlaps found in your primary Google Calendar and Cove’s local events. Other calendars and guests haven’t been checked.")
-    let view = AssistantEventCard(proposal: proposal, created: false) {}.padding(24).frame(width: 400).background(Palette.canvas)
+    let view = AssistantEventCard(proposal: proposal, destination: "Google Calendar", added: nil, dismissed: false, busy: false,
+      add: {}, edit: {}, dismiss: {}, undo: {}, open: { _ in }).padding(24).frame(width: 400).background(Palette.canvas)
     let renderer = ImageRenderer(content: view)
     renderer.scale = 2
     let image = try XCTUnwrap(renderer.nsImage)
     let bitmap = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation)))
     try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-assistant-event-review.png"))
     XCTAssertEqual(bitmap.pixelsWide, 800)
-    XCTAssertGreaterThan(bitmap.pixelsHigh, 500)
+    XCTAssertGreaterThan(bitmap.pixelsHigh, 300)
   }
 
   func testExplicitCreatePersistsOneGoogleEventAndNoInvitations() async throws {

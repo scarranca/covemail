@@ -31,6 +31,9 @@ public struct CustomAgent: Codable, Identifiable, Equatable, Sendable {
   // Nil preserves the fixed-label behavior of existing agents.
   public var rules: [CustomAgentRule]?
   public var includeAttachments = true
+  /// Posts a local notification for confident matches of new mail. Nil (older agents) means off.
+  public var notifyOnMatch: Bool?
+  public var notifies: Bool { notifyOnMatch == true }
   public var status: CustomAgentStatus = .draft
   public var activeSince: Date?
   public var createdAt = Date()
