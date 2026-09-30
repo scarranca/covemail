@@ -155,6 +155,20 @@ public enum AssistantBulkOperation: String, Codable, CaseIterable, Sendable {
     }
   }
   /// True when the operation would actually change an email with these labels.
+  /// A Gmail search clause matching only emails this operation would change, so a search never
+  /// returns (or downloads) mail that is already in the requested state.
+  public func pendingClause(labelName: String?) -> String? {
+    let label = labelName.map { "\"" + $0.replacingOccurrences(of: "\"", with: "") + "\"" }
+    switch self {
+    case .archive: return "in:inbox"
+    case .markRead: return "is:unread"
+    case .markUnread: return "-is:unread"
+    case .star: return "-is:starred"
+    case .unstar: return "is:starred"
+    case .addLabel: return label.map { "-label:" + $0 }
+    case .removeLabel: return label.map { "label:" + $0 }
+    }
+  }
   public func changes(_ labels: Set<String>, labelID: String?) -> Bool {
     let change = change(labelID: labelID)
     guard !change.add.isEmpty || !change.remove.isEmpty else { return false }
@@ -239,6 +253,8 @@ public struct AssistantBulkTarget: Identifiable, Equatable, Sendable {
 /// The exact set of emails a card lists. Approve changes these ids and no others.
 public struct AssistantBulkPlan: Equatable, Sendable {
   public static let cap = 500
+  /// Rows a card lists by name; the rest are counted ("and 15 more").
+  public static let previewCount = 8
   public var operation: AssistantBulkOperation
   public var labelID: String?
   public var labelName: String?

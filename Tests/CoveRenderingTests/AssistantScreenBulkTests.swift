@@ -13,6 +13,8 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
   var listIDs: [String] = []
   var failing: Set<String> = []
   var forbidAll = false
+  var batches = 0
+  var listQueries: [String] = []
   func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
     let url = request.url!
     let method = request.httpMethod ?? "GET"
@@ -20,7 +22,18 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
     if forbidAll { XCTFail("Sample mode must never call Gmail: \(method) \(url.path)") }
     var status = 200
     var object: [String: Any] = [:]
-    if url.lastPathComponent == "modify" {
+    if url.lastPathComponent == "batchModify" {
+      // Like Gmail, one bad id fails the whole batch.
+      let body = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: [String]] ?? [:]
+      let ids = body["ids"] ?? []
+      batches += 1
+      if !failing.isDisjoint(with: ids) {
+        status = 400
+        object = ["error": ["code": 400, "message": "Invalid label"]]
+      } else {
+        modified += ids.map { ($0, body["addLabelIds"] ?? [], body["removeLabelIds"] ?? []) }
+      }
+    } else if url.lastPathComponent == "modify" {
       let id = url.deletingLastPathComponent().lastPathComponent
       let body = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: [String]] ?? [:]
       if failing.contains(id) {
@@ -31,6 +44,7 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
         object = ["id": id]
       }
     } else if url.lastPathComponent == "messages" {
+      listQueries.append(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value ?? "")
       object = ["messages": listIDs.map { ["id": $0] }]
     } else {
       let id = url.lastPathComponent
@@ -229,7 +243,8 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
     let result = await store.applyBulk(plan.targets, add: plan.add, remove: plan.remove, label: "Archiving") { steps.append($0) }
     XCTAssertEqual(result.succeeded, ["m1", "m2", "m3"])
     XCTAssertTrue(result.failed.isEmpty)
-    XCTAssertEqual(steps, [1, 2, 3])
+    XCTAssertEqual(steps, [3])
+    XCTAssertEqual(http.batches, 1, "Hundreds of emails take one Gmail request, not one each")
     XCTAssertEqual(http.modified.map(\.id), ["m1", "m2", "m3"], "Gmail changes exactly the listed ids")
     XCTAssertTrue(http.modified.allSatisfy { $0.add.isEmpty && $0.remove == ["INBOX"] })
     XCTAssertFalse(http.requests.contains { $0.contains("/trash") || $0.contains("/send") || $0.hasPrefix("DELETE") })
@@ -261,6 +276,7 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
     XCTAssertFalse(store.mails.first { $0.id == "m2" }!.labels.contains(receipts.id), "A failed email keeps its labels")
     XCTAssertTrue(store.mails.first { $0.id == "m1" }!.labels.contains(receipts.id))
     XCTAssertEqual(http.modified.map(\.id), ["m1", "m3", "m4"])
+    XCTAssertEqual(http.batches, 1, "A failed batch falls back to one request per email to find the failures")
   }
 
   func testGmailSearchScopeListsRemoteEmailsWithoutSavingThem() async throws {
@@ -278,6 +294,22 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
     XCTAssertEqual(result.succeeded.count, 3)
     XCTAssertEqual(Set(http.modified.map(\.id)), ["m1", "remote-1", "remote-2"])
     XCTAssertTrue(store.mails.first { $0.id == "m1" }!.isStarred)
+  }
+
+  func testLargeSearchDownloadsOnlyTheRowsTheCardShows() async throws {
+    let http = BulkHTTP()
+    http.listIDs = (1...20).map { "remote-\($0)" }
+    let store = try makeStore(http)
+    let plan = try await store.resolveBulk(.init(operation: .markRead, scope: .query, query: "from:greptile", exclude: ["digest"]),
+      liveSearch: true)
+    XCTAssertEqual(plan.targets.count, 20)
+    let downloads = http.requests.filter { $0.hasPrefix("GET /gmail/v1/users/me/messages/") }
+    XCTAssertEqual(downloads.count, AssistantBulkPlan.previewCount, "Only the rows the card lists are fetched")
+    XCTAssertEqual(plan.targets.first?.subject, "Remote remote-1")
+    let result = await store.applyBulk(plan.targets, add: plan.add, remove: plan.remove, label: "Marking")
+    XCTAssertEqual(result.succeeded.count, 20)
+    XCTAssertEqual(http.batches, 1)
+    XCTAssertTrue(http.listQueries.first?.contains("(from:greptile) is:unread -\"digest\"") == true, http.listQueries.first ?? "")
   }
 
   func testSampleModeNeverCallsGmail() async throws {

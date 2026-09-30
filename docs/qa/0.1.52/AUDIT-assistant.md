@@ -64,3 +64,18 @@ All runs are offline with injected transports, temporary databases and hidden wi
 - Resolving a 500-match Gmail query fetches headers for uncached matches before the card appears (up to about 25 s), and the progress line shows no count during that time.
 - The move card's destination comes from the event itself (Google or this Mac), not from whether Calendar is connected.
 - `current` scope uses `AppStore.visible` as-is. If the Important/Other inbox split changes what `visible` returns, "these" follows that change.
+
+## Speed fix after live QA (September 30)
+
+- **Report:** "mark as read all the greptile emails notifications" worked, but only after a long wait.
+- **Cause:**
+  - Building the card fetched metadata for every matching email that wasn't stored, one request each, only to learn labels and show the sender.
+  - Approve then changed one email per request, paced at about 20 per second.
+- **Fix:**
+  - The Gmail search adds the operation's pending clause (`is:unread`, `in:inbox`, `-is:starred`, `label:`), plus `-"word"` for each exclusion, so it returns only emails that would change.
+  - Only the 8 rows the card shows are fetched.
+  - Approve and Undo use `messages/batchModify` (up to 1,000 ids per request). If Gmail rejects a batch, that batch is retried one email at a time, so only the bad email fails.
+- **Tests:**
+  - `AssistantScreenBulkTests.testLargeSearchDownloadsOnlyTheRowsTheCardShows`: with 20 matches, 8 downloads and 1 batch.
+  - The approve test now expects a single batch request.
+  - The failure test covers the one-by-one retry.

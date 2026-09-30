@@ -309,6 +309,15 @@ public struct GmailClient {
     try await pacedBulk()
     try await modify(id: id, token: token, add: add, remove: remove)
   }
+  /// One label change for up to 1,000 emails in a single request (Gmail's messages.batchModify).
+  /// Gmail applies it to every id or reports an error for the whole call.
+  public func batchModify(ids: [String], token: String, add: [String] = [], remove: [String] = []) async throws {
+    guard !ids.isEmpty else { return }
+    precondition(ids.count <= 1_000, "Gmail batchModify accepts at most 1,000 ids")
+    _ = try await request(
+      "messages/batchModify", token: token, method: "POST",
+      body: ["ids": ids, "addLabelIds": add, "removeLabelIds": remove])
+  }
   public func trash(id: String, token: String) async throws {
     _ = try await request("messages/\(id)/trash", token: token, method: "POST")
   }

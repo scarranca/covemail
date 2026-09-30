@@ -1270,6 +1270,9 @@ import SwiftUI
       else { try await gmail.modify(id: id, token: token, add: add, remove: remove) }
     }
     guard generation == mailboxGeneration else { throw CancellationError() }
+    applyLocalLabelChange(id: id, add: add, remove: remove)
+  }
+  private func applyLocalLabelChange(id: String, add: [String], remove: [String]) {
     if let index = mails.firstIndex(where: { $0.id == id }) {
       mails[index].labels.formUnion(add)
       mails[index].labels.subtract(remove)
@@ -3069,12 +3072,25 @@ extension AppStore {
       }
       let token: String
       if let gmailTokenProvider { token = try await gmailTokenProvider() } else { token = try await auth.token() }
-      let found = try await gmail.countMatches(query: query, token: token, cap: AssistantBulkPlan.cap)
+      // Ask Gmail only for emails that would change and aren't excluded: one ids-only listing, no
+      // per-email downloads to work out labels.
+      var gmailQuery = "(\(query))"
+      if let clause = request.operation.pendingClause(labelName: request.labelName) { gmailQuery += " " + clause }
+      for word in request.exclude {
+        let clean = word.replacingOccurrences(of: "\"", with: "").trimmingCharacters(in: .whitespaces)
+        if !clean.isEmpty { gmailQuery += " -\"\(clean)\"" }
+      }
+      let found = try await gmail.countMatches(query: gmailQuery, token: token, cap: AssistantBulkPlan.cap)
       try Task.checkCancellation()
       guard generation == mailboxGeneration, account == accountEmail else { throw CancellationError() }
       let stored = Dictionary(mails.map { ($0.id, $0) }) { first, _ in first }
-      let missing = found.ids.filter { stored[$0] == nil }
-      let fetched = try await gmail.bulkTargets(ids: missing, token: token)
+      // Only the rows the card shows need a sender and subject; the rest are listed by count.
+      let shown = found.ids.prefix(AssistantBulkPlan.previewCount).filter { stored[$0] == nil }
+      var fetched = try await gmail.bulkTargets(ids: Array(shown), token: token)
+      let pending = Set(request.operation.change(labelID: request.labelID).remove)
+      let fetchedIDs = Set(fetched.map(\.id))
+      fetched += found.ids.filter { stored[$0] == nil && !fetchedIDs.contains($0) && !shown.contains($0) }
+        .map { AssistantBulkTarget(id: $0, sender: "", subject: "", labels: pending) }
       try Task.checkCancellation()
       guard generation == mailboxGeneration, account == accountEmail else { throw CancellationError() }
       let remote = Dictionary(fetched.map { ($0.id, $0) }) { first, _ in first }
@@ -3106,7 +3122,44 @@ extension AppStore {
     }
     busy = true
     defer { busy = false }
-    for (index, target) in targets.enumerated() {
+    // Gmail changes up to 1,000 emails per batchModify request, so hundreds take one call, not
+    // hundreds of paced calls. Local-only drafts and the sample mailbox change on this Mac.
+    let remote = isSample ? [] : targets.filter { !$0.id.hasPrefix("local-") }
+    if !remote.isEmpty {
+      var done = 0
+      for start in stride(from: 0, to: remote.count, by: 1_000) {
+        let chunk = Array(remote[start..<min(start + 1_000, remote.count)])
+        status = "\(label) \(min(done + chunk.count, remote.count)) of \(targets.count)…"
+        do {
+          guard generation == mailboxGeneration else { throw CancellationError() }
+          let token: String
+          if let provider = gmailTokenProvider { token = try await provider() } else { token = try await auth.token() }
+          try await gmail.batchModify(ids: chunk.map(\.id), token: token, add: add, remove: remove)
+          guard generation == mailboxGeneration else { throw CancellationError() }
+          for target in chunk {
+            applyLocalLabelChange(id: target.id, add: add, remove: remove)
+            result.succeeded.append(target.id)
+          }
+        } catch is CancellationError {
+          result.failed += chunk.map { .init(id: $0.id, subject: $0.subject, message: "The mailbox changed before this email was updated.") }
+        } catch {
+          // Gmail rejects a whole batch for one bad id; retry one by one so only that email fails.
+          for target in chunk {
+            do {
+              try await applyLabelChange(id: target.id, add: add, remove: remove, generation: generation, paced: true)
+              result.succeeded.append(target.id)
+            } catch {
+              let message = error is CancellationError ? "The mailbox changed before this email was updated." : error.localizedDescription
+              result.failed.append(.init(id: target.id, subject: target.subject, message: message))
+            }
+          }
+        }
+        done += chunk.count
+        progress(done)
+      }
+    }
+    let remoteIDs = Set(remote.map(\.id))
+    for (index, target) in targets.enumerated() where !remoteIDs.contains(target.id) {
       status = "\(label) \(index + 1) of \(targets.count)…"
       if let task = pendingReadTasks[target.id] { await task.value }
       do {

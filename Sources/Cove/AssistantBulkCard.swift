@@ -52,7 +52,7 @@ struct AssistantBulkCard: View {
       }
       if state.phase == .review || state.phase == .cancelled {
         VStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(plan.targets.prefix(8).enumerated()), id: \.element.id) { index, target in
+          ForEach(Array(plan.targets.prefix(AssistantBulkPlan.previewCount).enumerated()), id: \.element.id) { index, target in
             if index > 0 { Divider() }
             HStack(spacing: 8) {
               Text(target.sender.isEmpty ? "Unknown sender" : target.sender).font(.coveLabel).lineLimit(1)
@@ -65,8 +65,8 @@ struct AssistantBulkCard: View {
         }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
           .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.line))
           .accessibilityElement(children: .combine).accessibilityLabel("Emails that will change")
-        if plan.targets.count > 8 {
-          Text("and \(plan.targets.count - 8) more").font(.coveMetadata).foregroundStyle(Palette.body)
+        if plan.targets.count > AssistantBulkPlan.previewCount {
+          Text("and \(plan.targets.count - AssistantBulkPlan.previewCount) more").font(.coveMetadata).foregroundStyle(Palette.body)
         }
       }
       footer
