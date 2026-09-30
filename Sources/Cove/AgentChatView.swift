@@ -628,7 +628,17 @@ struct AssistantView: View {
         var source: String?
         var passages: [MailPassage] = []
         var response: AssistantResponse?
-        if let mailboxQuestion {
+        if mailboxQuestion == .unsupportedCount, useAI, searchingGmail, !store.isSample, let choice = modelChoice {
+          let counted = try await store.countMatchingMail(question, history: conversationHistory) { prompt in
+            try await aiSettings.complete(prompt, provider: choice.provider, model: choice.model)
+          }
+          guard !Task.isCancelled, store.entered, store.accountEmail == account else { return }
+          answer = counted.answer.text
+          source = "\(choice.provider.title) · \(choice.model) wrote the search · " + counted.answer.source
+          passages = counted.examples.enumerated().map { index, mail in
+            MailPassage(mail: mail, text: "[\(index + 1)] " + String(mail.body.prefix(300)))
+          }
+        } else if let mailboxQuestion {
           let reply = try await store.mailboxAnswer(mailboxQuestion)
           answer = reply.text
           source = reply.source

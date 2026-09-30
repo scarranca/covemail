@@ -86,3 +86,42 @@ extension GmailClient {
                          hasMore: pageToken != nil)
   }
 }
+
+extension GmailClient {
+  public struct MatchCount: Sendable {
+    /// Exact number of matching messages, unless `capped`.
+    public var count: Int
+    /// True when more than `cap` messages match; `count` is then the cap.
+    public var capped: Bool
+    /// Newest matches first (ids only), for showing a few examples.
+    public var newestIDs: [String]
+  }
+  /// Counts every message matching a Gmail search by listing ids only (no content is downloaded).
+  /// Trash, Spam and Drafts are excluded, like Gmail's own search.
+  public func countMatches(query: String, token: String, cap: Int = 5_000) async throws -> MatchCount {
+    let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty, query.utf8.count <= 2_000 else {
+      throw CoveError.message("Enter a Gmail search of up to 2,000 bytes.")
+    }
+    struct Entry: Decodable { let id: String }
+    struct Page: Decodable { let messages: [Entry]?; let nextPageToken: String? }
+    var ids: [String] = []
+    var seen = Set<String>()
+    var pageToken: String?
+    repeat {
+      try Task.checkCancellation()
+      var items = [
+        URLQueryItem(name: "q", value: "(\(query)) -in:trash -in:spam -in:drafts"),
+        URLQueryItem(name: "maxResults", value: "500"),
+        URLQueryItem(name: "fields", value: "messages/id,nextPageToken"),
+      ]
+      if let pageToken { items.append(URLQueryItem(name: "pageToken", value: pageToken)) }
+      let page = try JSONDecoder().decode(Page.self, from: await request("messages", token: token, query: items))
+      for entry in page.messages ?? [] where seen.insert(entry.id).inserted { ids.append(entry.id) }
+      // A repeated page token would loop forever; stop rather than trust it.
+      pageToken = page.nextPageToken == pageToken ? nil : page.nextPageToken
+    } while pageToken != nil && ids.count < cap
+    return MatchCount(count: min(ids.count, cap), capped: ids.count > cap || (pageToken != nil && ids.count >= cap),
+                      newestIDs: Array(ids.prefix(5)))
+  }
+}

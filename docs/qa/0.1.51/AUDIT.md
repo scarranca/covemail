@@ -43,6 +43,25 @@
 - **Tests:** `AppReopenTests` covers the decision rules, closed windows being forgotten, and the open path, with activation stubbed so tests never take focus.
 - **Still to check:** a real Dock click in a QA build.
 
+## Agent editor
+
+- **Report:** "super hard to create one, a lot of noise."
+- **New layout:** three numbered steps: What should it look for? (moved first) → Then (label, or rules and replies) → Name it.
+  - The run trigger and the attachment option live under a collapsed Options section.
+  - The notes about label reuse, unclear mail, "leave it as it is" and the safety banner became one muted line: "Unclear emails wait in Activity for you. Agents never send, delete or pay."
+  - The test panel is titled "Try it". The TypeSafe and provider data disclosure is kept, shortened.
+- **Checked:** screenshots at 1180 and 820 points (`CustomAgentEditorRenderingTests`) were inspected.
+
+## Ask Cove: counts by sender, date or topic
+
+- **Report:** "how many emails from ICE on the last week?" was refused ("Counts filtered by sender, date, or topic aren’t supported here yet").
+- **Fix:** with Mail search on and a writing provider connected, a filtered count goes through `AppStore.countMatchingMail`.
+  - The model writes the Gmail search (the same `.search` prompt as research), and `GmailClient.countMatches` counts every match exactly by listing ids only (500 per page, capped at 5,000, excluding Trash, Spam and Drafts).
+  - The answer names the search used. The five newest matches are shown as sources and saved like cited emails.
+  - Unfiltered folder counts keep their instant path. Without Mail search or a provider, the reply explains what to turn on.
+- **Tests:** `GmailCountTests` (exact counting across pages, duplicate ids, cap) and `FilteredCountTests` (the question routes here, the model's search is used, the count is exact, stored copies are reused, and drafts and the sync cursor are untouched).
+- **Limit:** the model chooses the date range ("last week" usually becomes `newer_than:7d`), and it is shown in the answer. The local index (phase 2) is not needed for this, because Gmail counts all mail, not just downloaded mail.
+
 ## Suites
 
-- Full offline run: core 230 passed (1 skipped), rendering 298 passed (7 skipped).
+- Full offline run: core 232 passed (1 skipped), rendering 300 passed (7 skipped).

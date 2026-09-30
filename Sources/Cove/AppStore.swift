@@ -1393,11 +1393,47 @@ import SwiftUI
       }
     }
   }
+  /// Counts with a sender, date or topic ("how many emails from ICE last week?"): the writing model
+  /// turns the question into a Gmail search and Gmail counts every match exactly (ids only). The
+  /// newest matches are shown as sources; only those are saved, like other cited emails.
+  func countMatchingMail(
+    _ question: String, history: String, complete: @escaping (AIPrompt) async throws -> String
+  ) async throws -> (answer: MailboxAnswer, examples: [Mail]) {
+    guard entered, !isSample else { throw CoveError.message("Connect Gmail to count by sender or date.") }
+    let generation = mailboxGeneration
+    let email = accountEmail
+    let followUp = history.isEmpty ? "" : "Recent conversation (resolves follow-ups only):\n" + String(history.suffix(2_000))
+    let query = try await complete(AIPrompt(intent: .search, instruction: question, mails: [], evidence: followUp))
+      .trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "`", with: "")
+    try Task.checkCancellation()
+    guard !query.isEmpty else { throw CoveError.message("Couldn’t turn that into a Gmail search. Try naming a sender or a date.") }
+    let token: String
+    if let gmailTokenProvider { token = try await gmailTokenProvider() } else { token = try await auth.token() }
+    let result = try await gmail.countMatches(query: query, token: token)
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration, email == accountEmail else { throw CancellationError() }
+    var examples: [Mail] = []
+    for id in result.newestIDs {
+      if let local = mails.first(where: { $0.id == id }) { examples.append(local); continue }
+      if let fetched = try await gmail.message(id: id, token: token) { examples.append(fetched) }
+    }
+    guard generation == mailboxGeneration, email == accountEmail else { throw CancellationError() }
+    keepResearchSources(examples)
+    let number = result.capped ? "More than \(result.count.formatted())" : result.count.formatted()
+    let noun = result.count == 1 && !result.capped ? "email matches" : "emails match"
+    let text = result.count == 0
+      ? "No emails match “\(query)” in Gmail."
+      : "\(number) \(noun) “\(query)” in Gmail." + (examples.isEmpty ? "" : " The most recent are below.")
+    return (MailboxAnswer(
+      text: text,
+      source: "Exact Gmail count (Trash, Spam and Drafts excluded) · checked \(Date().formatted(date: .omitted, time: .shortened))"),
+      examples)
+  }
   func mailboxAnswer(_ question: MailboxQuestion?) async throws -> MailboxAnswer {
     guard case .count(let query) = question else {
       return MailboxAnswer(
         text: question == .unsupportedCount
-          ? "I can check whole-mailbox and folder counts. Counts filtered by sender, date, or topic aren’t supported here yet. Try ‘How many unread emails are in my inbox?’"
+          ? "To count by sender, date or topic, turn on Mail search and connect a writing provider in Integrations. Without them I can count whole folders, like ‘How many unread emails are in my inbox?’"
           : "Ask how many unread messages you have, or how many messages are in your inbox. To ask about a sender’s words, choose an email from the scope menu below.",
         source: "Mailbox help")
     }
