@@ -203,7 +203,10 @@ struct Sidebar: View {
           CoveAvatar(
             initials: store.isSample ? "AL" : String(store.accountEmail.prefix(2)).uppercased(),
             size: 30)
-          Text(store.isSample ? "Alex Lee" : store.accountEmail).font(.coveLabel).lineLimit(1)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(store.isSample ? "Alex Lee" : store.accountEmail).font(.coveLabel).lineLimit(1)
+            if store.isSample { Text("Sample mailbox").font(.coveMetadata).foregroundStyle(Palette.body) }
+          }
           Spacer(minLength: 0)
           Image(systemName: "chevron.up.chevron.down").font(.cove(size: 10))
         }

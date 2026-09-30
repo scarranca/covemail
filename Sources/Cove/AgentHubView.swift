@@ -125,7 +125,7 @@ struct AgentHubView: View {
 
   private var toolbar: some View {
     HStack {
-      Text("Home").font(.coveSubheading)
+      Text("Home").font(.coveTitle)
       if store.isSample {
         Text("Sample mailbox").font(.coveMetadata).foregroundStyle(Palette.muted)
       }
@@ -277,6 +277,7 @@ struct AgentHubView: View {
           Label(location, systemImage: "mappin").font(HomeType.compactBody).foregroundStyle(Palette.body)
         }
         Button { openEvent(event) } label: { Label("Open", systemImage: "calendar") }
+          .accessibilityLabel("Open meeting details")
           .buttonStyle(SecondaryButton(compact: true))
       } else {
         Text("No upcoming meetings.")
