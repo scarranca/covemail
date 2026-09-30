@@ -37,19 +37,9 @@ struct IntegrationsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .center, spacing: 24) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Integrations").font(.coveTitle)
-          Text("Choose what powers your writing and chat.")
-            .font(.coveSecondary).foregroundStyle(Palette.body)
-        }
-        Spacer(minLength: 0)
-        Button(writingExpanded || upcomingExpanded ? "Collapse all" : "Expand all") {
-          let expand = !(writingExpanded || upcomingExpanded)
-          writingExpanded = expand
-          upcomingExpanded = expand
-        }.buttonStyle(SecondaryButton())
-      }.padding(.horizontal, 32).padding(.vertical, 24)
+      Text("Integrations").font(.coveTitle).accessibilityAddTraits(.isHeader)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 32).padding(.vertical, 24)
       Divider()
       GeometryReader { _ in
         ScrollView {
@@ -65,8 +55,6 @@ struct IntegrationsView: View {
               }.font(.coveSecondary).foregroundStyle(Palette.body)
             }.font(.coveControl).disclosureGroupStyle(CoveDisclosureStyle())
               .padding(.horizontal, 4)
-            Label("You control your connections. Disconnect anytime.", systemImage: "lock.shield")
-              .font(.coveMetadata).foregroundStyle(Palette.body)
           }.frame(maxWidth: 800, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading).padding(32)
         }
@@ -104,7 +92,7 @@ struct IntegrationsView: View {
       writingContent
     } label: {
       SettingsSectionHeading(title: "Writing & answers",
-        subtitle: "Draft emails, summarize conversations, and ask Cove.", icon: "sparkles")
+        subtitle: "Powers drafts and Ask Cove", icon: "sparkles")
     }.disclosureGroupStyle(SettingsSectionDisclosureStyle())
   }
 
@@ -138,8 +126,8 @@ struct IntegrationsView: View {
           (.openAI, "OpenAI · API key"), (.anthropic, "Anthropic · API key"), (.openRouter, "OpenRouter · API key")
         ]).disabled(busy)
         Text(selectedProvider.isSubscription
-          ? "Use your existing subscription. Your plan’s limits apply."
-          : "Use an API key. Usage is billed separately by the provider.")
+          ? "Your plan’s limits apply."
+          : "Billed separately by the provider.")
           .font(.coveSecondary).foregroundStyle(Palette.body)
       }
       if ready {
@@ -175,14 +163,13 @@ struct IntegrationsView: View {
               connectionExpanded = false
               notice = "Ready. \(settings.modelLabel(model, provider: selectedProvider)) is now your default for writing and chat."
             }
-          }.buttonStyle(PrimaryButton()).disabled(!canSave || busy)
+          }.modifier(CTAStyle(primary: ready)).disabled(!canSave || busy)
+            .help("Becomes your default only after a successful test. The test uses a short sample, without your emails.")
           if busy {
             ProgressView().controlSize(.small)
             Button("Cancel") { task?.cancel() }.buttonStyle(SecondaryButton())
           }
         }
-        Text("Your choice becomes the default only after a successful test. The test uses a short sample, without your emails.")
-          .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         if let notice {
           Label(notice, systemImage: noticeIsError ? "exclamationmark.circle" : testedConfiguration == configurationID ? "checkmark.circle" : "info.circle")
             .font(.coveLabel).foregroundStyle(noticeIsError ? Palette.danger : Palette.body)
@@ -211,6 +198,9 @@ struct IntegrationsView: View {
         Button { run { try await refreshModels() } } label: {
           Label("Refresh list", systemImage: "arrow.clockwise")
         }.buttonStyle(SecondaryButton()).disabled(busy || !ready)
+          .help(selectedProvider == .claudeSubscription
+            ? "Versions come from Claude Code. Availability and usage credits depend on your plan; the test confirms access."
+            : "Models come from your account. You can also switch models for individual chats.")
       }
       if !ready {
         Text("Connect your account to see its models.").font(.coveSecondary).foregroundStyle(Palette.body)
@@ -234,10 +224,6 @@ struct IntegrationsView: View {
       if ready {
         Button(useExactModel ? "Choose from the model list" : "Use a custom model ID…") { useExactModel.toggle() }
           .buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body).disabled(busy)
-        Text(selectedProvider == .claudeSubscription
-          ? "Versions come from Claude Code. Availability and usage credits depend on your plan; the test confirms access."
-          : "Models come from your account. You can also switch models for individual chats.")
-          .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       }
     }
   }
@@ -262,7 +248,7 @@ struct IntegrationsView: View {
             testedConfiguration = nil
             run { try await refreshModels() }
           } catch { noticeIsError = true; notice = error.localizedDescription }
-        }.buttonStyle(PrimaryButton()).disabled(
+        }.modifier(CTAStyle(primary: !ready)).disabled(
           key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         if settings.hasKey(selectedProvider) {
           Label("Key saved", systemImage: "checkmark.shield").font(.coveLabel)
@@ -277,16 +263,13 @@ struct IntegrationsView: View {
         }
       }
       if selectedProvider == .openAI {
-        Text(
-          "OpenAI API usage is billed separately from ChatGPT. To use a ChatGPT plan, choose ChatGPT subscription above."
-        ).font(.coveSecondary).foregroundStyle(Palette.body)
+        Text("To use a ChatGPT plan instead, choose ChatGPT · subscription.")
+          .font(.coveSecondary).foregroundStyle(Palette.body)
       }
     }
   }
   private var claudeSubscription: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Sign in with Claude, then return here to choose a model.")
-        .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       Text(claude.status).font(.coveLabel)
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 10) { claudeActions }
@@ -315,7 +298,8 @@ struct IntegrationsView: View {
         try await claude.login()
         try await refreshModels()
       }
-    }.buttonStyle(PrimaryButton()).disabled(busy)
+    }.modifier(CTAStyle(primary: !claude.connected)).disabled(busy)
+      .help("Sign in with Claude, then return here to choose a model")
     Button("Check connection") {
       testedConfiguration = nil
       run {
@@ -337,8 +321,6 @@ struct IntegrationsView: View {
   }
   private var subscription: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("Sign in through your browser, then return here to choose a model. Plan access and usage limits apply.")
-        .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       Text(connection.status).font(.coveLabel)
       ViewThatFits(in: .horizontal) {
         HStack(spacing: 10) { subscriptionActions }
@@ -370,7 +352,8 @@ struct IntegrationsView: View {
           connectionFeedback = nil
           testedConfiguration = nil
           run { try await connection.login() }
-        }.buttonStyle(PrimaryButton()).disabled(busy)
+        }.modifier(CTAStyle(primary: !connection.connected)).disabled(busy)
+          .help("Sign in through your browser, then return here to choose a model")
         Button(checkingConnection ? "Checking…" : "Check connection") {
           connectionFeedback = nil
           testedConfiguration = nil
@@ -452,5 +435,13 @@ struct IntegrationsView: View {
         else { noticeIsError = true; notice = error.localizedDescription }
       }
     }
+  }
+}
+
+/// Only the current step's action is primary: connect first, then test.
+private struct CTAStyle: ViewModifier {
+  let primary: Bool
+  func body(content: Content) -> some View {
+    if primary { content.buttonStyle(PrimaryButton()) } else { content.buttonStyle(SecondaryButton()) }
   }
 }
