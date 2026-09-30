@@ -30,5 +30,27 @@ import XCTest
         .write(to: URL(fileURLWithPath: "/tmp/cove-ui-sidebar-\(screen).png"))
       window.close()
     }
+    // Home's "Your day & people" extras: today, invitations (one RSVP note, as a tooltip) and weather.
+    store.screen = "home"
+    let now = Date()
+    var invite = LocalEvent(title: "Quarterly planning", start: now.addingTimeInterval(7200), end: now.addingTimeInterval(9000))
+    invite.id = "invite"; invite.googleID = "g1"; invite.organizerName = "Priya Shah"
+    invite.attendees = [CalendarAttendee(name: "Me", email: "me@example.com", response: "needsAction", isSelf: true)]
+    store.events = [LocalEvent(title: "Design review", start: now.addingTimeInterval(1800), end: now.addingTimeInterval(3600)), invite]
+    let weather = HomeWeatherController(defaults: UserDefaults(suiteName: "Cove-UI-Weather-" + UUID().uuidString)!)
+    let extras = VStack(alignment: .leading, spacing: 28) {
+      HomeCalendarView(store: store)
+      HomeWeatherView(weather: weather)
+    }.padding(24).frame(width: 460, height: 900, alignment: .top).background(Palette.canvas)
+    let host = NSHostingView(rootView: extras)
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    defer { window.close() }
+    for _ in 0..<6 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(25)) }
+    XCTAssertFalse(window.isVisible)
+    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: bitmap)
+    try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+      .write(to: URL(fileURLWithPath: "/tmp/cove-ui-home-extras.png"))
   }
 }

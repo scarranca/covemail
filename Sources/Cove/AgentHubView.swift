@@ -90,10 +90,6 @@ struct AgentHubView: View {
             } label: {
               Text("Your day & people").font(HomeType.action)
             }.tint(Palette.body)
-            Label(
-              "A little help, never the final say. You approve every send.",
-              systemImage: "checkmark.shield"
-            ).font(.coveMetadata).foregroundStyle(Palette.muted)
           }.padding(.horizontal, geometry.size.width < 760 ? 24 : 34).padding(.vertical, 26)
         }.coordinateSpace(name: "hub-scroll")
       }.background(Palette.canvas).foregroundStyle(Palette.ink)
@@ -129,16 +125,13 @@ struct AgentHubView: View {
 
   private var toolbar: some View {
     HStack {
-      Text("Agent Hub").font(.coveSubheading)
+      Text("Home").font(.coveSubheading)
       if store.isSample {
         Text("Sample mailbox").font(.coveMetadata).foregroundStyle(Palette.muted)
       }
       Spacer()
       Text(store.now, format: .dateTime.weekday(.wide).month(.wide).day())
         .font(.coveSecondary).foregroundStyle(Palette.muted)
-      Button { store.showConnections = true } label: {
-        Image(systemName: "gearshape").font(.system(size: 16)).frame(width: 28, height: 28)
-      }.buttonStyle(.plain).help("Settings").accessibilityLabel("Settings")
     }.padding(.horizontal, 34).frame(height: 62)
   }
 
@@ -150,10 +143,8 @@ struct AgentHubView: View {
           .foregroundStyle(Color(white: 0.96)).fixedSize(horizontal: false, vertical: true)
         Text(briefing).font(.coveText).foregroundStyle(Color(white: 0.84))
           .lineSpacing(6).fixedSize(horizontal: false, vertical: true)
-        HStack(spacing: 8) {
-          briefingTag("\(priorities.count) \(priorities.count == 1 ? "decision" : "decisions")")
-          if !store.pendingInvitations.isEmpty { briefingTag("\(store.pendingInvitations.count) \(store.pendingInvitations.count == 1 ? "invitation" : "invitations")", warm: true) }
-          briefingTag("\(waiting.count) waiting")
+        if !store.pendingInvitations.isEmpty {
+          briefingTag("\(store.pendingInvitations.count) \(store.pendingInvitations.count == 1 ? "invitation" : "invitations")", warm: true)
         }
         Button { store.showAssistant = true } label: {
           Label("Ask Cove", systemImage: "sparkles")
@@ -181,19 +172,17 @@ struct AgentHubView: View {
           .font(.coveMetadata).foregroundStyle(Palette.muted)
       }.padding(.bottom, 8)
       if priorities.isEmpty {
-        emptyMessage(
-          title: inbox.isEmpty ? "A clear place to begin" : "Nothing urgent has been flagged",
-          detail: inbox.isEmpty
-            ? "Sync your inbox to bring your latest messages into Cove."
-            : "Organize downloaded mail to find messages that may need a reply.")
+        emptyMessage(title: inbox.isEmpty ? "Your inbox is empty" : "Nothing needs a decision")
         Button(inbox.isEmpty ? "Sync Gmail" : "Organize mail") {
           Task {
             if inbox.isEmpty { await store.sync() } else { await store.classifyInbox() }
           }
-        }.buttonStyle(SecondaryButton()).disabled(store.busy || store.isSample)
+        }.buttonStyle(PrimaryButton()).disabled(store.busy || store.isSample)
+          .help(inbox.isEmpty ? "Download your latest mail" : "Let Jev find messages that may need a reply")
       } else {
         ForEach(Array(priorities.prefix(3))) { message in
-          priorityRow(message)
+          // One primary action per screen: only the top decision gets it.
+          priorityRow(message, primary: message.id == priorities.first?.id)
         }
         if priorities.count > 3 {
           Button("View all priority mail →") {
@@ -206,7 +195,7 @@ struct AgentHubView: View {
     }
   }
 
-  private func priorityRow(_ message: Mail) -> some View {
+  private func priorityRow(_ message: Mail, primary: Bool) -> some View {
     VStack(alignment: .leading, spacing: 11) {
       Button { open(message) } label: {
         VStack(alignment: .leading, spacing: 11) {
@@ -231,15 +220,7 @@ struct AgentHubView: View {
         }.padding(.vertical, 3).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
       }.buttonStyle(HubEmailButtonStyle()).accessibilityLabel("Open email from \(message.sender): \(message.subject)")
       HStack(spacing: 12) {
-        Button {
-          store.reviewHomeDecision(message)
-        } label: {
-          Label(hasDraft(message) ? "Review draft" : "Review email", systemImage: "square.and.pencil")
-        }.buttonStyle(PrimaryButton(compact: true))
-        Button { store.prepareHomeDelegation(message) } label: {
-          Label("Delegate", systemImage: "person.badge.plus")
-        }.buttonStyle(.plain).font(HomeType.compactBody).disabled(store.busy)
-          .help("Prepare a forwarding draft; choose a recipient and review before sending")
+        reviewButton(message, primary: primary)
         Menu {
           Button("Tomorrow morning") { store.snooze(message, until: tomorrowMorning) }
           Button("In a week") { store.snooze(message, until: Calendar.current.date(byAdding: .day, value: 7, to: store.now)) }
@@ -247,6 +228,8 @@ struct AgentHubView: View {
           .menuStyle(.borderlessButton).fixedSize().font(HomeType.compactBody).disabled(store.busy)
         Spacer(minLength: 0)
         Menu {
+          Button("Delegate…") { store.prepareHomeDelegation(message) }
+            .help("Prepare a forwarding draft; choose a recipient and review before sending")
           Button(message.isStarred ? "Remove follow-up flag" : "Flag for follow-up") { Task { await store.toggleFlag(message) } }
           Button("Archive") { Task { await store.archive(message) } }
           Button("Move to Trash") { store.queueTrash(message) }
@@ -254,6 +237,14 @@ struct AgentHubView: View {
           .menuStyle(.borderlessButton).fixedSize().disabled(store.busy).accessibilityLabel("More actions for \(message.subject)")
       }.foregroundStyle(Palette.body)
     }.padding(.vertical, 22).overlay(alignment: .bottom) { Rectangle().fill(Palette.line).frame(height: 1) }
+  }
+
+  @ViewBuilder private func reviewButton(_ message: Mail, primary: Bool) -> some View {
+    let button = Button { store.reviewHomeDecision(message) } label: {
+      Label(hasDraft(message) ? "Review draft" : "Review", systemImage: "square.and.pencil")
+    }
+    if primary { button.buttonStyle(PrimaryButton(compact: true)) }
+    else { button.buttonStyle(SecondaryButton(compact: true)) }
   }
 
   private func hasDraft(_ message: Mail) -> Bool {
@@ -285,11 +276,11 @@ struct AgentHubView: View {
         } else if let location = event.location, !location.isEmpty {
           Label(location, systemImage: "mappin").font(HomeType.compactBody).foregroundStyle(Palette.body)
         }
-        Button { openEvent(event) } label: { Label("Open meeting details", systemImage: "calendar") }
+        Button { openEvent(event) } label: { Label("Open", systemImage: "calendar") }
           .buttonStyle(SecondaryButton(compact: true))
       } else {
-        Text(store.calendarConnected || store.isSample ? "No upcoming meetings in your saved calendar." : "Bring your next meeting into focus.")
-          .font(HomeType.compactBody).foregroundStyle(Palette.body).lineSpacing(5)
+        Text("No upcoming meetings.")
+          .font(HomeType.compactBody).foregroundStyle(Palette.body)
         Button(store.calendarConnected || store.isSample ? "Open calendar" : "Connect Calendar") {
           if store.calendarConnected || store.isSample { store.screen = "calendar" } else { store.showConnections = true }
         }.buttonStyle(SecondaryButton(compact: true))
@@ -305,8 +296,9 @@ struct AgentHubView: View {
   private var waitingSection: some View {
     VStack(alignment: .leading, spacing: 17) {
       Text("Waiting on others").font(HomeType.supportingSection)
+        .help("Sent threads with no reply in downloaded mail from the last 30 days")
       if waiting.isEmpty {
-        Text("No unanswered sent threads found in downloaded mail.").font(HomeType.compactBody).foregroundStyle(Palette.body).lineSpacing(5)
+        Text("Nothing waiting.").font(HomeType.compactBody).foregroundStyle(Palette.body)
       }
       ForEach(Array(waiting.prefix(2))) { message in
         VStack(alignment: .leading, spacing: 8) {
@@ -323,7 +315,6 @@ struct AgentHubView: View {
             .buttonStyle(.plain).font(HomeType.action).disabled(store.busy)
         }
       }
-      if !waiting.isEmpty { Text("No reply in downloaded mail · last 30 days").font(.coveMetadata).foregroundStyle(Palette.muted) }
     }.padding(.top, 22).overlay(alignment: .top) { Rectangle().fill(Palette.line).frame(height: 1) }
   }
   @ViewBuilder private var invitationSection: some View {
@@ -347,12 +338,11 @@ struct AgentHubView: View {
       Button { showActivity.toggle() } label: {
         HStack(spacing: 10) {
           Image(systemName: "checkmark.circle")
-          Text("Cove organized \(mail.filter { $0.decision != nil }.count) \(mail.filter { $0.decision != nil }.count == 1 ? "email" : "emails") · \(store.customAgents.runs.filter { $0.replySuggestion != nil && $0.replyApplied != true }.count) agent drafts ready")
+          Text("\(mail.filter { $0.decision != nil }.count) organized · \(store.customAgents.runs.filter { $0.replySuggestion != nil && $0.replyApplied != true }.count) agent drafts to review")
             .frame(maxWidth: .infinity, alignment: .leading)
-          Text(showActivity ? "Hide activity" : "View activity")
           Image(systemName: showActivity ? "chevron.down" : "chevron.right")
         }.font(HomeType.compactBody).foregroundStyle(Palette.body).padding(.vertical, 16).contentShape(Rectangle())
-      }.buttonStyle(.plain)
+      }.buttonStyle(.plain).accessibilityLabel(showActivity ? "Hide activity" : "Show activity")
       if showActivity { activitySection.padding(.vertical, 16) }
     }.overlay(alignment: .top) { Rectangle().fill(Palette.line).frame(height: 1) }
   }
@@ -361,6 +351,7 @@ struct AgentHubView: View {
     VStack(alignment: .leading, spacing: 15) {
       HStack {
         Text("Keep in touch").font(HomeType.supportingSection)
+          .help("People from personal and work conversations. Marketing and automated mail are excluded.")
         Spacer()
         if !store.ignoredKeepInTouch.isEmpty {
           Menu {
@@ -383,13 +374,8 @@ struct AgentHubView: View {
           }.buttonStyle(.plain).font(HomeType.action)
         }
       }
-      Text("A small nudge goes a long way.").font(HomeType.compactBody).foregroundStyle(Palette.body)
       if contacts.isEmpty {
-        emptyMessage(
-          title: "Your people, close by",
-          detail:
-            "People from personal and work conversations appear here after syncing and organizing mail. Marketing and automated messages are excluded."
-        )
+        emptyMessage(title: "No one to check in with yet")
       }
       ForEach(Array(contacts.prefix(2))) { message in
         VStack(alignment: .leading, spacing: 11) {
@@ -437,13 +423,8 @@ struct AgentHubView: View {
             .buttonStyle(.plain).font(HomeType.action).foregroundStyle(Palette.body)
         }
       }
-      Text("Attachments from your mail, with the source always close by.")
-        .font(HomeType.compactBody).foregroundStyle(Palette.body)
       if files.isEmpty {
-        emptyMessage(
-          title: "No attachments in downloaded mail",
-          detail: "Files will appear here when Cove syncs messages with attachments."
-        )
+        emptyMessage(title: "No attachments in downloaded mail")
       }
       ForEach(showAllFiles ? files : Array(files.prefix(3))) { file in
         HStack(spacing: 12) {
@@ -491,18 +472,13 @@ struct AgentHubView: View {
 
   private var activitySection: some View {
     VStack(alignment: .leading, spacing: 15) {
-      Text("Quietly taken care of").font(HomeType.supportingSection)
       activity(
         "\(mail.filter { $0.decision != nil }.count) emails organized",
-        detail: store.isSample
-          ? "Sample categories and priority decisions."
-          : "Categories and priority decisions from Jev.")
+        detail: store.isSample ? "Sample categories and priority decisions" : "Categories and priority decisions from Jev")
       activity(
         "\(mail.filter { !$0.draft.isEmpty || $0.labels.contains("DRAFT") }.count) drafts saved",
-        detail: "Ready for your review. Nothing sent automatically.")
-      activity(
-        "\(files.count) attachments found",
-        detail: "Linked to their original conversations.")
+        detail: "Ready for your review. Nothing is sent automatically.")
+      activity("\(files.count) attachments found", detail: "Linked to their original conversations")
       Button("Your agent preferences →") { store.screen = "agent" }.buttonStyle(.plain)
         .font(HomeType.action)
     }
@@ -511,18 +487,12 @@ struct AgentHubView: View {
   private func activity(_ title: String, detail: String) -> some View {
     HStack(alignment: .top, spacing: 9) {
       Image(systemName: "checkmark.circle").foregroundStyle(Palette.muted)
-      VStack(alignment: .leading, spacing: 5) {
-        Text(title).font(HomeType.action)
-        Text(detail).font(.coveMetadata).foregroundStyle(Palette.muted).lineSpacing(4)
-      }
-    }
+      Text(title).font(HomeType.action)
+    }.help(detail)
   }
 
-  private func emptyMessage(title: String, detail: String) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(title).font(HomeType.supportingTitle)
-      Text(detail).font(HomeType.compactBody).foregroundStyle(Palette.body).lineSpacing(4)
-    }.padding(.vertical, 20)
+  private func emptyMessage(title: String) -> some View {
+    Text(title).font(HomeType.supportingTitle).foregroundStyle(Palette.body).padding(.vertical, 16)
   }
 
   private func open(_ message: Mail) { store.openHomeMail(message) }

@@ -19,7 +19,6 @@ struct HomeCalendarView: View {
           .buttonStyle(.plain).font(HomeType.action)
       }
       if !store.calendarConnected && !store.isSample {
-        Text("Bring your schedule and invitations into Home.").font(.coveBody).foregroundStyle(Palette.muted)
         Button("Connect Google Calendar") {
           Task {
             await store.connectCalendar()
@@ -37,7 +36,7 @@ struct HomeCalendarView: View {
           Text("Showing saved events. " + error).font(.coveMetadata).foregroundStyle(Palette.danger)
         }
         if upcoming.isEmpty {
-          Text(store.calendarSyncing ? "Looking for today’s events…" : "No more events in your saved schedule today.")
+          Text(store.calendarSyncing ? "Looking for today’s events…" : "No more events today.")
             .font(.coveBody).foregroundStyle(Palette.muted)
         }
         ForEach(Array(upcoming.prefix(4))) { event in
@@ -69,8 +68,7 @@ struct HomeCalendarView: View {
           Text("Invitations").font(HomeType.primarySection)
           Spacer()
           Text("\(store.pendingInvitations.count) pending").font(.coveMetadata).foregroundStyle(Palette.muted)
-        }
-        Text("Your primary Google Calendar · next 90 days").font(.coveMetadata).foregroundStyle(Palette.muted)
+        }.help("Your primary Google Calendar · next 90 days")
         if let notice = store.invitationNotice {
           Label(notice, systemImage: "checkmark.circle").font(.coveMetadata).foregroundStyle(Palette.body)
         }
@@ -78,7 +76,7 @@ struct HomeCalendarView: View {
           Text(error).font(.coveMetadata).foregroundStyle(Palette.danger).textSelection(.enabled)
         }
         if store.pendingInvitations.isEmpty && !store.calendarSyncing {
-          Text("No pending invitations in your saved calendar. Refresh to check for new ones.")
+          Text("No pending invitations.")
             .font(.coveBody).foregroundStyle(Palette.muted)
         }
         ForEach(showAllInvitations ? store.pendingInvitations : Array(store.pendingInvitations.prefix(3))) { event in
@@ -122,9 +120,12 @@ struct InvitationResponseButtons: View {
         VStack(alignment: .leading, spacing: 8) { responses }
       }
       if store.respondingEventID == event.id { ProgressView().controlSize(.small) }
-      Text(store.isSample ? "Sample response · stays on this Mac" : event.recurringEventID == nil ? "Your response is sent through Google Calendar." : "Responds to this occurrence. Google Calendar sends your response.")
-        .font(HomeType.metadata).foregroundStyle(Palette.muted)
     }
+  }
+  private var note: String {
+    store.isSample ? "Sample response · stays on this Mac"
+      : event.recurringEventID == nil ? "Your response is sent through Google Calendar."
+      : "Responds to this occurrence. Google Calendar sends your response."
   }
 
   private var responses: some View {
@@ -134,6 +135,7 @@ struct InvitationResponseButtons: View {
       }.buttonStyle(SecondaryButton(compact: true))
         .disabled(store.busy || store.calendarSyncing || event.ownResponse == response.rawValue)
         .accessibilityLabel("\(response.title) invitation: \(event.title)")
+        .accessibilityHint(note).help(note)
     }
   }
 }
