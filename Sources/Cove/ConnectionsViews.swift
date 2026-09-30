@@ -100,44 +100,110 @@ struct JevKeyField: View {
 }
 
 /// One connection: what it powers, whether it's on, and the single action to turn it on.
+/// One connection. The whole header is clickable: rows with settings inside show a chevron and open in place,
+/// others run their single action.
 struct ConnectionRow<Detail: View>: View {
   let step: SetupStep
   let done: Bool
   var actionTitle: String = "Connect"
   var action: (() -> Void)? = nil
   var expanded: Bool = false
-  /// Shown instead of the status when connected, e.g. "Change model".
+  /// Has settings inside; the header toggles them and shows a chevron.
+  var expandable: Bool = false
+  /// Replaces what the step powers once connected, e.g. the model in use.
+  var subtitle: String? = nil
+  /// Shown next to Connected, e.g. the account email or "Open Tasks".
   var manageTitle: String? = nil
   var manage: (() -> Void)? = nil
   @ViewBuilder var detail: () -> Detail
+  @State private var hovering = false
+  private var tap: (() -> Void)? { done ? (manage ?? action) : action }
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(spacing: 14) {
-        Image(systemName: step.icon).font(.cove(size: 16)).frame(width: 36, height: 36)
-          .background(done ? Palette.sidebar : Palette.surface, in: RoundedRectangle(cornerRadius: 9))
-          .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(step.title).font(.coveSubheading)
-          Text(step.powers).font(.coveSecondary).foregroundStyle(Palette.body)
-        }
-        Spacer(minLength: 12)
-        if done {
-          HStack(spacing: 12) {
-            if let manageTitle, let manage {
-              Button(manageTitle, action: manage).buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
-            }
-            Label("Connected", systemImage: "checkmark.circle.fill").font(.coveControl).foregroundStyle(Palette.ink)
-          }
-        } else if let action {
-          Button(actionTitle, action: action).buttonStyle(PrimaryButton(compact: true))
-        }
+    VStack(alignment: .leading, spacing: 0) {
+      header
+        .padding(16).contentShape(Rectangle())
+        .background(hovering && tap != nil && !expanded ? Palette.surface : .clear)
+        .onHover { hovering = $0 }
+        .onTapGesture { tap?() }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(tap == nil ? [] : .isButton)
+        .accessibilityAction { tap?() }
+        .accessibilityHint(expandable ? (expanded ? "Hides settings" : "Shows settings") : "")
+      if expanded {
+        Divider()
+        detail().padding(16).frame(maxWidth: .infinity, alignment: .leading)
+          .background(Palette.surface)
+          .transition(.opacity.combined(with: .move(edge: .top)))
       }
-      if expanded { detail().padding(.leading, 50) }
     }
-    .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-    .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
-    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(done ? Palette.line : Palette.inputBorder))
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Palette.canvas)
+    .clipShape(RoundedRectangle(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(expanded || !done ? Palette.inputBorder : Palette.line))
     .accessibilityElement(children: .contain)
+  }
+  private var header: some View {
+    HStack(spacing: 14) {
+      Image(systemName: step.icon).font(.cove(size: 16)).frame(width: 36, height: 36)
+        .background(done ? Palette.sidebar : Palette.surface, in: RoundedRectangle(cornerRadius: 9))
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(step.title).font(.coveSubheading)
+        Text(done ? subtitle ?? step.powers : step.powers).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(1)
+      }
+      Spacer(minLength: 12)
+      if done {
+        if let manageTitle, !expandable {
+          Text(manageTitle).font(.coveControl).foregroundStyle(Palette.body).lineLimit(1)
+        }
+        Label("Connected", systemImage: "checkmark.circle.fill").font(.coveControl).foregroundStyle(Palette.ink)
+          .labelStyle(ConnectedLabelStyle())
+      } else if let action, !expanded {
+        Button(actionTitle, action: action).buttonStyle(PrimaryButton(compact: true))
+      }
+      if expandable {
+        Image(systemName: "chevron.down").font(.cove(size: 12)).foregroundStyle(Palette.body)
+          .rotationEffect(.degrees(expanded ? 180 : 0)).frame(width: 16).accessibilityHidden(true)
+      } else if done && tap != nil {
+        Image(systemName: "chevron.right").font(.cove(size: 12)).foregroundStyle(Palette.body)
+          .frame(width: 16).accessibilityHidden(true)
+      }
+    }
+  }
+}
+
+private struct ConnectedLabelStyle: LabelStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    HStack(spacing: 5) { configuration.icon.font(.cove(size: 12)); configuration.title }
+      .padding(.horizontal, 9).padding(.vertical, 5)
+      .background(Palette.sidebar, in: Capsule())
+  }
+}
+
+/// A numbered step inside an open connection, on its own card so steps read as separate.
+struct SetupSubsection<Trailing: View, Content: View>: View {
+  let number: Int
+  let title: String
+  var done = false
+  @ViewBuilder var trailing: () -> Trailing
+  @ViewBuilder var content: () -> Content
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 10) {
+        Group {
+          if done { Image(systemName: "checkmark").font(.cove(size: 11)) } else { Text("\(number)") }
+        }.font(.coveControl).frame(width: 24, height: 24)
+          .foregroundStyle(done ? Palette.canvas : Palette.ink)
+          .background(done ? Palette.ink : Palette.sidebar, in: Circle())
+          .accessibilityHidden(true)
+        Text(title).font(.coveLabel).accessibilityAddTraits(.isHeader)
+        Spacer(minLength: 8)
+        trailing()
+      }
+      content()
+    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
   }
 }
 

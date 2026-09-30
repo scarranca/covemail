@@ -189,3 +189,68 @@ extension JevClient {
       excerpt: index.flatMap { passages.indices.contains($0) ? passages[$0] : nil }, model: response.model, warnings: warnings, ruleID: outcome == .match ? selectedRule?.id : nil)
   }
 }
+
+/// Ready-made agents that show what agents are for. Each opens in the editor as a draft; nothing runs until the user turns it on.
+public struct CustomAgentTemplate: Identifiable, Sendable {
+  public let id: String
+  public let symbol: String
+  public let title: String
+  public let pitch: String
+  public let agent: @Sendable () -> CustomAgent
+  public var labels: Bool { make().rules?.contains { $0.action.labels } ?? !make().labelName.isEmpty }
+  public var drafts: Bool { make().rules?.contains { $0.action.drafts } ?? false }
+  public func make() -> CustomAgent { agent() }
+
+  static func build(_ name: String, _ instructions: String, _ rules: [CustomAgentRule]) -> CustomAgent {
+    var agent = CustomAgent()
+    agent.name = name
+    agent.instructions = instructions
+    agent.rules = rules
+    return agent
+  }
+
+  public static let all: [CustomAgentTemplate] = [
+    CustomAgentTemplate(id: "finance", symbol: "doc.text", title: "Finance",
+      pitch: "Files invoices and bills, and drafts a reply when a payment is overdue.") {
+      build("Finance", "Look for invoices, bills and payment reminders addressed to me. Check the email and its attachments for an invoice number, an amount due, a supplier and a due date. Receipts, payment confirmations and quotes are not invoices. If you’re unsure, leave it for my review.", [
+        CustomAgentRule(condition: "A supplier says a payment is overdue or sends a final reminder", action: .labelAndDraft,
+          labelName: "Finance / Invoices",
+          replyInstructions: "Thank them, confirm I’ve seen the reminder and say I’ll look into the payment and get back to them shortly. Don’t promise a payment date."),
+        CustomAgentRule(condition: "The email contains an invoice or bill that asks me to pay", action: .label, labelName: "Finance / Invoices"),
+      ])
+    },
+    CustomAgentTemplate(id: "receipts", symbol: "creditcard", title: "Receipts",
+      pitch: "Keeps receipts and payment confirmations in one label for expenses.") {
+      build("Receipts", "Find receipts, order confirmations and payment confirmations for things I bought or subscriptions I pay for. Marketing emails and promotions are not receipts.", [
+        CustomAgentRule(condition: "A receipt, order confirmation or payment confirmation for something I paid", action: .label, labelName: "Finance / Receipts"),
+      ])
+    },
+    CustomAgentTemplate(id: "clients", symbol: "person.2", title: "Client requests",
+      pitch: "Spots questions from clients and prepares a reply for you to review.") {
+      build("Client requests", "Find emails where a client or customer asks me a direct question or asks me to do something. Newsletters, automated notifications and cold sales emails don’t count.", [
+        CustomAgentRule(condition: "A client or customer asks me a direct question or requests something", action: .labelAndDraft,
+          labelName: "Clients",
+          replyInstructions: "Answer using only this email and our earlier messages. If something isn’t known, say I’ll confirm and get back to them soon. Keep it short and friendly."),
+      ])
+    },
+    CustomAgentTemplate(id: "meetings", symbol: "calendar", title: "Meeting requests",
+      pitch: "Drafts a reply whenever someone asks for a call or a meeting.") {
+      build("Meeting requests", "Find emails where a person asks to meet, have a call or find a time. Automated calendar invitations and event marketing don’t count.", [
+        CustomAgentRule(condition: "Someone asks to meet, have a call or find a time together", action: .draftReply,
+          replyInstructions: "Thank them and say I’d be glad to meet. Ask which times work for them this week or next. Keep it to two or three sentences."),
+      ])
+    },
+    CustomAgentTemplate(id: "hiring", symbol: "person.crop.circle.badge.checkmark", title: "Hiring",
+      pitch: "Collects applications, candidates and recruiter emails.") {
+      build("Hiring", "Find emails about hiring: job applications, candidate introductions, interview scheduling and recruiter messages about roles I’m hiring for.", [
+        CustomAgentRule(condition: "An application, a candidate, an interview or a recruiter writing about a role I’m hiring for", action: .label, labelName: "Hiring"),
+      ])
+    },
+    CustomAgentTemplate(id: "travel", symbol: "airplane", title: "Travel",
+      pitch: "Gathers flights, hotels and bookings so trips are easy to find.") {
+      build("Travel", "Find confirmations and changes for my trips: flights, trains, hotels, rental cars and other bookings. Travel deals and promotions don’t count.", [
+        CustomAgentRule(condition: "A booking confirmation, itinerary or change for a flight, train, hotel or rental car", action: .label, labelName: "Travel"),
+      ])
+    },
+  ]
+}

@@ -23,7 +23,6 @@ struct IntegrationsView: View {
   @State private var connectionFeedback: String?
   @State private var useExactModel = false
   @State private var upcomingExpanded = false
-  @AppStorage("integrations.writingExpanded") private var writingExpanded = true
   @State private var connectionExpanded = false
   @State private var expandedStep: SetupStep?
   @State private var setupRefresh = 0
@@ -93,70 +92,34 @@ struct IntegrationsView: View {
       }
   }
 
-  private var writingPanel: some View {
-    DisclosureGroup(isExpanded: $writingExpanded) {
-      writingContent
-    } label: {
-      SettingsSectionHeading(title: "Writing & answers",
-        subtitle: "Powers drafts and Ask Cove", icon: "sparkles")
-    }.disclosureGroupStyle(SettingsSectionDisclosureStyle())
-  }
-
-  private func step(_ number: String, _ title: String) -> some View {
-    HStack(spacing: 10) {
-      Text(number).font(.coveControl)
-        .frame(width: 24, height: 24).background(Palette.sidebar, in: Circle())
-      Text(title).font(.coveLabel)
-    }.accessibilityElement(children: .combine)
-  }
-
   private var writingContent: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      if !settings.model(settings.provider).isEmpty {
-        HStack(spacing: 10) {
-          Image(systemName: "slider.horizontal.3").font(.cove(size: 18))
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Saved default").font(.coveSecondary).foregroundStyle(Palette.body)
-            Text(settings.modelLabel(settings.model(settings.provider), provider: settings.provider))
-              .font(.coveLabel)
-            Text(settings.provider.title).font(.coveSecondary).foregroundStyle(Palette.body)
-          }
-          Spacer(minLength: 0)
-        }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-          .background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
-      }
-      VStack(alignment: .leading, spacing: 10) {
-        step("1", "Choose your AI account")
+    VStack(alignment: .leading, spacing: 12) {
+      SetupSubsection(number: 1, title: "Choose your AI account", done: ready) {
+        if ready {
+          Button(connectionExpanded ? "Hide" : "Manage") { connectionExpanded.toggle() }
+            .buttonStyle(SecondaryButton(compact: true)).disabled(busy)
+        }
+      } content: {
         CoveMenuPicker("AI account", selection: $selectedProvider, options: [
           (.chatGPT, "ChatGPT · subscription"), (.claudeSubscription, "Claude · subscription"),
           (.openAI, "OpenAI · API key"), (.anthropic, "Anthropic · API key"), (.openRouter, "OpenRouter · API key")
         ]).disabled(busy)
-        Text(selectedProvider.isSubscription
-          ? "Your plan’s limits apply."
-          : "Billed separately by the provider.")
+        Text(ready
+          ? (selectedProvider.isSubscription ? "Connected. Your plan’s limits apply." : "Key saved. Billed separately by the provider.")
+          : (selectedProvider.isSubscription ? "Use the plan you already pay for." : "Billed separately by the provider."))
           .font(.coveSecondary).foregroundStyle(Palette.body)
-      }
-      if ready {
-        HStack {
-          Label(selectedProvider.isSubscription ? "Account connected" : "API key saved", systemImage: "checkmark.circle")
-            .font(.coveLabel)
-          Spacer()
-          Button(connectionExpanded ? "Done" : "Manage connection") { connectionExpanded.toggle() }
-            .buttonStyle(SecondaryButton()).disabled(busy)
+        if !ready || connectionExpanded {
+          VStack(alignment: .leading, spacing: 16) {
+            if selectedProvider == .chatGPT { subscription }
+            else if selectedProvider == .claudeSubscription { claudeSubscription }
+            else { apiKey }
+          }.disabled(busy).padding(.top, 4)
         }
       }
-      if !ready || connectionExpanded {
-        VStack(alignment: .leading, spacing: 16) {
-          if selectedProvider == .chatGPT { subscription }
-          else if selectedProvider == .claudeSubscription { claudeSubscription }
-          else { apiKey }
-        }.disabled(busy)
-      }
-      Divider()
       modelConfiguration
-      Divider()
-      VStack(alignment: .leading, spacing: 12) {
-        step("3", "Test and save")
+      SetupSubsection(number: 3, title: "Test and save", done: isSavedConfiguration && !model.isEmpty) {
+        EmptyView()
+      } content: {
         HStack(spacing: 12) {
           Button(testingModel ? "Testing model…" : isSavedConfiguration ? "Test current model" : "Test & use model") {
             testingModel = true
@@ -169,7 +132,7 @@ struct IntegrationsView: View {
               connectionExpanded = false
               notice = "Ready. \(settings.modelLabel(model, provider: selectedProvider)) is now your default for writing and chat."
             }
-          }.modifier(CTAStyle(primary: ready)).disabled(!canSave || busy)
+          }.modifier(CTAStyle(primary: ready && !isSavedConfiguration)).disabled(!canSave || busy)
             .help("Becomes your default only after a successful test. The test uses a short sample, without your emails.")
           if busy {
             ProgressView().controlSize(.small)
@@ -180,11 +143,8 @@ struct IntegrationsView: View {
           Label(notice, systemImage: noticeIsError ? "exclamationmark.circle" : testedConfiguration == configurationID ? "checkmark.circle" : "info.circle")
             .font(.coveLabel).foregroundStyle(noticeIsError ? Palette.danger : Palette.body)
             .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 6))
         }
       }
-      Divider()
       DisclosureGroup("Privacy & email context") {
         VStack(alignment: .leading, spacing: 12) {
           Text("When you write or ask Cove, your provider receives your instructions, recipients, draft, up to 20 relevant emails (48 KB), and calendar context when lookups are enabled.")
@@ -192,22 +152,20 @@ struct IntegrationsView: View {
           Text("Jev organizes mail separately. You review every email before sending.")
         }.font(.coveSecondary).foregroundStyle(Palette.body)
           .fixedSize(horizontal: false, vertical: true).padding(.top, 8)
-      }.font(.coveSecondary).disclosureGroupStyle(CoveDisclosureStyle())
+      }.font(.coveSecondary).disclosureGroupStyle(CoveDisclosureStyle()).padding(.horizontal, 4).padding(.top, 4)
     }
   }
 
   private var modelConfiguration: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack {
-        step("2", "Choose a model")
-        Spacer()
-        Button { run { try await refreshModels() } } label: {
-          Label("Refresh list", systemImage: "arrow.clockwise")
-        }.buttonStyle(SecondaryButton()).disabled(busy || !ready)
-          .help(selectedProvider == .claudeSubscription
-            ? "Versions come from Claude Code. Availability and usage credits depend on your plan; the test confirms access."
-            : "Models come from your account. You can also switch models for individual chats.")
-      }
+    SetupSubsection(number: 2, title: "Choose a model", done: ready && !model.isEmpty) {
+      Button { run { try await refreshModels() } } label: {
+        Image(systemName: "arrow.clockwise").font(.cove(size: 12)).frame(width: 28, height: 28)
+          .background(Palette.surface, in: RoundedRectangle(cornerRadius: 6))
+      }.buttonStyle(.plain).disabled(busy || !ready).accessibilityLabel("Refresh model list")
+        .help(selectedProvider == .claudeSubscription
+          ? "Refresh versions from Claude Code. Availability and usage credits depend on your plan; the test confirms access."
+          : "Refresh models from your account. You can also switch models for individual chats.")
+    } content: {
       if !ready {
         Text("Connect your account to see its models.").font(.coveSecondary).foregroundStyle(Palette.body)
       } else if useExactModel {
@@ -461,11 +419,12 @@ extension IntegrationsView {
       ConnectionRow(step: .gmail, done: Setup.isDone(.gmail, store: store), action: { store.showConnections = true },
                     manageTitle: store.isSample ? nil : store.accountEmail, manage: { store.showConnections = true }) { EmptyView() }
       ConnectionRow(step: .ai, done: Setup.isDone(.ai, store: store), actionTitle: "Set up", action: { toggle(.ai) },
-                    expanded: expandedStep == .ai, manageTitle: expandedStep == .ai ? "Done" : "Change", manage: { toggle(.ai) }) {
+                    expanded: expandedStep == .ai, expandable: true, subtitle: aiSummary, manage: { toggle(.ai) }) {
         writingContent
       }
-      ConnectionRow(step: .jev, done: Setup.isDone(.jev, store: store) && expandedStep != .jev, actionTitle: "Add key",
-                    action: { toggle(.jev) }, expanded: expandedStep == .jev, manageTitle: "Replace key", manage: { toggle(.jev) }) {
+      ConnectionRow(step: .jev, done: Setup.isDone(.jev, store: store), actionTitle: "Add key",
+                    action: { toggle(.jev) }, expanded: expandedStep == .jev, expandable: true,
+                    subtitle: "TypeSafe key saved · organizes mail and runs agents", manage: { toggle(.jev) }) {
         JevKeyField { expandedStep = nil; setupRefresh += 1 }
       }
       ConnectionRow(step: .calendar, done: Setup.isDone(.calendar, store: store),
@@ -478,6 +437,10 @@ extension IntegrationsView {
         if let error = store.tasksConnectError { Text(error).font(.coveMetadata).foregroundStyle(Palette.body) }
       }
     }
+  }
+  private var aiSummary: String? {
+    let saved = settings.model(settings.provider)
+    return saved.isEmpty ? nil : settings.modelLabel(saved, provider: settings.provider) + " · " + settings.provider.title
   }
   private func toggle(_ step: SetupStep) {
     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { expandedStep = expandedStep == step ? nil : step }

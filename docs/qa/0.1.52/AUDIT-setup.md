@@ -14,3 +14,11 @@ Problem: a new user could open Agents and turn on Jev without an AI account or T
 - `swift test`: CoveCoreTests 247 (1 skipped), CoveRenderingTests 337 (7 skipped), 0 failures.
 - `NewUserSetupRenderingTests` renders `/tmp/cove-setup-connections.png`, `/tmp/cove-setup-home-checklist.png`, `/tmp/cove-setup-agents-gate.png`; screenshots inspected.
 - Not verified live: first-run on a clean Mac with a real TypeSafe key.
+
+## Round 2 (user feedback: cards hard to use, agents feel like filters)
+
+- `ConnectionRow`: the whole header is clickable, with a hover tint; rows with settings show a rotating chevron, others a chevron right when connected. Connected shows a pill; AI's subtitle shows the model and provider in use (the "Saved default" box is gone).
+- Open AI writing: steps 1–3 are separate `SetupSubsection` cards (number turns into a check when done) on a shaded panel; Refresh is a small icon.
+- Agents: `AgentsHeader` (dark, like Home) explains the value and shows live tags (on, filed this week, replies to review). `AgentFaceView` draws a three-quarter face from dots: a shaded height field with warm eyes and lips, and a reading line sweeping down every 9 s at 15 fps. It is still with Reduce Motion or when the app is inactive. The captions show real recent agent work, or examples marked "For example".
+- `CustomAgentTemplate.all`: Finance (files invoices and drafts a reply to overdue reminders), Receipts, Client requests (label and draft), Meeting requests (draft), Hiring, Travel. They are shown as cards ("Start from an idea"; "More ideas" once you have agents). Each opens as a draft in the editor; nothing runs until it is turned on. `CustomAgentTemplateTests` validates every template.
+- Verified: full `swift test` (CoveCoreTests 248, CoveRenderingTests 338, 0 failures). Screenshots inspected: `/tmp/cove-setup-connections.png`, `/tmp/cove-setup-agents-gate.png`, `/tmp/cove-setup-agents-header.png`, `/tmp/cove-agent-face.png`.

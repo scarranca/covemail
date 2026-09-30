@@ -30,11 +30,7 @@ struct CustomAgentsView: View {
           Divider()
           ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-              HStack(alignment: .center) {
-                Text("Your agents").font(.coveTitle)
-                Spacer()
-                Button { store.newCustomAgent() } label: { Label("Create agent", systemImage: "plus") }.buttonStyle(PrimaryButton())
-              }
+              AgentsHeader(store: store, compact: geometry.size.width < 820)
               if showHelp {
                 Text("Jev checks new inbox mail against your rules, in order. The first confident match can apply a Gmail label, prepare a reply, or both. Your writing model prepares replies for review in Activity; nothing sends automatically. Uncertain results stay in Activity for your review, without changing Gmail labels. Agents run during Gmail sync while Cove is open. They cannot send, delete, or make purchases. Tests send the chosen content to TypeSafe but never change Gmail.")
                   .font(.coveBody).foregroundStyle(Palette.body).lineSpacing(5).padding(18).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
@@ -43,11 +39,6 @@ struct CustomAgentsView: View {
                 JevRequiredBanner(reason: "Agents use Jev to check each new email against your rules. Add your TypeSafe key to create and run them.")
               }
               notices
-              if let pending = store.customAgents.runs.first(where: { $0.replySuggestion != nil && $0.replyApplied != true }) {
-                Button { store.agentActivityID = pending.agentID } label: {
-                  Label("Replies ready for your review", systemImage: "square.and.pencil")
-                }.buttonStyle(.plain).font(.coveControl)
-              }
               // Filters only help once there are several agents to sift through.
               if store.customAgents.agents.count > 5 {
                 ViewThatFits(in: .horizontal) {
@@ -55,16 +46,15 @@ struct CustomAgentsView: View {
                   VStack(alignment: .leading, spacing: 14) { filters; searchField }
                 }
               }
-              if agents.isEmpty {
-                VStack(alignment: .leading, spacing: 14) {
-                  Image(systemName: "sparkles").font(.system(size: 26)).foregroundStyle(Palette.body)
-                  Text(store.customAgents.agents.isEmpty ? "Give a small task to Jev." : "No agents found").font(.coveSection)
-                  Text(store.customAgents.agents.isEmpty ? "Describe what matters, try it, then turn it on." : "Try another search or status filter.").font(.coveBody).foregroundStyle(Palette.body).lineSpacing(5)
-                  if store.customAgents.agents.isEmpty {
-                    Button("Or start from an invoice example") { store.agentEditor = .invoiceTemplate }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
-                  }
-                }.frame(maxWidth: 520, alignment: .leading).padding(.vertical, 45)
+              if store.customAgents.agents.isEmpty {
+                AgentTemplateGallery(store: store)
+              } else if agents.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                  Text("No agents found").font(.coveSection)
+                  Text("Try another search or status filter.").font(.coveBody).foregroundStyle(Palette.body)
+                }.padding(.vertical, 24)
               } else {
+                Text("Your agents").font(.coveSection).accessibilityAddTraits(.isHeader)
                 VStack(spacing: 0) {
                   if geometry.size.width > 760 {
                     HStack(spacing: 16) {
@@ -80,6 +70,9 @@ struct CustomAgentsView: View {
                     Divider()
                   }
                 }
+              }
+              if !store.customAgents.agents.isEmpty {
+                AgentTemplateGallery(store: store, title: "More ideas").padding(.top, 12)
               }
               Button("Built-in organizer & writing preferences") { store.screen = "agent" }
                 .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).padding(.top, 12)

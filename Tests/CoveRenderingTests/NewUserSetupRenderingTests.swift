@@ -33,7 +33,22 @@ import XCTest
     let settings = AIProviderSettings(defaults: defaults, readSecret: { _ in nil })
     try await render(IntegrationsView(store: store, settings: settings), size: CGSize(width: 1100, height: 1300), name: "setup-connections")
     try await render(SetupChecklistCard(store: store).frame(width: 720).padding(20), size: CGSize(width: 760, height: 560), name: "setup-home-checklist")
-    try await render(CustomAgentsView(store: store), size: CGSize(width: 1000, height: 700), name: "setup-agents-gate")
+    try await render(CustomAgentsView(store: store), size: CGSize(width: 1000, height: 1250), name: "setup-agents-gate")
+
+    // With an agent at work, the portrait's captions show what it really did.
+    var agent = CustomAgentTemplate.all[0].make()
+    agent.status = .active
+    var run = CustomAgentRun(agent: agent, mail: Mail(id: "m1", sender: "Acme", senderEmail: "billing@acme.example", subject: "Invoice #2048", body: ""))
+    run.appliedLabel = "Finance / Invoices"; run.completed = true
+    store.customAgents.agents = [agent]
+    store.customAgents.runs = [run]
+    try await render(AgentsHeader(store: store, previewTime: 3).padding(20), size: CGSize(width: 1000, height: 340), name: "setup-agents-header")
+  }
+
+  func testAgentFacePortrait() async throws {
+    _ = NSApplication.shared
+    try await render(AgentFaceView(previewTime: 0).frame(width: 520, height: 460)
+      .background(Color(red: 0.114, green: 0.125, blue: 0.165)), size: CGSize(width: 520, height: 460), name: "agent-face")
   }
 
   private func render<V: View>(_ view: V, size: CGSize, name: String) async throws {
