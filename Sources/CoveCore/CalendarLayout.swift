@@ -102,3 +102,63 @@ public enum CalendarLayout {
     return output
   }
 }
+
+/// Pointer geometry for creating, moving and resizing events in the day grid. Everything snaps to
+/// 15 minutes, stays within the day, and keeps at least 15 minutes of duration.
+public enum CalendarDrag {
+  public static let snap = 15.0
+  public static let defaultMinutes = 60.0
+
+  public static func snapped(_ minutes: Double) -> Double { (minutes / snap).rounded() * snap }
+
+  /// The snapped minute of day at a vertical position in the 24-hour grid.
+  public static func minute(atY y: Double, hourHeight: Double) -> Double {
+    min(max(snapped(y / hourHeight * 60), 0), 1440)
+  }
+
+  /// A new event's span from a press at `startY` released at `endY` (either direction). A click
+  /// without dragging proposes the default hour starting at the slot that was clicked.
+  public static func creation(fromY startY: Double, toY endY: Double, hourHeight: Double)
+    -> (start: Double, end: Double)
+  {
+    let first = min(max((min(startY, endY) / hourHeight * 60 / snap).rounded(.down) * snap, 0), 1440 - snap)
+    let last = min(max((max(startY, endY) / hourHeight * 60 / snap).rounded(.up) * snap, 0), 1440)
+    if abs(endY - startY) < hourHeight / 12 { return (first, min(first + defaultMinutes, 1440)) }
+    return (first, max(last, first + snap))
+  }
+
+  /// Moves an event by a pointer translation, keeping its duration. Days are whole columns.
+  public static func moved(
+    start: Date, end: Date, translationX: Double, translationY: Double, columnWidth: Double,
+    hourHeight: Double, dayRange: ClosedRange<Int> = -6...6, calendar: Calendar = .current
+  ) -> (start: Date, end: Date) {
+    let days = columnWidth > 0 ? min(max(Int((translationX / columnWidth).rounded()), dayRange.lowerBound), dayRange.upperBound) : 0
+    let day = calendar.startOfDay(for: start)
+    let startMinute = start.timeIntervalSince(day) / 60
+    let duration = end.timeIntervalSince(start) / 60
+    let newStart = min(max(snapped(startMinute + translationY / hourHeight * 60), 0), max(0, 1440 - min(duration, 1440)))
+    let targetDay = calendar.date(byAdding: .day, value: days, to: day) ?? day
+    let begin = targetDay.addingTimeInterval(newStart * 60)
+    return (begin, begin.addingTimeInterval(duration * 60))
+  }
+
+  /// A new end after dragging the bottom edge; never shorter than 15 minutes or past midnight.
+  public static func resizedEnd(start: Date, end: Date, translationY: Double, hourHeight: Double,
+                                calendar: Calendar = .current) -> Date {
+    let day = calendar.startOfDay(for: start)
+    let startMinute = start.timeIntervalSince(day) / 60
+    let endMinute = snapped(end.timeIntervalSince(day) / 60 + translationY / hourHeight * 60)
+    return day.addingTimeInterval(min(max(endMinute, startMinute + snap), 1440) * 60)
+  }
+}
+
+extension LocalEvent {
+  /// Timed events Cove may reschedule: local ones, or Google events the user organizes.
+  /// Invitations belong to their organizer and stay put.
+  public var canReschedule: Bool {
+    allDay != true && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && (googleID == nil || isOrganizer == true)
+  }
+  /// Whether moving this event changes other people's calendars.
+  public var hasOtherGuests: Bool { attendees?.contains { $0.isSelf != true } == true }
+}

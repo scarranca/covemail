@@ -106,6 +106,8 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 ### Calendar, Contacts, Home
 
 - Preserve Workweek/Week/Month views, current-time scrolling, selected-day agenda, overlap layout, and quiet grid lines. User scrolling remains in control after initial navigation.
+- Unreleased (0.1.51): in the week grids, dragging empty space opens the editor prefilled; dragging an event moves or resizes it (bottom 8 pt), saved immediately with Undo; events with other guests confirm first; only `LocalEvent.canReschedule` events move. The event's drag gesture uses the column's fixed coordinate space (the event follows the pointer via offset). Event details use icon actions like the reader. See `docs/qa/0.1.51/AUDIT.md`.
+- Gmail requests back off on rate limits and pace bulk loops (`GmailPacer`); never retry non-GET requests after server errors, and never surface provider error text.
 - Home surfaces pending invitations with Accept/Maybe/Decline. Ensure controls fit narrow panes, including their loading state.
 - Weather is opt-in via location, with manual city fallback and visible errors. Do not silently enable location or invent forecast data.
 - Contacts combine local records and downloaded correspondents; Google Contacts sync is not implemented. Keep in touch has narrower relevance filtering plus Ignore/Undo.

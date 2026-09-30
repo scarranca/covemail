@@ -36,7 +36,7 @@ import Foundation
     case agenda(AssistantAgenda)
   }
   private struct Plan: Decodable {
-    enum Action: String, Decodable { case email, clarify, propose, agenda, compose, reply, remember, forget, contact, brief, followup }
+    enum Action: String, Decodable { case email, clarify, propose, find, agenda, compose, reply, remember, forget, contact, brief, followup }
     let action: Action
     var instruction: String?
     var memory: String?
@@ -49,6 +49,10 @@ import Foundation
     var start: String?
     var end: String?
     var question: String?
+    var day: String?
+    var durationMinutes: Int?
+    var startMinute: Int?
+    var endMinute: Int?
   }
 
   static func words(_ text: String, appearIn source: String) -> Bool {
@@ -115,6 +119,29 @@ import Foundation
         throw CoveError.message("Please include the event date, start time, and duration.")
       }
       return .clarification(question)
+    case .find:
+      // The model only names the day, length and window; free time comes from the real calendar.
+      guard let title = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+        title.utf8.count <= 300, let day = plan.day
+      else { return .clarification("Which day should I look for free time on?") }
+      guard calendarAvailable else {
+        return .clarification("Connect Google Calendar in Settings so I can find a free time. Or tell me the exact start time.")
+      }
+      let window = try WritingAvailability(
+        day: day, durationMinutes: plan.durationMinutes ?? 30, startMinute: plan.startMinute ?? 540,
+        endMinute: plan.endMinute ?? 1020, timeZone: timeZone)
+      progress("Finding your first free \(window.durationMinutes) minutes…")
+      let events = try await calendar(window.dayRange.start, window.dayRange.end)
+      try Task.checkCancellation()
+      func clock(_ minute: Int) -> String {
+        window.calendar.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: window.day)?
+          .formatted(date: .omitted, time: .shortened) ?? ""
+      }
+      guard let slot = try window.firstSlot(events: events, now: now) else {
+        return .clarification("You have no free \(window.durationMinutes) minutes between \(clock(window.startMinute)) and \(clock(window.endMinute)) on \(window.day.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())). Should I look at another time or day?")
+      }
+      return .proposal(Proposal(title: title, start: slot.start, end: slot.end,
+        availability: "Your first free \(window.durationMinutes) minutes between \(clock(window.startMinute)) and \(clock(window.endMinute)), from your primary Google Calendar and Cove’s local events. Other calendars haven’t been checked."))
     case .propose, .agenda:
       guard let startText = plan.start, let endText = plan.end,
         let start = clock.date(from: startText), let end = clock.date(from: endText),

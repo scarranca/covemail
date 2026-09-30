@@ -63,6 +63,32 @@ import XCTest
     XCTAssertEqual(store.events.count, events.count + 2, "Rendering never edits the user's calendar")
   }
 
+  func testSelectedEventShowsQuietIconActions() async throws {
+    _ = NSApplication.shared
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let database = try Database(url: directory.appendingPathComponent("calendar.sqlite"))
+    let store = try AppStore(database: database, accountEmail: "calendar@example.com",
+      gmail: GmailClient(), gmailTokenProvider: { "synthetic" }, syncClock: { self.day })
+    store.calendarDay = day
+    var meeting = event("Launch review", 600, 660)
+    meeting.meetURL = "https://meet.google.com/abc-defg-hij"
+    meeting.webURL = "https://calendar.google.com/calendar/event?eid=abc"
+    meeting.mailID = "mail-1"
+    meeting.location = "Studio"
+    store.events = events + [meeting]
+    store.calendarEventID = meeting.id
+    let host = NSHostingView(rootView: CalendarView(store: store).background(Palette.canvas).foregroundStyle(Palette.ink))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    defer { window.close() }
+    for _ in 0..<10 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: bitmap)
+    try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-calendar-event-detail.png"))
+    XCTAssertEqual(store.calendarEventID, meeting.id)
+  }
+
   func testMonthRendersAtCompactAndWideWidths() async throws {
     _ = NSApplication.shared
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

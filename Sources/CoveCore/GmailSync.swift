@@ -181,7 +181,10 @@ extension GmailClient {
       let batch = Array(ids[start..<min(start + 5, ids.count)])
       let updates = try await withThrowingTaskGroup(of: MessageUpdate.self) { group in
         for id in batch {
-          group.addTask { try await update(id: id, token: token, cached: cachedIDs.contains(id)) }
+          group.addTask {
+            try await pacedBulk()
+            return try await update(id: id, token: token, cached: cachedIDs.contains(id))
+          }
         }
         var values: [MessageUpdate] = []
         for try await update in group { values.append(update) }

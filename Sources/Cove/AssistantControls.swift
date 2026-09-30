@@ -23,20 +23,28 @@ struct AssistantMailSearchStyle: ToggleStyle {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   func makeBody(configuration: Configuration) -> some View {
     Button { configuration.isOn.toggle() } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "magnifyingglass").font(.cove(size: 14))
-        if !compact { configuration.label.font(.coveSecondary) }
-        Capsule().fill(configuration.isOn && enabled ? Palette.ink : Palette.toggleOff)
-          .frame(width: 30, height: 18)
-          .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-            Circle().fill(.white).frame(width: 14, height: 14).padding(2)
-          }
-      }.padding(.horizontal, 10).frame(height: 32)
-        .foregroundStyle(enabled ? Palette.body : Palette.muted)
-        .background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 6))
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-    }.buttonStyle(.plain).accessibilityLabel("Mail search")
+      HStack(spacing: 6) {
+        Image(systemName: "globe").font(.cove(size: 13))
+        if !compact { configuration.label.font(.coveControl) }
+      }
+    }.buttonStyle(ChipStyle(on: configuration.isOn && enabled)).focusEffectDisabled()
+      .accessibilityLabel("Mail search")
       .accessibilityValue(configuration.isOn ? "On" : "Off")
       .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isOn)
+  }
+
+  /// A chip, like other assistants' search toggle: filled and dark when on, quiet when off.
+  /// Keyboard focus draws on the chip itself instead of a clipped system ring.
+  private struct ChipStyle: ButtonStyle {
+    let on: Bool
+    @Environment(\.isFocused) private var focused
+    func makeBody(configuration: Configuration) -> some View {
+      configuration.label
+        .padding(.horizontal, 10).frame(height: 30)
+        .foregroundStyle(on ? Palette.ink : Palette.muted)
+        .background(configuration.isPressed ? Palette.selection : on ? Palette.sidebar : .clear, in: Capsule())
+        .overlay { if focused { Capsule().strokeBorder(Palette.ink, lineWidth: 2) } }
+        .contentShape(Capsule())
+    }
   }
 }
