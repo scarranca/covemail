@@ -124,6 +124,10 @@ struct AssistantView: View {
       actionNotice = "That start time has passed. Choose Edit to pick a new time."
       return
     }
+    if let eventID = proposal.eventID {
+      moveEvent(id, eventID: eventID, to: DateInterval(start: proposal.start, end: proposal.end), undoing: false)
+      return
+    }
     let onGoogle = store.calendarConnected && !store.isSample
     Task {
       let saved = await store.createEvent(title: proposal.title, start: proposal.start, end: proposal.end, onGoogle: onGoogle)
@@ -138,7 +142,64 @@ struct AssistantView: View {
       }
     }
   }
+  /// Runs only from the bulk card's Approve or Undo. Undo reverses the change on exactly the emails that
+  /// succeeded. It runs in its own task, so closing the chat doesn't stop an approved change halfway.
+  private func runBulk(_ id: UUID, undo: Bool) {
+    guard let state = exchanges.first(where: { $0.id == id })?.bulk, !state.isRunning,
+      undo ? state.phase == .finished : state.phase == .review else { return }
+    let plan = state.plan
+    let succeeded = Set(state.result?.succeeded ?? [])
+    let targets = undo ? plan.targets.filter { succeeded.contains($0.id) } : plan.targets
+    guard !targets.isEmpty else { return }
+    let account = store.accountEmail
+    update(id) { $0.bulk?.phase = undo ? .undoing(done: 0) : .running(done: 0) }
+    Task { @MainActor in
+      let result = await store.applyBulk(targets, add: undo ? plan.remove : plan.add, remove: undo ? plan.add : plan.remove,
+        label: undo ? "Restoring" : plan.operation.progress(label: plan.labelName)) { done in
+        update(id) { $0.bulk?.phase = undo ? .undoing(done: done) : .running(done: done) }
+      }
+      guard store.accountEmail == account else { return }
+      update(id) {
+        if undo { $0.bulk?.undoResult = result; $0.bulk?.phase = .undone }
+        else { $0.bulk?.result = result; $0.bulk?.phase = .finished }
+        $0.source = plan.scope + " · \(result.succeeded.count) \(undo ? "restored" : "changed")"
+          + (result.failed.isEmpty ? "" : ", \(result.failed.count) failed")
+      }
+    }
+  }
+  /// Moves the selected event after the user approved the new time; Undo moves it back.
+  private func moveEvent(_ id: UUID, eventID: String, to interval: DateInterval, undoing: Bool) {
+    guard let event = store.events.first(where: { $0.id == eventID }), event.canReschedule else {
+      actionNotice = "This event can’t be moved from Cove. Open it in Calendar."
+      return
+    }
+    let before = DateInterval(start: event.start, end: event.end)
+    Task {
+      let saved = await store.createEvent(title: event.title, start: interval.start, end: interval.end,
+        onGoogle: event.googleID != nil, editing: event, localCalendar: event.effectiveLocalCalendar)
+      guard saved, let moved = store.events.first(where: { $0.id == store.calendarEventID }) else {
+        actionNotice = store.error ?? "Couldn’t move “\(event.title)”. Try again."
+        return
+      }
+      update(id) {
+        $0.eventCreated = !undoing
+        $0.addedEvent = undoing ? nil : moved
+        $0.movedFrom = undoing ? nil : before
+        // Keep the proposal pointing at the event's current id, so Undo or a retry finds it.
+        if let proposal = $0.eventProposal {
+          $0.eventProposal = .init(title: proposal.title, start: proposal.start, end: proposal.end,
+                                   availability: proposal.availability, eventID: moved.id)
+        }
+        $0.source = undoing ? "Calendar · moved back" : "Calendar · event moved"
+      }
+    }
+  }
   private func undoProposal(_ id: UUID) {
+    if let exchange = exchanges.first(where: { $0.id == id }), let before = exchange.movedFrom,
+      let moved = exchange.addedEvent {
+      moveEvent(id, eventID: moved.id, to: before, undoing: true)
+      return
+    }
     guard let event = exchanges.first(where: { $0.id == id })?.addedEvent else { return }
     Task {
       await store.deleteEvent(event)
@@ -258,30 +319,34 @@ struct AssistantView: View {
     VStack(alignment: .leading, spacing: 18) {
       Image(systemName: "sparkles").font(.cove(size: 25)).foregroundStyle(Palette.muted)
         .accessibilityHidden(true)
-      Text(context == nil ? "A little perspective on your inbox." : "A little clarity, right here.")
+      Text(context == nil ? "What can I help with?" : "Ask about this \(scope == .thread ? "thread" : "email").")
         .font(.coveTitle)
-      Text(
-        context == nil
-          ? (store.isSample
-            ? "Explore sample source passages across conversations, or ask for mailbox counts. Sample answers are previews."
-            : "Ask anything across your mail — “everything about the Q3 renewal”, “what did Maya and I agree on?”. With Mail search on, Cove searches Gmail, reads up to 100 matching emails and cites its sources. It can also brief you on today, draft new emails and introductions, look up a contact, and remember what you tell it.")
-          : "Ask what the sender needs, or find a detail you missed. Cove points you to the original words in \(scope == .thread ? "this thread" : "this email")."
-      ).font(.coveBody).foregroundStyle(Palette.body).lineSpacing(6)
-        .frame(maxWidth: 540, alignment: .leading)
-      if context != nil {
-        MailChipLayout(spacing: 9) {
-          Button("What needs my attention?") { ask("What needs my attention?") }
-          Button("Which dates are mentioned?") { ask("Which dates are mentioned?") }
-          if useAI { Button("Draft a reply") { ask("Draft a reply that answers what the sender needs.") } }
-        }.buttonStyle(SecondaryButton()).disabled(working)
-      } else {
-        MailChipLayout(spacing: 9) {
-          if useAI { Button("Brief me on today") { ask("Brief me on today: what needs my attention?") } }
-          Button("How many unread emails?") { ask("How many unread emails do I have?") }
-          Button("How many in my inbox?") { ask("How many emails are in my inbox?") }
-        }.buttonStyle(SecondaryButton()).disabled(working)
-      }
+      Text(context != nil ? "Answers point to the original words."
+        : store.isSample ? "Sample answers are previews." : "Ask, find, or tidy up. Nothing changes without your OK.")
+        .font(.coveBody).foregroundStyle(Palette.body)
+      MailChipLayout(spacing: 9) {
+        ForEach(suggestions, id: \.label) { suggestion in
+          Button(suggestion.label) { ask(suggestion.question) }
+        }
+      }.buttonStyle(SecondaryButton(compact: true)).disabled(working)
     }.padding(.vertical, 34)
+  }
+
+  /// Short starting points for what's on screen, instead of a paragraph of instructions.
+  private var suggestions: [(label: String, question: String)] {
+    if context != nil {
+      return [("What needs my attention?", "What needs my attention?"), ("Which dates are mentioned?", "Which dates are mentioned?")]
+        + (useAI ? [("Draft a reply", "Draft a reply that answers what the sender needs.")] : [])
+    }
+    guard useAI else {
+      return [("How many unread?", "How many unread emails do I have?"), ("How many in my inbox?", "How many emails are in my inbox?")]
+    }
+    var result = [("Brief me on today", "Brief me on today: what needs my attention?")]
+    if store.screen == "mail", !store.visible.isEmpty {
+      result.append(("Summarize these", "Summarize the emails in this view."))
+    }
+    result.append(("Open my drafts", "Open my drafts"))
+    return result
   }
 
   private func exchangeView(_ exchange: ChatExchange) -> some View {
@@ -310,7 +375,10 @@ struct AssistantView: View {
           } else { ChatMarkdown(answer) }
           if let proposal = exchange.eventProposal {
             AssistantEventCard(
-              proposal: proposal, destination: store.calendarConnected && !store.isSample ? "Google Calendar" : "This Mac",
+              // A move stays where the event lives; a new event goes to Google Calendar when connected.
+              proposal: proposal, destination: proposal.eventID.flatMap { id in store.events.first { $0.id == id } }
+                .map { $0.googleID != nil && !store.isSample ? "Google Calendar" : "This Mac" }
+                ?? (store.calendarConnected && !store.isSample ? "Google Calendar" : "This Mac"),
               added: exchange.addedEvent, dismissed: exchange.eventDismissed, busy: store.busy || store.calendarSyncing,
               add: { addProposal(exchange.id, proposal) },
               edit: {
@@ -325,7 +393,14 @@ struct AssistantView: View {
                 store.calendarEventID = event.id
                 store.screen = "calendar"
                 store.showAssistant = false
-              })
+              }, isMove: proposal.eventID != nil,
+              note: proposal.eventID.flatMap { id in store.events.first { $0.id == id } }
+                .flatMap { $0.hasOtherGuests && !store.isSample ? "Guests will see the new time." : nil })
+          }
+          if let bulk = exchange.bulk {
+            AssistantBulkCard(state: bulk, approve: { runBulk(exchange.id, undo: false) },
+              cancel: { update(exchange.id) { $0.bulk?.phase = .cancelled; $0.source = "Nothing changed" } },
+              undo: { runBulk(exchange.id, undo: true) })
           }
           if let draft = exchange.draft {
             AssistantDraftCard(draft: draft, review: { reviewDraft(draft) }, copy: {
@@ -695,6 +770,8 @@ struct AssistantView: View {
         return store.mails.first { $0.id == passage.mail.id } ?? passage.mail
       }
     }()
+    // What the user is looking at when they ask; "this" and "these" resolve from it.
+    let screenContext = store.assistantScreenContext()
     let exchange = ChatExchange(question: question, mail: mail, scope: scope)
     exchanges.append(exchange)
     query = ""
@@ -744,9 +821,9 @@ struct AssistantView: View {
             try await aiSettings.complete(prompt, provider: provider, model: model)
           }, calendar: { from, to in
             try await store.writingCalendar(from: from, to: to)
-          }, calendarAvailable: store.calendarConnected || store.isSample, sample: store.isSample)
+          }, calendarAvailable: store.calendarConnected || store.isSample, sample: store.isSample, labels: store.gmailLabels)
           let result = try await router.respond(question, mails: selectedMails, history: conversationHistory,
-                                                previousSources: !previousSources.isEmpty) { progress in
+                                                previousSources: !previousSources.isEmpty, screen: screenContext) { progress in
             if let index = exchanges.firstIndex(where: { $0.id == exchange.id }) {
               exchanges[index].progress = progress
             }
@@ -759,10 +836,60 @@ struct AssistantView: View {
             exchanges[index].answer = question
             exchanges[index].source = "Calendar · nothing created"
             return
+          case .question(let question):
+            exchanges[index].answer = question
+            exchanges[index].source = "Nothing changed"
+            return
+          case .navigate(let destination):
+            exchanges[index].answer = destination.summary
+            exchanges[index].source = "Opened in Cove"
+            store.perform(destination)
+            dismiss()
+            return
+          case .bulk(let bulkRequest):
+            exchanges[index].progress = bulkRequest.scope == .query && searchingGmail && !store.isSample
+              ? "Finding the matching emails in Gmail…" : "Finding the emails…"
+            let plan = try await store.resolveBulk(bulkRequest, liveSearch: searchingGmail && !store.isSample)
+            guard !Task.isCancelled, store.entered, store.accountEmail == account,
+              let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
+            exchanges[index].source = plan.scope + " · nothing changed yet"
+            if plan.targets.isEmpty {
+              exchanges[index].answer = plan.unchanged > 0
+                ? "Nothing to change: \(plan.unchanged) matching email\(plan.unchanged == 1 ? " is" : "s are") \(plan.operation.unchanged(label: plan.labelName))."
+                : "I didn’t find any emails to change. Try other words, or open the folder with those emails."
+            } else {
+              exchanges[index].answer = "Here’s exactly what will change. Nothing happens until you approve."
+              exchanges[index].bulk = AssistantBulkState(plan: plan)
+            }
+            return
+          case .view:
+            let inView = Array(store.visible.prefix(20))
+            guard !inView.isEmpty else {
+              exchanges[index].answer = "There are no emails in this view."
+              exchanges[index].source = "Current view"
+              return
+            }
+            exchanges[index].progress = "Reading the \(inView.count) newest emails in \(store.folderTitle)…"
+            let prompt = try AIPrompt(intent: .assistantAnswer,
+              instruction: question + "\n(About the emails in the current view: \(store.folderTitle).)", mails: inView,
+              evidence: String((store.preferences.memoryPrompt ?? "").prefix(2_500)))
+            let generated = try await aiSettings.complete(prompt, provider: provider, model: model)
+            guard !Task.isCancelled, store.accountEmail == account,
+              let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
+            let parsed = try AssistantResponse.parse(generated, mails: prompt.sourceMails)
+            exchanges[index].response = parsed
+            exchanges[index].answer = parsed?.plainText ?? generated
+            exchanges[index].source = "Generated by \(provider.title) · \(model) · \(prompt.sourceMails.count) newest emails in \(store.folderTitle)"
+            exchanges[index].passages = prompt.sourceMails.enumerated().map { number, mail in
+              MailPassage(mail: mail, text: "[\(number + 1)] " + String(mail.body.prefix(300)))
+            }
+            return
           case .proposal(let proposal):
             exchanges[index].isCalendar = true
             exchanges[index].eventProposal = proposal
-            exchanges[index].answer = "Here’s your event to review. It hasn’t been added yet."
+            exchanges[index].answer = proposal.eventID == nil
+              ? "Here’s your event to review. It hasn’t been added yet."
+              : "Here’s the new time to review. Nothing has changed yet."
             exchanges[index].source = "Calendar · nothing created"
             return
           case .agenda(let agenda):
@@ -1001,9 +1128,16 @@ struct ChatExchange: Identifiable {
   var draft: AssistantDraftArtifact?
   var rememberedMemory: String?
   var memoryUndone = false
+  var bulk: AssistantBulkState?
+  /// The selected event's times before an approved move, for Undo.
+  var movedFrom: DateInterval?
   var feedback: AssistantFeedback?
   var groundingLabel: String {
-    if isCalendar { return eventCreated ? "Event added" : eventProposal == nil ? "Calendar" : "Event ready to review" }
+    if let bulk { return bulk.groundingLabel }
+    if isCalendar {
+      if eventProposal?.eventID != nil { return eventCreated ? "Event moved" : "Move ready to review" }
+      return eventCreated ? "Event added" : eventProposal == nil ? "Calendar" : "Event ready to review"
+    }
     if let draft { return draft.isReply ? "Reply ready to review" : "Draft ready to review" }
     if rememberedMemory != nil { return memoryUndone ? "Memory removed" : "Saved to memories" }
     let count = Set(passages.map { $0.mail.id }).count
@@ -1059,6 +1193,10 @@ struct AssistantEventCard: View {
   let dismiss: () -> Void
   let undo: () -> Void
   let open: (LocalEvent) -> Void
+  /// Moving the selected event rather than adding a new one.
+  var isMove = false
+  /// Shown on moves that change other people's calendars too.
+  var note: String? = nil
   private var clear: Bool {
     proposal.availability.hasPrefix("No overlaps") || proposal.availability.hasPrefix("Your first free")
   }
@@ -1088,20 +1226,25 @@ struct AssistantEventCard: View {
       }
       Label(proposal.availability, systemImage: clear ? "checkmark.circle" : "exclamationmark.circle")
         .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      if let note, added == nil {
+        Label(note, systemImage: "person.2").font(.coveMetadata).foregroundStyle(Palette.body)
+          .fixedSize(horizontal: false, vertical: true)
+      }
       if let added {
         HStack(spacing: 12) {
-          Label("Added", systemImage: "checkmark.circle.fill").font(.coveControl)
+          Label(isMove ? "Moved" : "Added", systemImage: "checkmark.circle.fill").font(.coveControl)
           Spacer(minLength: 0)
           Button("Undo", action: undo).buttonStyle(SecondaryButton(compact: true)).disabled(busy)
           Button("Open in Calendar") { open(added) }.buttonStyle(SecondaryButton(compact: true))
         }
       } else if dismissed {
-        Text("Not added.").font(.coveSecondary).foregroundStyle(Palette.muted)
+        Text(isMove ? "Not moved." : "Not added.").font(.coveSecondary).foregroundStyle(Palette.muted)
       } else {
         HStack(spacing: 10) {
-          Button { add() } label: { Label("Add to calendar", systemImage: "plus") }
-            .buttonStyle(PrimaryButton(compact: true)).disabled(busy)
-          Button("Edit", action: edit).buttonStyle(SecondaryButton(compact: true)).disabled(busy)
+          Button { add() } label: {
+            Label(isMove ? "Move event" : "Add to calendar", systemImage: isMove ? "arrow.right" : "plus")
+          }.buttonStyle(PrimaryButton(compact: true)).disabled(busy)
+          if !isMove { Button("Edit", action: edit).buttonStyle(SecondaryButton(compact: true)).disabled(busy) }
           Spacer(minLength: 0)
           Button("Not now", action: dismiss).buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
         }

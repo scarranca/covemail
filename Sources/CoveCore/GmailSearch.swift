@@ -95,6 +95,8 @@ extension GmailClient {
     public var capped: Bool
     /// Newest matches first (ids only), for showing a few examples.
     public var newestIDs: [String]
+    /// Every matching id found, newest first, up to `cap`.
+    public var ids: [String] = []
   }
   /// Counts every message matching a Gmail search by listing ids only (no content is downloaded).
   /// Trash, Spam and Drafts are excluded, like Gmail's own search.
@@ -122,6 +124,48 @@ extension GmailClient {
       pageToken = page.nextPageToken == pageToken ? nil : page.nextPageToken
     } while pageToken != nil && ids.count < cap
     return MatchCount(count: min(ids.count, cap), capped: ids.count > cap || (pageToken != nil && ids.count >= cap),
-                      newestIDs: Array(ids.prefix(5)))
+                      newestIDs: Array(ids.prefix(5)), ids: Array(ids.prefix(cap)))
+  }
+
+  /// Sender, subject and labels for messages not stored on this Mac (headers only, paced, no bodies).
+  /// Used to list exactly which emails an approved assistant change will touch.
+  public func bulkTargets(ids: [String], token: String) async throws -> [AssistantBulkTarget] {
+    struct Header: Decodable { let name: String; let value: String }
+    struct Payload: Decodable { let headers: [Header]? }
+    struct Metadata: Decodable { let id: String; let labelIds: [String]?; let payload: Payload? }
+    var targets: [String: AssistantBulkTarget] = [:]
+    for start in stride(from: 0, to: ids.count, by: 5) {
+      try Task.checkCancellation()
+      let batch = Array(ids[start..<min(start + 5, ids.count)])
+      let fetched = try await withThrowingTaskGroup(of: AssistantBulkTarget?.self) { group in
+        for id in batch {
+          group.addTask {
+            try await pacedBulk()
+            do {
+              let data = try await request("messages/\(id)", token: token, query: [
+                URLQueryItem(name: "format", value: "metadata"),
+                URLQueryItem(name: "metadataHeaders", value: "From"),
+                URLQueryItem(name: "metadataHeaders", value: "Subject"),
+              ])
+              let message = try JSONDecoder().decode(Metadata.self, from: data)
+              let headers = message.payload?.headers ?? []
+              func header(_ name: String) -> String {
+                headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value ?? ""
+              }
+              let from = header("From")
+              let name = from.components(separatedBy: "<").first?
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \"")) ?? ""
+              return AssistantBulkTarget(id: message.id, sender: name.isEmpty ? from : name,
+                                         subject: header("Subject"), labels: Set(message.labelIds ?? []))
+            } catch let error as HTTPFailure where error.statusCode == 404 { return nil }
+          }
+        }
+        var values: [AssistantBulkTarget] = []
+        for try await target in group { if let target { values.append(target) } }
+        return values
+      }
+      for target in fetched { targets[target.id] = target }
+    }
+    return ids.compactMap { targets[$0] }
   }
 }
