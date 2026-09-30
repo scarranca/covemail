@@ -2204,6 +2204,14 @@ extension AppStore {
     customAgents = library
   }
   func newCustomAgent() { var agent = CustomAgent(); agent.rules = [CustomAgentRule()]; agentEditor = agent; agentActivityID = nil; screen = "agents" }
+  /// Asks the writing model to turn a description into rules. Only fills the editor; nothing is saved or run.
+  func buildCustomAgent(from description: String, base: CustomAgent,
+                        complete: (AIPrompt) async throws -> String) async throws -> CustomAgentBlueprint.Result {
+    let text = description.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard text.count >= 8 else { throw CoveError.message("Describe the job in a sentence, for example “File invoices and draft a reply when one is overdue.”") }
+    let prompt = try AIPrompt(intent: .buildAgent, instruction: CustomAgentBlueprint.prompt(description: String(text.prefix(2_000))), mails: [])
+    return try CustomAgentBlueprint.agent(from: try await complete(prompt), keeping: base)
+  }
   @discardableResult func saveCustomAgent(_ draft: CustomAgent, status: CustomAgentStatus, closeEditor: Bool = true) -> Bool {
     do {
       var agent = try draft.validated(allowIncomplete: status == .draft)

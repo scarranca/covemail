@@ -254,3 +254,82 @@ public struct CustomAgentTemplate: Identifiable, Sendable {
     },
   ]
 }
+
+/// Turns a plain description into an agent: the writing model proposes, this validates. Nothing runs until the
+/// user turns the agent on.
+public enum CustomAgentBlueprint {
+  public struct Result: Sendable { public var agent: CustomAgent; public var note: String? }
+  public static func prompt(description: String) -> String {
+    "The user describes the agent they want:\n" + description.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+  /// Strict parsing: unknown actions, empty conditions and reserved labels are dropped; at most 8 rules.
+  public static func agent(from reply: String, keeping base: CustomAgent = CustomAgent()) throws -> Result {
+    let cleaned = reply.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
+    struct Payload: Decodable {
+      struct Rule: Decodable { let when: String?; let action: String?; let label: String?; let reply: String? }
+      let name: String?; let instructions: String?; let rules: [Rule]?; let notify: Bool?; let note: String?
+    }
+    guard let start = cleaned.firstIndex(of: "{"), let end = cleaned.lastIndex(of: "}"),
+      let payload = try? JSONDecoder().decode(Payload.self, from: Data(cleaned[start...end].utf8)) else {
+      throw CoveError.message("Cove couldn’t turn that into an agent. Try describing it again in a sentence or two.")
+    }
+    func clean(_ text: String?, _ limit: Int) -> String {
+      String((text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(limit))
+    }
+    let rules = (payload.rules ?? []).compactMap { item -> CustomAgentRule? in
+      let condition = clean(item.when, 600)
+      guard !condition.isEmpty else { return nil }
+      let label = clean(item.label, 225)
+      let replyText = clean(item.reply, 1_500)
+      var action: CustomAgentAction
+      switch (item.action ?? "").lowercased() {
+      case "label": action = .label
+      case "draft", "draftreply", "reply": action = .draftReply
+      case "labelanddraft", "label_and_draft", "both": action = .labelAndDraft
+      default: return nil
+      }
+      if action.labels && (label.isEmpty || (try? CustomAgent.checkLabel(label)) == nil) {
+        guard action == .labelAndDraft, !replyText.isEmpty else { return nil }
+        action = .draftReply
+      }
+      if action.drafts && replyText.isEmpty {
+        guard action == .labelAndDraft else { return nil }
+        action = .label
+      }
+      return CustomAgentRule(condition: condition, action: action, labelName: action.labels ? label : "",
+                             replyInstructions: action.drafts ? replyText : "")
+    }.prefix(8)
+    guard !rules.isEmpty else {
+      throw CoveError.message("Say what the agent should do with those emails: file them under a label, draft a reply, or both.")
+    }
+    var agent = base
+    agent.name = clean(payload.name, 80).isEmpty ? "New agent" : clean(payload.name, 80)
+    agent.instructions = clean(payload.instructions, 4_000)
+    if agent.instructions.isEmpty { agent.instructions = rules.map(\.condition).joined(separator: ". ") }
+    agent.rules = Array(rules)
+    agent.labelName = ""
+    if payload.notify == true { agent.notifyOnMatch = true }
+    let note = clean(payload.note, 300)
+    return Result(agent: try agent.validated(allowIncomplete: true), note: note.isEmpty ? nil : note)
+  }
+}
+
+public extension CustomAgent {
+  /// Validates a Gmail label name for an agent: custom, 1–225 characters, not a system label.
+  static func checkLabel(_ name: String) throws {
+    let copy = CustomAgentRule(condition: "x", action: .label, labelName: name)
+    var agent = CustomAgent(); agent.name = "x"; agent.instructions = "x"; agent.rules = [copy]
+    _ = try agent.validated()
+  }
+  /// The agent's rules as plain sentences, for people rather than the classifier.
+  var plan: [(when: String, does: String)] {
+    let rules = self.rules ?? (labelName.isEmpty ? [] : [CustomAgentRule(condition: instructions, action: .label, labelName: labelName)])
+    return rules.map { rule in
+      switch rule.action {
+      case .label: (rule.condition, "File it under " + rule.labelName)
+      case .draftReply: (rule.condition, "Draft a reply for you to review")
+      case .labelAndDraft: (rule.condition, "File it under \(rule.labelName) and draft a reply for you to review")
+      }
+    }
+  }
+}

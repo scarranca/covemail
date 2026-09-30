@@ -25,6 +25,15 @@ final class CustomAgentEditorRenderingTests: XCTestCase {
       host.cacheDisplay(in: host.bounds, to: bitmap)
       try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-agent-editor-\(Int(width)).png"))
     }
+    // A built agent reads as plain steps: when this happens, it does that.
+    let host = NSHostingView(rootView: CustomAgentEditor(store: store, agent: CustomAgentTemplate.all[0].make()).foregroundStyle(Palette.ink))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 1100), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    defer { window.close() }
+    for _ in 0..<8 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: bitmap)
+    try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-agent-editor-plan.png"))
     XCTAssertTrue(store.customAgents.agents.isEmpty, "Rendering never saves an agent")
   }
 }

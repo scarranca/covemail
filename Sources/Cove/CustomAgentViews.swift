@@ -165,6 +165,15 @@ struct CustomAgentEditor: View {
   @State private var testTask: Task<Void, Never>?
   @State private var testID = UUID()
   @State private var discard = false
+  /// Describe first: a blank agent starts as one sentence; Cove proposes the rules.
+  @State private var describing: Bool?
+  @State private var brief = ""
+  @State private var building = false
+  @State private var buildTask: Task<Void, Never>?
+  @State private var buildNote: String?
+  @State private var buildError: String?
+  @State private var editingRule: String?
+  @State private var showsLooksFor = false
   private var isNew: Bool { !store.customAgents.agents.contains { $0.id == agent.id } }
   private var inbox: [Mail] { store.mails.filter { $0.labels.contains("INBOX") && $0.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"]) && (mailSearch.isEmpty || ($0.subject + $0.senderEmail).localizedCaseInsensitiveContains(mailSearch)) }.sorted { $0.date > $1.date } }
   private var selected: Mail? {
@@ -189,8 +198,15 @@ struct CustomAgentEditor: View {
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 28) {
-            Text(isNew ? "Create an agent" : agent.name.isEmpty ? "Edit your agent" : agent.name).font(.coveTitle)
-            if geometry.size.width >= 920 {
+            if isDescribing {
+              Text(isNew ? "Create an agent" : "Describe it again").font(.coveTitle)
+            } else {
+              TextField("Name your agent", text: $agent.name).textFieldStyle(.plain).font(.coveTitle)
+                .accessibilityLabel("Agent name")
+            }
+            if isDescribing {
+              form.frame(maxWidth: 640, alignment: .leading)
+            } else if geometry.size.width >= 920 {
               HStack(alignment: .top, spacing: 32) { form.frame(maxWidth: .infinity); Divider(); preview.frame(width: 320) }
             } else { form; Divider(); preview }
           }.padding(32)
@@ -199,8 +215,8 @@ struct CustomAgentEditor: View {
         VStack(alignment: .leading, spacing: 12) {
           if let message = store.agentFailure { Text(message).font(.coveSecondary).foregroundStyle(Palette.danger) }
           ViewThatFits(in: .horizontal) {
-            HStack { footerText; Spacer(minLength: 24); saveButtons }
-            VStack(alignment: .leading, spacing: 12) { footerText; saveButtons }
+            HStack { footerText; Spacer(minLength: 24); if !isDescribing { saveButtons } }
+            VStack(alignment: .leading, spacing: 12) { footerText; if !isDescribing { saveButtons } }
           }
         }.padding(.horizontal, 32).padding(.vertical, 18).background(Palette.canvas)
       }
@@ -225,81 +241,194 @@ struct CustomAgentEditor: View {
         Button("Keep editing", role: .cancel) {}
       } message: { Text("Save your changes before leaving if you want to keep them.") }
   }
-  /// Three steps in the order people think about an agent. Details that rarely change live under
-  /// Options; the safety promise is one quiet line instead of repeated notes.
-  private var form: some View {
-    VStack(alignment: .leading, spacing: 30) {
-      step(1, "What should it look for?") {
-        TextField("e.g. Invoices and receipts from suppliers. Skip newsletters and marketing.",
-                  text: $agent.instructions, axis: .vertical)
-          .lineLimit(4...10).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Classification instructions")
+  private var isDescribing: Bool {
+    describing ?? !(agent.rules?.contains { !$0.condition.trimmingCharacters(in: .whitespaces).isEmpty } ?? !agent.labelName.isEmpty)
+  }
+  private var hasModel: Bool { AIProviderSettings.shared.writingProvider() != nil }
+  @ViewBuilder private var form: some View {
+    if isDescribing { describeForm } else { planForm }
+  }
+
+  /// One question. The agent's job in the user's words; the writing model turns it into rules to review.
+  private var describeForm: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 6) {
+        Text("What should this agent do?").font(.coveSection)
+        Text("Describe the job like you’d ask an assistant. Cove turns it into steps you can check before anything runs.")
+          .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       }
-      step(2, "Then") {
-        if agent.rules == nil {
-          Text("Apply this Gmail label").font(.coveControl)
-          TextField("e.g. Finance / Invoices", text: $agent.labelName)
-            .textFieldStyle(CoveFieldStyle()).accessibilityLabel("Gmail label for matches")
-            .help("Existing labels are reused; new ones are created when needed.")
-          Button {
-            agent.rules = [CustomAgentRule(condition: "Matches the task described above", labelName: agent.labelName)]
-          } label: { Label("Add rules or draft replies", systemImage: "plus") }
-            .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
-        } else {
-          Text("Rules run top to bottom; the first match wins.").font(.coveSecondary).foregroundStyle(Palette.body)
-          ForEach(ruleBinding) { $rule in
-            CustomAgentRuleEditor(rule: $rule,
-              position: (agent.rules?.firstIndex(where: { $0.id == rule.id }) ?? 0) + 1,
-              count: agent.rules?.count ?? 0,
-              move: { offset in
-                guard let index = agent.rules?.firstIndex(where: { $0.id == rule.id }),
-                  let count = agent.rules?.count, (0..<count).contains(index + offset) else { return }
-                agent.rules?.swapAt(index, index + offset)
-              }, remove: { agent.rules?.removeAll { $0.id == rule.id } })
-          }
-          Button { agent.rules?.append(CustomAgentRule()) } label: { Label("Add another rule", systemImage: "plus") }
-            .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
-            .disabled((agent.rules?.count ?? 0) >= 8)
+      TextField("e.g. When a supplier sends an invoice, file it under Finance. If it’s overdue, draft a polite reply saying I’ll check it this week.",
+                text: $brief, axis: .vertical)
+        .lineLimit(4...10).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("What the agent should do")
+        .disabled(building)
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 8) { examples }
+        VStack(alignment: .leading, spacing: 8) { examples }
+      }
+      if hasModel {
+        HStack(spacing: 12) {
+          Button { build() } label: {
+            HStack(spacing: 8) {
+              if building { ProgressView().controlSize(.small) } else { Image(systemName: "sparkles") }
+              Text(building ? "Building your agent…" : "Build agent")
+            }
+          }.buttonStyle(PrimaryButton()).disabled(building || brief.trimmingCharacters(in: .whitespacesAndNewlines).count < 8)
+            .keyboardShortcut(.return, modifiers: .command)
+          if building { Button("Cancel") { buildTask?.cancel(); building = false }.buttonStyle(.plain).font(.coveControl) }
         }
-        Toggle("Notify me when it matches", isOn: Binding(get: { agent.notifies }, set: { setNotify($0) }))
-          .toggleStyle(CoveToggleStyle()).font(.coveControl)
-        if let note = notifyNote {
-          HStack(spacing: 8) {
-            Text(note).font(.coveMetadata).foregroundStyle(Palette.danger)
-            if notifyPermission == .denied {
-              Button("Open Settings") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
-              }.buttonStyle(.plain).font(.coveMetadata)
+      } else {
+        HStack(spacing: 10) {
+          Image(systemName: "sparkles").foregroundStyle(Palette.body)
+          Text("Connect an AI account to build agents from a description.").font(.coveSecondary).foregroundStyle(Palette.body)
+          Spacer(minLength: 8)
+          Button("Connect AI") { store.integrationsFocus = .ai; store.screen = "integrations" }.buttonStyle(SecondaryButton(compact: true))
+        }.padding(14).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+      }
+      if let buildError { Label(buildError, systemImage: "exclamationmark.circle").font(.coveSecondary).foregroundStyle(Palette.danger).fixedSize(horizontal: false, vertical: true) }
+      Button(isNew ? "Or set it up step by step" : "Keep the current setup") {
+        if (agent.rules ?? []).isEmpty { agent.rules = [CustomAgentRule()] }
+        describing = false; editingRule = agent.rules?.first?.id
+      }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).disabled(building)
+    }
+  }
+  @ViewBuilder private var examples: some View {
+    ForEach(["File receipts under Finance / Receipts", "Draft replies to client questions", "Tell me when a candidate applies"], id: \.self) { example in
+      Button { brief = example } label: {
+        Text(example).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
+          .padding(.horizontal, 10).padding(.vertical, 6)
+          .background(Palette.surface, in: Capsule()).overlay(Capsule().strokeBorder(Palette.line))
+      }.buttonStyle(.plain).disabled(building)
+    }
+  }
+  private func build() {
+    buildError = nil; buildNote = nil; building = true
+    let base = agent
+    buildTask = Task { @MainActor in
+      defer { building = false }
+      do {
+        let result = try await store.buildCustomAgent(from: brief, base: base) { try await AIProviderSettings.shared.complete($0) }
+        try Task.checkCancellation()
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+          agent = result.agent; buildNote = result.note; describing = false; editingRule = nil
+        }
+      } catch is CancellationError {
+      } catch { buildError = error.localizedDescription }
+    }
+  }
+
+  /// The agent as plain steps: when this happens, it does that. Each step opens in place to edit.
+  private var planForm: some View {
+    VStack(alignment: .leading, spacing: 22) {
+      VStack(alignment: .leading, spacing: 6) {
+        Text("How it works").font(.coveSection)
+        Text("For each new email in your Inbox, the first step that fits runs.").font(.coveSecondary).foregroundStyle(Palette.body)
+      }
+      if let buildNote {
+        Label(buildNote, systemImage: "info.circle").font(.coveSecondary).foregroundStyle(Palette.body)
+          .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+      }
+      VStack(spacing: 10) {
+        if agent.rules == nil {
+          ForEach(Array(agent.plan.enumerated()), id: \.offset) { index, step in
+            planCard(index: index, when: step.when, does: step.does, editing: false, edit: {
+              agent.rules = [CustomAgentRule(condition: step.when, labelName: agent.labelName)]
+              editingRule = agent.rules?.first?.id
+            }, remove: nil)
+          }
+        } else {
+          ForEach(ruleBinding) { $rule in
+            let index = agent.rules?.firstIndex(where: { $0.id == rule.id }) ?? 0
+            let step = agent.plan.indices.contains(index) ? agent.plan[index] : (rule.condition, "")
+            if editingRule == rule.id {
+              VStack(alignment: .leading, spacing: 10) {
+                CustomAgentRuleEditor(rule: $rule, position: index + 1, count: agent.rules?.count ?? 0,
+                  move: { offset in
+                    guard let count = agent.rules?.count, (0..<count).contains(index + offset) else { return }
+                    agent.rules?.swapAt(index, index + offset)
+                  }, remove: { agent.rules?.removeAll { $0.id == rule.id }; editingRule = nil })
+                Button("Done") { withAnimation(.easeOut(duration: 0.2)) { editingRule = nil } }
+                  .buttonStyle(SecondaryButton(compact: true))
+              }
+            } else {
+              planCard(index: index, when: step.0, does: step.1, editing: false,
+                       edit: { withAnimation(.easeOut(duration: 0.2)) { editingRule = rule.id } },
+                       remove: (agent.rules?.count ?? 0) > 1 ? { agent.rules?.removeAll { $0.id == rule.id } } : nil)
             }
           }
         }
-        Label("Unclear emails wait in Activity for you. Agents never send, delete or pay.", systemImage: "checkmark.shield")
-          .font(.coveMetadata).foregroundStyle(Palette.muted)
       }
-      step(3, "Name it") {
-        TextField("e.g. Invoices", text: $agent.name).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Agent name")
+      HStack(spacing: 18) {
+        Button {
+          if agent.rules == nil { agent.rules = [CustomAgentRule(condition: agent.instructions, labelName: agent.labelName)] }
+          let rule = CustomAgentRule(); agent.rules?.append(rule); editingRule = rule.id
+        } label: { Label("Add a step", systemImage: "plus") }
+          .disabled((agent.rules?.count ?? 0) >= 8)
+        Button { brief = brief.isEmpty ? agent.instructions : brief; describing = true } label: {
+          Label("Describe it again", systemImage: "sparkles")
+        }
+      }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+      Toggle("Notify me when it matches", isOn: Binding(get: { agent.notifies }, set: { setNotify($0) }))
+        .toggleStyle(CoveToggleStyle()).font(.coveControl)
+      if let note = notifyNote {
+        HStack(spacing: 8) {
+          Text(note).font(.coveMetadata).foregroundStyle(Palette.danger)
+          if notifyPermission == .denied {
+            Button("Open Settings") {
+              if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
+            }.buttonStyle(.plain).font(.coveMetadata)
+          }
+        }
       }
-      DisclosureGroup {
-        VStack(alignment: .leading, spacing: 10) {
+      Label("Unclear emails wait in Activity for you. Agents never send, delete or pay.", systemImage: "checkmark.shield")
+        .font(.coveMetadata).foregroundStyle(Palette.muted)
+      DisclosureGroup(isExpanded: $showsLooksFor) {
+        VStack(alignment: .leading, spacing: 12) {
+          TextField("What kinds of email is this agent about? What should it ignore?", text: $agent.instructions, axis: .vertical)
+            .lineLimit(3...8).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("What the agent looks for")
           Label("Runs when a new email arrives in \(store.accountEmail)’s Inbox, while Cove is open.", systemImage: "tray")
             .font(.coveSecondary).foregroundStyle(Palette.body)
           Toggle("Read PDF and text attachments", isOn: $agent.includeAttachments).toggleStyle(CoveToggleStyle()).font(.coveSecondary)
           Text("Up to 5 files, 5 MB each. Scans and unsupported files go to review.").font(.coveMetadata).foregroundStyle(Palette.muted)
         }.padding(.top, 12)
       } label: {
-        Text("Options").font(.coveControl).foregroundStyle(Palette.body)
-      }
+        Text("What it looks for and options").font(.coveControl).foregroundStyle(Palette.body)
+      }.disclosureGroupStyle(CoveDisclosureStyle())
     }
   }
-  private func step<Content: View>(_ number: Int, _ title: String, @ViewBuilder content: () -> Content) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
+  private func replyGist(_ index: Int) -> String? {
+    guard let rules = agent.rules, rules.indices.contains(index), rules[index].action.drafts else { return nil }
+    let text = rules[index].replyInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+    return text.isEmpty ? nil : text
+  }
+  private func planCard(index: Int, when: String, does: String, editing: Bool, edit: @escaping () -> Void, remove: (() -> Void)?) -> some View {
+    HStack(alignment: .top, spacing: 14) {
+      Text("\(index + 1)").font(.coveMetadata).foregroundStyle(Palette.body)
+        .frame(width: 22, height: 22).background(Palette.sidebar, in: Circle()).accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text("When").font(.coveMetadata).foregroundStyle(Palette.muted).frame(width: 34, alignment: .leading)
+          Text(when.isEmpty ? "Describe when this step applies" : when).font(.coveBody)
+            .foregroundStyle(when.isEmpty ? Palette.muted : Palette.ink).fixedSize(horizontal: false, vertical: true)
+        }
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text("Then").font(.coveMetadata).foregroundStyle(Palette.muted).frame(width: 34, alignment: .leading)
+          Text(does).font(.coveLabel).fixedSize(horizontal: false, vertical: true)
+        }
+        if let reply = replyGist(index) {
+          HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("Says").font(.coveMetadata).foregroundStyle(Palette.muted).frame(width: 34, alignment: .leading)
+            Text(reply).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(2)
+          }
+        }
+      }.frame(maxWidth: .infinity, alignment: .leading)
       HStack(spacing: 10) {
-        Text("\(number)").font(.coveMetadata).foregroundStyle(Palette.body)
-          .frame(width: 22, height: 22).overlay(Circle().stroke(Palette.inputBorder))
-          .accessibilityHidden(true)
-        Text(title).font(.coveSection)
-      }
-      content()
-    }
+        Button(action: edit) { Image(systemName: "pencil") }.help("Edit this step").accessibilityLabel("Edit step \(index + 1)")
+        if let remove { Button(action: remove) { Image(systemName: "trash") }.help("Remove this step").accessibilityLabel("Remove step \(index + 1)") }
+      }.buttonStyle(.plain).font(.cove(size: 12)).foregroundStyle(Palette.body)
+    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
+      .contentShape(RoundedRectangle(cornerRadius: 10)).onTapGesture(perform: edit)
   }
   private var preview: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -488,14 +617,14 @@ private struct CustomAgentRuleEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
-        Text("Rule \(position)").font(.coveSubheading)
+        Text("Step \(position)").font(.coveSubheading)
         Spacer()
-        Button { move(-1) } label: { Image(systemName: "arrow.up") }.disabled(position == 1).accessibilityLabel("Move rule up")
-        Button { move(1) } label: { Image(systemName: "arrow.down") }.disabled(position == count).accessibilityLabel("Move rule down")
+        Button { move(-1) } label: { Image(systemName: "arrow.up") }.disabled(position == 1).accessibilityLabel("Move step up")
+        Button { move(1) } label: { Image(systemName: "arrow.down") }.disabled(position == count).accessibilityLabel("Move step down")
         Button(action: remove) { Image(systemName: "trash") }.disabled(count <= 1).accessibilityLabel("Remove rule \(position)").help("Remove rule")
       }.buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body)
       Text("When").font(.coveControl)
-      TextField("e.g. The buyer is Happy Finances for All or Cherry", text: $rule.condition, axis: .vertical)
+      TextField("e.g. A supplier says a payment is overdue", text: $rule.condition, axis: .vertical)
         .lineLimit(2...5).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Rule \(position) condition")
       Picker("Then", selection: $rule.action) {
         ForEach(CustomAgentAction.allCases, id: \.self) { Text($0.title).tag($0) }
