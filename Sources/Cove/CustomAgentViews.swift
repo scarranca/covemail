@@ -150,9 +150,9 @@ struct CustomAgentsView: View {
 struct CustomAgentEditor: View {
   @Bindable var store: AppStore
   @State var agent: CustomAgent
-  @State private var source = TestSource.sample
+  @State var source = TestSource.sample
   @State private var notifyPermission: AgentNotificationPermission?
-  private enum TestSource: Hashable { case sample, inbox, recent }
+  enum TestSource: Hashable { case sample, inbox, recent }
   private var sample: Bool { source == .sample }
   /// The agent as it was opened; leaving without changes needs no confirmation.
   private var original: CustomAgent? { store.agentEditor }
@@ -430,59 +430,116 @@ struct CustomAgentEditor: View {
       .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
       .contentShape(RoundedRectangle(cornerRadius: 10)).onTapGesture(perform: edit)
   }
+  private static let sources: [(TestSource, String)] = [(.sample, "Sample"), (.inbox, "Inbox email"), (.recent, "Recent mail")]
   private var preview: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Try it").font(.coveSection)
-      Picker("Test source", selection: $source) {
-        Text("Sample").tag(TestSource.sample); Text("Inbox email").tag(TestSource.inbox); Text("Recent mail").tag(TestSource.recent)
-      }.pickerStyle(.segmented).labelsHidden()
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Try it").font(.coveSection)
+        Text("See what it would do. Nothing in your inbox changes.").font(.coveSecondary).foregroundStyle(Palette.body)
+      }
+      CoveSegmentedPicker(selection: Binding(
+        get: { Self.sources.first { $0.0 == source }?.1 ?? "Sample" },
+        set: { title in source = Self.sources.first { $0.1 == title }?.0 ?? .sample }),
+        options: Self.sources.map(\.1))
       if source == .recent {
         CustomAgentBackfillPanel(store: store, agent: agent)
       } else { singleTest }
     }.frame(maxWidth: .infinity, alignment: .leading)
   }
   @ViewBuilder private var singleTest: some View {
-      if source == .inbox {
-        TextField("Find an inbox email", text: $mailSearch).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Find a test email")
-        Picker("Email", selection: $mailID) {
-          Text("Choose an email…").tag("")
-          ForEach(inbox.prefix(50)) { Text($0.subject.isEmpty ? "(No subject)" : $0.subject).tag($0.id) }
-        }.labelsHidden().accessibilityLabel("Email to test")
-        if inbox.isEmpty { Text("No matching downloaded inbox emails.").font(.coveSecondary).foregroundStyle(Palette.muted) }
-      }
-      if let selected {
-        VStack(alignment: .leading, spacing: 10) {
-          Text(selected.subject).font(.coveSubheading)
-          Text(selected.senderEmail).font(.coveSecondary).foregroundStyle(Palette.body)
-          if sample {
-            TextField("Sample email text", text: $sampleText, axis: .vertical).lineLimit(5...14)
-              .textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Sample email text")
-          } else { Text(String(selected.body.prefix(1800))).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing).textSelection(.enabled) }
-          ForEach(selected.availableAttachments) { Label($0.filename, systemImage: "paperclip").font(.coveMetadata) }
-        }.padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
-      }
-      if testing {
-        HStack(spacing: 10) { ProgressView().controlSize(.small); Text("Jev is checking the evidence…").font(.coveSecondary); Spacer(); Button("Cancel") { cancelTest() }.buttonStyle(.plain) }
-      } else {
-        Button(result == nil ? "Run test" : "Run test again") { runTest() }.buttonStyle(SecondaryButton()).disabled(selected == nil)
-      }
-      if let testError { Text(testError).font(.coveSecondary).foregroundStyle(Palette.danger).textSelection(.enabled) }
-      if let result {
-        Divider()
-        Label(result.outcome.title, systemImage: result.outcome == .review ? "questionmark.circle" : "checkmark.circle").font(.coveSection)
-        Text("Confidence · \(Int(result.confidence * 100))%").font(.coveMetadata).foregroundStyle(Palette.body)
-        if let excerpt = result.excerpt { Text(excerpt).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing).textSelection(.enabled) }
-        ForEach(result.warnings, id: \.self) { Text($0).font(.coveSecondary).foregroundStyle(Palette.body) }
-        if let rule = result.rule(for: agent) {
-          Text("Matched: " + rule.condition).font(.coveControl)
-          if rule.action.drafts { Label("Would prepare a reply for review", systemImage: "square.and.pencil").font(.coveControl) }
+    if source == .inbox && selected == nil { emailFinder }
+    if let selected {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(alignment: .firstTextBaseline) {
+          Text(selected.sender.isEmpty ? selected.senderEmail : selected.sender).font(.coveLabel).lineLimit(1)
+          Spacer(minLength: 8)
+          if source == .inbox {
+            Button("Change") { mailID = ""; result = nil }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+          }
         }
-        if let label = result.label(for: agent) { Text("Would apply label: " + label).font(.coveControl) }
-        else if result.outcome != .match { Text("Would leave the email unchanged.").font(.coveControl) }
-        Text("Routing preview only. No labels or replies have been created.").font(.coveMetadata).foregroundStyle(Palette.muted)
+        Text(selected.subject.isEmpty ? "(No subject)" : selected.subject).font(.coveSubheading).lineLimit(2)
+        if sample {
+          TextField("Sample email text", text: $sampleText, axis: .vertical).lineLimit(4...10)
+            .textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Sample email text")
+        } else {
+          Text(Self.snippet(selected.body)).font(.coveSecondary).foregroundStyle(Palette.body)
+            .lineLimit(4).fixedSize(horizontal: false, vertical: true)
+        }
+        ForEach(selected.availableAttachments) { Label($0.filename, systemImage: "paperclip").font(.coveMetadata).foregroundStyle(Palette.body) }
+      }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+      if testing {
+        HStack(spacing: 10) {
+          ProgressView().controlSize(.small)
+          Text("Jev is reading it…").font(.coveSecondary).foregroundStyle(Palette.body)
+          Spacer()
+          Button("Cancel") { cancelTest() }.buttonStyle(.plain).font(.coveControl)
+        }.frame(height: 40)
+      } else {
+        Button { runTest() } label: { Label(result == nil ? "Run test" : "Run again", systemImage: "play.fill") }
+          .buttonStyle(SecondaryButton())
       }
-      Text("Tests never change your inbox. They send your instructions and this email (with enabled attachment text) to TypeSafe; reply rules also use your writing provider. Provider charges apply.")
-        .font(.coveMetadata).foregroundStyle(Palette.muted).lineSpacing(3)
+    }
+    if let testError { Label(testError, systemImage: "exclamationmark.circle").font(.coveSecondary).foregroundStyle(Palette.danger).textSelection(.enabled) }
+    if let result, selected != nil { resultCard(result) }
+    Text("Tests send this email and your instructions to TypeSafe; reply steps also use your writing model.")
+      .font(.coveMetadata).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+  }
+  /// Search, then pick from a short list: sender and subject, no menus.
+  private var emailFinder: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(spacing: 8) {
+        Image(systemName: "magnifyingglass").font(.cove(size: 12)).foregroundStyle(Palette.muted)
+        TextField("Search your inbox", text: $mailSearch).textFieldStyle(.plain).font(.coveSecondary)
+          .accessibilityLabel("Find a test email")
+      }.padding(.horizontal, 12).frame(height: 36)
+        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.line))
+      if inbox.isEmpty {
+        Text("No matching emails on this Mac.").font(.coveSecondary).foregroundStyle(Palette.muted).padding(.vertical, 6)
+      } else {
+        VStack(spacing: 0) {
+          ForEach(Array(inbox.prefix(6).enumerated()), id: \.element.id) { index, mail in
+            if index > 0 { Divider() }
+            AgentTestEmailRow(mail: mail) { mailID = mail.id; result = nil }
+          }
+        }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+          .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.line))
+      }
+    }
+  }
+  private static func snippet(_ body: String) -> String {
+    body.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+      .joined(separator: " ").prefix(400).description
+  }
+  private func resultCard(_ result: CustomAgentDecision) -> some View {
+    let rule = result.rule(for: agent)
+    let label = result.label(for: agent)
+    let headline: String = switch result.outcome {
+    case .match: "It would act on this"
+    case .noMatch: "It would leave this alone"
+    case .review: "It isn’t sure, so it would ask you"
+    }
+    return VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: result.outcome == .match ? "checkmark.circle.fill" : result.outcome == .review ? "questionmark.circle" : "minus.circle")
+        Text(headline).font(.coveSubheading)
+        Spacer(minLength: 8)
+        Text("\(Int(result.confidence * 100))% sure").font(.coveMetadata).foregroundStyle(Palette.body)
+      }
+      if let rule, let index = agent.rules?.firstIndex(where: { $0.id == rule.id }) {
+        Text("Step \(index + 1) · \(rule.condition)").font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(2)
+      }
+      if let label { Label("Files it under \(label)", systemImage: "tag").font(.coveControl) }
+      if rule?.action.drafts == true { Label("Drafts a reply for you to review", systemImage: "square.and.pencil").font(.coveControl) }
+      if result.outcome == .review { Label("Waits in Activity for you", systemImage: "tray").font(.coveControl) }
+      if let excerpt = result.excerpt, !excerpt.isEmpty {
+        Text("“\(excerpt)”").font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(4).textSelection(.enabled)
+      }
+      ForEach(result.warnings, id: \.self) { Text($0).font(.coveMetadata).foregroundStyle(Palette.body) }
+    }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(result.outcome == .match ? Palette.inputBorder : Palette.line))
   }
   private var footerText: some View {
     VStack(alignment: .leading, spacing: 5) {
@@ -605,6 +662,22 @@ struct CustomAgentActivity: View {
         }
       }
     }.padding(32).background(Palette.canvas)
+  }
+}
+
+private struct AgentTestEmailRow: View {
+  let mail: Mail
+  let pick: () -> Void
+  @State private var hovering = false
+  var body: some View {
+    Button(action: pick) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(mail.sender.isEmpty ? mail.senderEmail : mail.sender).font(.coveLabel).lineLimit(1)
+        Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(1)
+      }.padding(.horizontal, 12).padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading)
+        .background(hovering ? Palette.mailHover : .clear).contentShape(Rectangle())
+    }.buttonStyle(.plain).onHover { hovering = $0 }
+      .accessibilityLabel("Test with \(mail.subject) from \(mail.sender)")
   }
 }
 

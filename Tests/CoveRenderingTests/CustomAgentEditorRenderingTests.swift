@@ -34,6 +34,18 @@ final class CustomAgentEditorRenderingTests: XCTestCase {
     let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
     host.cacheDisplay(in: host.bounds, to: bitmap)
     try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-agent-editor-plan.png"))
+    // Inbox email: search and pick from a short list instead of a menu.
+    store.mails = (1...4).map { Mail(id: "m\($0)", sender: ["Acme Studio", "Maya Chen", "This Week in Fintech", "Stripe"][$0 - 1],
+      senderEmail: "s\($0)@example.com", subject: ["Invoice for June services", "Quick question about the proposal", "Don’t bet against stablecoins", "Your receipt"][$0 - 1],
+      body: "Hello", date: Date().addingTimeInterval(Double(-$0) * 3600), labels: ["INBOX"]) }
+    let inboxHost = NSHostingView(rootView: CustomAgentEditor(store: store, agent: CustomAgentTemplate.all[0].make(), source: .inbox).foregroundStyle(Palette.ink))
+    let inboxWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+    inboxWindow.isReleasedWhenClosed = false; inboxWindow.contentView = inboxHost
+    defer { inboxWindow.close() }
+    for _ in 0..<8 { inboxHost.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let inboxBitmap = try XCTUnwrap(inboxHost.bitmapImageRepForCachingDisplay(in: inboxHost.bounds))
+    inboxHost.cacheDisplay(in: inboxHost.bounds, to: inboxBitmap)
+    try XCTUnwrap(inboxBitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-agent-editor-inbox.png"))
     XCTAssertTrue(store.customAgents.agents.isEmpty, "Rendering never saves an agent")
   }
 }
