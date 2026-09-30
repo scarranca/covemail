@@ -194,13 +194,9 @@ struct CustomAgentEditor: View {
         Divider()
         ScrollView {
           VStack(alignment: .leading, spacing: 28) {
-            HStack(alignment: .top) {
-              VStack(alignment: .leading, spacing: 8) {
-                Text(isNew ? "Create an agent" : "Edit your agent").font(.coveTitle)
-                Text("Tell your agent what to look for. Decide what happens next.").font(.coveBody).foregroundStyle(Palette.body)
-              }
-              Spacer()
-              Text(isNew ? "Draft · Not running" : agent.status.title).font(.coveMetadata).foregroundStyle(Palette.muted)
+            VStack(alignment: .leading, spacing: 8) {
+              Text(isNew ? "Create an agent" : "Edit your agent").font(.coveTitle)
+              Text("Describe what to look for, then choose what happens.").font(.coveBody).foregroundStyle(Palette.body)
             }
             if geometry.size.width >= 920 {
               HStack(alignment: .top, spacing: 32) { form.frame(maxWidth: .infinity); Divider(); preview.frame(width: 320) }
@@ -227,36 +223,27 @@ struct CustomAgentEditor: View {
         Button("Keep editing", role: .cancel) {}
       } message: { Text("Save your changes before leaving if you want to keep them.") }
   }
+  /// Three steps in the order people think about an agent. Details that rarely change live under
+  /// Options; the safety promise is one quiet line instead of repeated notes.
   private var form: some View {
-    VStack(alignment: .leading, spacing: 25) {
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Your agent").font(.coveSection)
-        Text("Name").font(.coveControl)
-        TextField("e.g. Financial agent", text: $agent.name).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Agent name")
+    VStack(alignment: .leading, spacing: 30) {
+      step(1, "What should it look for?") {
+        TextField("e.g. Invoices and receipts from suppliers. Skip newsletters and marketing.",
+                  text: $agent.instructions, axis: .vertical)
+          .lineLimit(4...10).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Classification instructions")
       }
-      VStack(alignment: .leading, spacing: 10) {
-        Text("When should it run?").font(.coveSection)
-        Label("A new email arrives", systemImage: "tray").font(.coveBody)
-        Text("\(store.accountEmail) · Inbox · While Cove is open").font(.coveSecondary).foregroundStyle(Palette.body)
-        Toggle("Include readable PDF and text attachments", isOn: $agent.includeAttachments).toggleStyle(CoveToggleStyle()).font(.coveSecondary)
-        Text("Up to 5 files, 5 MB each. Scans and unsupported files go to review.").font(.coveMetadata).foregroundStyle(Palette.muted)
-      }
-      VStack(alignment: .leading, spacing: 10) {
-        Text(agent.rules == nil ? "What should it look for?" : "Overall task").font(.coveSection)
-        Text("Describe the task in your own words. Be specific about what counts.").font(.coveSecondary).foregroundStyle(Palette.body)
-        TextField("Look for… Exclude… If uncertain…", text: $agent.instructions, axis: .vertical)
-          .lineLimit(3...8).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Classification instructions")
-      }
-      VStack(alignment: .leading, spacing: 12) {
-        Text("What happens next?").font(.coveSection)
+      step(2, "Then") {
         if agent.rules == nil {
-          Text("If it matches, apply this Gmail label").font(.coveControl)
-          TextField("e.g. Finance / Invoices", text: $agent.labelName).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Gmail label for matches")
-          Button("Add conditional rules & replies") {
+          Text("Apply this Gmail label").font(.coveControl)
+          TextField("e.g. Finance / Invoices", text: $agent.labelName)
+            .textFieldStyle(CoveFieldStyle()).accessibilityLabel("Gmail label for matches")
+            .help("Existing labels are reused; new ones are created when needed.")
+          Button {
             agent.rules = [CustomAgentRule(condition: "Matches the task described above", labelName: agent.labelName)]
-          }.buttonStyle(SecondaryButton(compact: true))
+          } label: { Label("Add rules or draft replies", systemImage: "plus") }
+            .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
         } else {
-          Text("Rules run from top to bottom. Only the first match runs.").font(.coveSecondary).foregroundStyle(Palette.body)
+          Text("Rules run top to bottom; the first match wins.").font(.coveSecondary).foregroundStyle(Palette.body)
           ForEach(ruleBinding) { $rule in
             CustomAgentRuleEditor(rule: $rule,
               position: (agent.rules?.firstIndex(where: { $0.id == rule.id }) ?? 0) + 1,
@@ -268,20 +255,41 @@ struct CustomAgentEditor: View {
               }, remove: { agent.rules?.removeAll { $0.id == rule.id } })
           }
           Button { agent.rules?.append(CustomAgentRule()) } label: { Label("Add another rule", systemImage: "plus") }
-            .buttonStyle(SecondaryButton(compact: true)).disabled((agent.rules?.count ?? 0) >= 8)
+            .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+            .disabled((agent.rules?.count ?? 0) >= 8)
         }
-        Text("Existing custom labels are reused. New labels are created when needed.").font(.coveMetadata).foregroundStyle(Palette.muted)
-        Label("If it’s unclear → Review in Activity", systemImage: "list.bullet").font(.coveText)
-        Text("Otherwise, leave the email as it is.").font(.coveSecondary).foregroundStyle(Palette.body)
+        Label("Unclear emails wait in Activity for you. Agents never send, delete or pay.", systemImage: "checkmark.shield")
+          .font(.coveMetadata).foregroundStyle(Palette.muted)
       }
-      Label("Replies are saved in Activity for your review. Agents can’t send, delete or pay invoices.", systemImage: "shield.lefthalf.filled").font(.coveSecondary).foregroundStyle(Palette.body)
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
+      step(3, "Name it") {
+        TextField("e.g. Invoices", text: $agent.name).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Agent name")
+      }
+      DisclosureGroup {
+        VStack(alignment: .leading, spacing: 10) {
+          Label("Runs when a new email arrives in \(store.accountEmail)’s Inbox, while Cove is open.", systemImage: "tray")
+            .font(.coveSecondary).foregroundStyle(Palette.body)
+          Toggle("Read PDF and text attachments", isOn: $agent.includeAttachments).toggleStyle(CoveToggleStyle()).font(.coveSecondary)
+          Text("Up to 5 files, 5 MB each. Scans and unsupported files go to review.").font(.coveMetadata).foregroundStyle(Palette.muted)
+        }.padding(.top, 12)
+      } label: {
+        Text("Options").font(.coveControl).foregroundStyle(Palette.body)
+      }
+    }
+  }
+  private func step<Content: View>(_ number: Int, _ title: String, @ViewBuilder content: () -> Content) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 10) {
+        Text("\(number)").font(.coveMetadata).foregroundStyle(Palette.body)
+          .frame(width: 22, height: 22).overlay(Circle().stroke(Palette.inputBorder))
+          .accessibilityHidden(true)
+        Text(title).font(.coveSection)
+      }
+      content()
     }
   }
   private var preview: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Try it on an email").font(.coveSection)
-      Text("Check your agent’s decisions before turning it on. Tests won’t change your inbox.").font(.coveSecondary).foregroundStyle(Palette.body).lineSpacing(4)
+      Text("Try it").font(.coveSection)
       Picker("Test source", selection: $sample) { Text("Sample email").tag(true); Text("Choose from inbox").tag(false) }.pickerStyle(.segmented).labelsHidden()
       if !sample {
         TextField("Find an inbox email", text: $mailSearch).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Find a test email")
@@ -322,13 +330,14 @@ struct CustomAgentEditor: View {
         else if result.outcome != .match { Text("Would leave the email unchanged.").font(.coveControl) }
         Text("Routing preview only. No labels or replies have been created.").font(.coveMetadata).foregroundStyle(Palette.muted)
       }
-      Text("Tests send instructions, the chosen email and enabled attachment text to TypeSafe. When a reply rule runs, that email and attachment text also go to your writing provider from Integrations. Provider charges apply.").font(.coveMetadata).foregroundStyle(Palette.muted).lineSpacing(3)
+      Text("Tests never change your inbox. They send your instructions and this email (with enabled attachment text) to TypeSafe; reply rules also use your writing provider. Provider charges apply.")
+        .font(.coveMetadata).foregroundStyle(Palette.muted).lineSpacing(3)
     }.frame(maxWidth: .infinity, alignment: .leading)
   }
   private var footerText: some View {
     VStack(alignment: .leading, spacing: 5) {
-      Text("Ready when you are.").font(.coveControl)
-      Text("Runs on new emails only. You can pause it anytime.").font(.coveMetadata).foregroundStyle(Palette.body)
+      Text(isNew ? "Draft · not running" : agent.status.title).font(.coveControl)
+      Text("Runs on new emails only. Pause it anytime.").font(.coveMetadata).foregroundStyle(Palette.body)
     }
   }
   private var saveButtons: some View {
@@ -436,8 +445,8 @@ private struct CustomAgentRuleEditor: View {
         Spacer()
         Button { move(-1) } label: { Image(systemName: "arrow.up") }.disabled(position == 1).accessibilityLabel("Move rule up")
         Button { move(1) } label: { Image(systemName: "arrow.down") }.disabled(position == count).accessibilityLabel("Move rule down")
-        Button("Remove", action: remove).disabled(count <= 1)
-      }.buttonStyle(.plain).font(.coveSecondary)
+        Button(action: remove) { Image(systemName: "trash") }.disabled(count <= 1).accessibilityLabel("Remove rule \(position)").help("Remove rule")
+      }.buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body)
       Text("When").font(.coveControl)
       TextField("e.g. The buyer is Happy Finances for All or Cherry", text: $rule.condition, axis: .vertical)
         .lineLimit(2...5).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Rule \(position) condition")
@@ -450,7 +459,6 @@ private struct CustomAgentRuleEditor: View {
       if rule.action.drafts {
         TextField("What should the reply say? e.g. Acknowledge the invoice and ask for the missing purchase order.", text: $rule.replyInstructions, axis: .vertical)
           .lineLimit(3...8).textFieldStyle(CoveFieldStyle(font: .coveBody)).accessibilityLabel("Rule \(position) reply instructions")
-        Text("Your writing model prepares a suggestion. You decide whether to use and send it.").font(.coveMetadata).foregroundStyle(Palette.body)
       }
     }.padding(16).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
   }
