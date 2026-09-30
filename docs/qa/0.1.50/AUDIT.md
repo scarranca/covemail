@@ -29,6 +29,30 @@
 - **Search all of Gmail** switches to All mail when any match isn't visible in the current folder. It deliberately saves up to 20 matches locally because the user asked for them, unlike Ask Cove research, which saves only cited mail.
 - Lookup signals match "free" and "time(s)" as whole words and ignore "feel free", so "feel free to shorten this" stays one call.
 
+## Local-first mail index — phase 1: per-email storage
+
+User decisions: index the last 365 days (plus older starred mail), keep formatted HTML for 365 days, configurable storage limit defaulting to 1 GB, and purge local copies when mail is deleted in Gmail. Phase 1 changes storage only; the app still loads the whole local mailbox.
+
+- **Before:** every sync re-encrypted and rewrote the entire mailbox as one record (`mail`), plus `mailOverride:<id>` edits.
+- **Now:** a `messages` table with one AES-GCM row per email (AAD `message:<id>`). `saveMailSnapshot` writes only emails that changed since they were loaded or saved and removes only emails this session loaded that are now absent. Cursor keys commit in the same transaction. A rolled-back snapshot restores change tracking. Erase clears the table and the tracking.
+- **Migration:** v2 → v3 on open, all or nothing. The legacy snapshot plus overrides become rows. Only the `mail` and `mailOverride:` keys are removed; preferences, cursors and cloud state stay. Unkeyed rows are sealed if a plain store is later encrypted. Older Cove refuses a v3 store ("needs a newer version of Cove"); downgrading is not supported.
+- **Clear-text metadata (deliberate):** id, thread id, date, starred, has-draft. `loadMail(since:)` uses them to load the recent window, starred and drafted emails without decrypting the rest. Content stays encrypted. Moving a ciphertext to another id fails authentication (tested).
+- **Performance** (release build, 30,000 encrypted emails, `COVE_PERF=1 swift test -c release -Xswiftc -enable-testing --filter MailStoragePerformanceTests`):
+  - initial save: 884 ms
+  - snapshot with one change: 29 ms (target < 50)
+  - 90-day window load: 112 ms (target < 200)
+  - full load: 382 ms
+- **Load order:** stored mail loads newest first (date, then id), matching how sync orders mail. It no longer follows snapshot position, so the `MailboxPassageTests` fixture now sets explicit dates. Failure-injection triggers in `SendWorkflowTests` and `ThreadAnswerTests` now target `messages`.
+- **Tests:**
+  - New: `MailboxPersistenceTests` (legacy migration, changed-only writes via an insert-counting trigger, archive rows never dropped, starred/draft outside the window, newer version rejected, rollback then retry); `EncryptedStorageTests.testEncryptedSnapshotMigratesToEncryptedRows`; erase then re-save.
+  - Core: 217 passed, 1 skipped (the perf test is opt-in).
+  - Rendering: storage-related tests pass. `EmailRenderingTests` wheel/scroll tests failed only inside large batches; they pass alone on this branch (twice) and on the previous commit, so they are timing-sensitive, not storage-related.
+- **Not done yet:**
+  - The app still calls `loadMail()`.
+  - The working-set switch, keyed-hash index, 365-day backfill, retention/limit/purge and Settings → Storage are phases 2–5.
+  - Snoozed mail older than the window needs a decision before the working set is narrowed.
+  - **A live real-account migration check with an isolated QA build is required before release.**
+
 ## Not done / limits
 
 - Parallel research batches (the ChatGPT helper serves one request at a time) and API-provider SSE streaming.

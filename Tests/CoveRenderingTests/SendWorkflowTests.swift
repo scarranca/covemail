@@ -231,7 +231,7 @@ final class SendWorkflowTests: XCTestCase {
     XCTAssertEqual(sqlite3_open(url.path, &handle), SQLITE_OK)
     defer { sqlite3_close(handle) }
     XCTAssertEqual(sqlite3_exec(handle,
-      "CREATE TRIGGER fail_snapshot BEFORE INSERT ON records WHEN NEW.key='mail' BEGIN SELECT RAISE(ABORT,'test failure'); END;",
+      "CREATE TRIGGER fail_snapshot BEFORE INSERT ON messages BEGIN SELECT RAISE(ABORT,'test failure'); END;",
       nil, nil, nil), SQLITE_OK)
     let success = await store.send(
       to: "friend@example.com", subject: "Hello", body: "Café 🌊", draftID: id)

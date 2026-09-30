@@ -12,14 +12,14 @@ final class CoveCoreTests: XCTestCase {
     mail.snoozedUntil = Date(timeIntervalSince1970: 2_000_000_000)
     do {
       let db = try Database(url: url)
-      try db.save([mail], key: "mail")
+      try db.saveMailSnapshot([mail])
       try db.save(Preferences(), key: "preferences")
     }
     let reopened = try Database(url: url)
-    XCTAssertEqual(try reopened.load([Mail].self, key: "mail"), [mail])
+    XCTAssertEqual(try reopened.loadMail(), [mail])
     XCTAssertNil(try reopened.load(String.self, key: "missing"))
-    try reopened.save([Mail](), key: "mail")
-    XCTAssertEqual(try reopened.load([Mail].self, key: "mail"), [])
+    try reopened.saveMailSnapshot([])
+    XCTAssertEqual(try reopened.loadMail(), [])
   }
   func testGmailNestedMIMEAndLabels() throws {
     let body = Data("Hello café!\nPlease review.".utf8).base64URL

@@ -92,7 +92,7 @@ final class ThreadAnswerTests: XCTestCase {
     XCTAssertEqual(
       sqlite3_exec(
         handle,
-        "CREATE TRIGGER fail_mail BEFORE INSERT ON records WHEN NEW.key='mail' BEGIN SELECT RAISE(ABORT,'test failure'); END;",
+        "CREATE TRIGGER fail_mail BEFORE INSERT ON messages BEGIN SELECT RAISE(ABORT,'test failure'); END;",
         nil, nil, nil), SQLITE_OK)
     do {
       _ = try await store.answer("What?", mail: mail, scope: .thread)

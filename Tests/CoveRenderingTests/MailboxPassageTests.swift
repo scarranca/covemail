@@ -24,8 +24,13 @@ final class MailboxPassageTests: XCTestCase {
     let draft = Mail(
       id: "draft", sender: "Me", senderEmail: "me@example.com",
       subject: "SECRET DRAFT SUBJECT", body: "SECRET DRAFT BODY", labels: ["DRAFT"])
+    // Stored mail loads newest first; give the fixture that order explicitly.
+    let now = Date()
+    let dated = [first, second, draft].enumerated().map { index, mail -> Mail in
+      var mail = mail; mail.date = now.addingTimeInterval(-Double(index) * 60); return mail
+    }
     try db.saveMailSnapshot(
-      [first, second, draft], historyID: "100", nextPage: "next", updatesPagination: true)
+      dated, historyID: "100", nextPage: "next", updatesPagination: true)
     let store = try AppStore(
       database: db, accountEmail: "me@example.com",
       gmail: GmailClient(transport: http), gmailTokenProvider: { "fixture" }, syncClock: { Date() },

@@ -74,18 +74,54 @@ final class EncryptedStorageTests: XCTestCase {
     }
   }
 
+  func testEncryptedSnapshotMigratesToEncryptedRows() throws {
+    try withStore { url in
+      var mail = Samples.mail[0]
+      mail.body = secret
+      var edited = mail
+      edited.draft = secret
+      do {
+        // Recreate an encrypted version-2 store in the original single-snapshot format.
+        let db = try Database(url: url, encryptionKey: key, namespace: namespace)
+        try db.save([mail], key: "mail")
+        try db.save(edited, key: "mailOverride:" + edited.id)
+        try db.save("cursor", key: "gmailHistoryID")
+      }
+      try sql(url, "DELETE FROM messages; PRAGMA user_version=2")
+      XCTAssertThrowsError(try Database(url: url, encryptionKey: Data(repeating: 2, count: 32), namespace: namespace))
+      do {
+        let db = try Database(url: url, encryptionKey: key, namespace: namespace)
+        XCTAssertEqual(try db.loadMail(), [edited])
+        XCTAssertNil(try db.load([Mail].self, key: "mail"))
+        XCTAssertEqual(try db.load(String.self, key: "gmailHistoryID"), "cursor")
+      }
+      var handle: OpaquePointer?
+      XCTAssertEqual(sqlite3_open(url.path, &handle), SQLITE_OK)
+      var statement: OpaquePointer?
+      XCTAssertEqual(sqlite3_prepare_v2(handle, "PRAGMA user_version", -1, &statement, nil), SQLITE_OK)
+      XCTAssertEqual(sqlite3_step(statement), SQLITE_ROW)
+      XCTAssertEqual(sqlite3_column_int(statement, 0), 3)
+      sqlite3_finalize(statement)
+      sqlite3_close(handle)
+      // A row moved to another email's id fails authentication.
+      try sql(url, "INSERT INTO messages SELECT 'other', thread_id, date, starred, has_draft, value FROM messages")
+      XCTAssertThrowsError(try Database(url: url, encryptionKey: key, namespace: namespace).loadMail())
+      try assertNoPlaintext(url)
+    }
+  }
+
   func testMissingWrongKeyOrWrongAccountNeverResetEncryptedMailbox() throws {
     try withStore { url in
       do {
         let db = try Database(url: url, encryptionKey: key, namespace: namespace)
-        try db.save(secret, key: "mail")
+        try db.save(secret, key: "note")
       }
       XCTAssertThrowsError(try Database(url: url))
       XCTAssertThrowsError(
         try Database(url: url, encryptionKey: Data(repeating: 2, count: 32), namespace: namespace))
       XCTAssertThrowsError(try Database(url: url, encryptionKey: key, namespace: "account-b"))
       let recovered = try Database(url: url, encryptionKey: key, namespace: namespace)
-      XCTAssertEqual(try recovered.load(String.self, key: "mail"), secret)
+      XCTAssertEqual(try recovered.load(String.self, key: "note"), secret)
     }
   }
 
@@ -121,11 +157,11 @@ final class EncryptedStorageTests: XCTestCase {
     try withStore { url in
       do {
         let db = try Database(url: url, encryptionKey: key, namespace: namespace)
-        try db.save(secret, key: "mail")
+        try db.save(secret, key: "note")
       }
       try sql(url, "PRAGMA user_version=1")
       let db = try Database(url: url, encryptionKey: key, namespace: namespace)
-      XCTAssertEqual(try db.load(String.self, key: "mail"), secret)
+      XCTAssertEqual(try db.load(String.self, key: "note"), secret)
       try assertNoPlaintext(url)
       let cipher = try RecordCipher(key: key, namespace: namespace)
       let a = try cipher.seal(Data(secret.utf8), record: "mail")
@@ -145,6 +181,10 @@ final class EncryptedStorageTests: XCTestCase {
         try db.saveMessage(Samples.mail[1])
         try db.eraseContents()
         XCTAssertEqual(try db.loadMail(), [])
+        // The same email saved again after erasure is written, not skipped as unchanged.
+        try db.saveMailSnapshot([Samples.mail[0]])
+        XCTAssertEqual(try db.messageCount(), 1)
+        try db.eraseContents()
         XCTAssertNil(try db.load(String.self, key: "preferences"))
         XCTAssertNil(try db.load(String.self, key: "gmailHistoryID"))
         try assertNoPlaintext(url)
@@ -159,13 +199,13 @@ final class EncryptedStorageTests: XCTestCase {
   func testEncryptedTransactionsRollbackAndRejectSymlinkStores() throws {
     try withStore { url in
       let db = try Database(url: url, encryptionKey: key, namespace: namespace)
-      try db.save(secret, key: "mail")
+      try db.save(secret, key: "note")
       XCTAssertThrowsError(
         try db.transaction {
           try db.save("Changed", key: "mail")
           throw CoveError.message("Synthetic interruption")
         })
-      XCTAssertEqual(try db.load(String.self, key: "mail"), secret)
+      XCTAssertEqual(try db.load(String.self, key: "note"), secret)
       let link = url.deletingLastPathComponent().appendingPathComponent("link.sqlite")
       try FileManager.default.createSymbolicLink(at: link, withDestinationURL: url)
       XCTAssertThrowsError(try Database(url: link, encryptionKey: key, namespace: namespace))
