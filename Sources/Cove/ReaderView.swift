@@ -99,9 +99,15 @@ struct ReaderView: View {
 
   private func toolbar(compact: Bool) -> some View {
     HStack(spacing: compact ? 4 : 10) {
-      Button { Task { await store.archive(current) } } label: {
-        actionLabel("Archive", icon: "archivebox", compact: compact)
-      }.disabled(store.busy).help("Archive email")
+      if current.labels.contains("SPAM") {
+        Button { Task { await store.markNotSpam(current) } } label: {
+          actionLabel("Not spam", icon: "tray.and.arrow.down", compact: compact)
+        }.disabled(store.busy).help("Move back to the Inbox")
+      } else {
+        Button { Task { await store.archive(current) } } label: {
+          actionLabel("Archive", icon: "archivebox", compact: compact)
+        }.disabled(store.busy).help("Archive email")
+      }
       snoozeMenu(compact: compact)
       Button {
         Task { await store.modify(current, add: current.isUnread ? [] : ["UNREAD"], remove: current.isUnread ? ["UNREAD"] : []) }
@@ -168,6 +174,12 @@ struct ReaderView: View {
       if !isConversation { TranslateMenu(store: store, mail: current) }
       InboxSplitMenuItems(store: store, mail: current)
       Divider()
+      if current.labels.contains("SPAM") {
+        Button("Not spam", systemImage: "tray.and.arrow.down") { Task { await store.markNotSpam(current) } }
+      } else {
+        Button("Report spam", systemImage: "xmark.octagon") { Task { await store.reportSpam(current) } }
+          .disabled(current.labels.contains("DRAFT") || current.labels.contains("SENT"))
+      }
       Button("Move to Trash", systemImage: "trash", role: .destructive) { store.queueTrash(current) }
     } label: { actionLabel("More", icon: "ellipsis", compact: compact) }
       .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()

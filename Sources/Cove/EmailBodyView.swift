@@ -14,7 +14,9 @@ struct EmailBodyView: View {
   @State private var loadImages = false
   @State private var renderingFailed = false
   private var showPlainText: Bool { plainTextOverride ?? textOnly }
-  private var imagesAllowed: Bool { automaticImages || loadImages }
+  /// Spam never loads remote images: they can confirm to a sender that the address is read.
+  private var isSpam: Bool { mail.labels.contains("SPAM") }
+  private var imagesAllowed: Bool { !isSpam && (automaticImages || loadImages) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -23,7 +25,10 @@ struct EmailBodyView: View {
         VStack(alignment: .leading, spacing: 12) { sourceHeading; readingModes }
       }
       if let html = mail.htmlBody, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        if !showPlainText && !renderingFailed && !imagesAllowed {
+        if isSpam {
+          Label("In Spam · images stay off and links may be unsafe", systemImage: "xmark.octagon")
+            .font(.coveSecondary).foregroundStyle(Palette.body)
+        } else if !showPlainText && !renderingFailed && !imagesAllowed {
           Button("Load external images") { loadImages = true }
             .help(
               "HTTPS images load directly from the sender’s servers for this message; they may reveal that you opened it."

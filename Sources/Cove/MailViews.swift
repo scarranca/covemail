@@ -319,6 +319,12 @@ struct MailListRow: View {
         }.disabled(store.busy || mail.labels.contains("DRAFT"))
         InboxSplitMenuItems(store: store, mail: mail)
         Divider()
+        if mail.labels.contains("SPAM") {
+          Button("Not spam", systemImage: "tray.and.arrow.down") { Task { await store.markNotSpam(mail) } }.disabled(store.busy)
+        } else {
+          Button("Report spam", systemImage: "xmark.octagon") { Task { await store.reportSpam(mail) } }
+            .disabled(store.busy || mail.labels.contains("DRAFT") || mail.labels.contains("SENT"))
+        }
         Button("Delete", systemImage: "trash", role: .destructive) { store.queueTrash(mail) }.disabled(store.busy)
       }
   }

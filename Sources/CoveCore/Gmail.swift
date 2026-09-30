@@ -258,10 +258,13 @@ public struct GmailClient {
       var messages: [Entry]?
       var nextPageToken: String?
     }
+    // Spam is only listed when that folder is open; every other view leaves it out.
+    let spam = labelID == "SPAM"
     var query = [
       URLQueryItem(name: "maxResults", value: "50"),
-      URLQueryItem(name: "q", value: "-in:trash -in:spam"),
+      URLQueryItem(name: "q", value: spam ? "in:spam" : "-in:trash -in:spam"),
     ]
+    if spam { query.append(URLQueryItem(name: "includeSpamTrash", value: "true")) }
     if let labelID { query.append(URLQueryItem(name: "labelIds", value: labelID)) }
     if let pageToken { query.append(URLQueryItem(name: "pageToken", value: pageToken)) }
     let list = try JSONDecoder().decode(

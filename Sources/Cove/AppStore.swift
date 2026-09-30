@@ -251,13 +251,14 @@ import SwiftUI
       case "Snoozed": inFolder = snoozed
       case "Sent": inFolder = mail.labels.contains("SENT")
       case "Drafts": inFolder = mail.labels.contains("DRAFT") || !mail.draft.isEmpty
+      case "Spam": inFolder = mail.labels.contains("SPAM")
       case "Archive":
         inFolder =
           !mail.labels.contains("INBOX") && !mail.labels.contains("DRAFT")
           && !mail.labels.contains("SENT")
       default: inFolder = labelID.map { mail.labels.contains($0) } ?? jevFlag.map { $0.matches(mail.decision) } ?? (mail.decision?.category.rawValue == folder)
       }
-      return !trash.contains(mail.id) && mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) && inFolder
+      return !trash.contains(mail.id) && mail.labels.isDisjoint(with: folder == "Spam" ? ["TRASH"] : ["TRASH", "SPAM"]) && inFolder
         && (!priorityOnly || mail.isPriority)
         // A vote on the open message keeps it listed until selection moves on, like reading it.
         && (tab == nil || mail.id == selectedID || InboxSplit.split(mail, senderRules: rules) == tab)
@@ -2611,13 +2612,13 @@ extension AppStore {
   }
   var selectedLabelID: String? { folder.hasPrefix("label:") ? String(folder.dropFirst(6)) : nil }
   var selectedGmailLabel: GmailLabel? { gmailLabels.first { $0.id == selectedLabelID } }
-  var mailScopeLabelID: String? { selectedLabelID ?? (["Flagged", "Starred"].contains(folder) ? "STARRED" : nil) }
+  var mailScopeLabelID: String? { selectedLabelID ?? (["Flagged", "Starred"].contains(folder) ? "STARRED" : folder == "Spam" ? "SPAM" : nil) }
   var folderTitle: String { selectedGmailLabel?.title ?? selectedJevFlag?.title ?? (selectedLabelID == nil ? folder : "Label") }
   var customMailLabels: [GmailLabel] {
     gmailLabels.filter { $0.type == "user" }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
   }
   func mailsWithLabel(_ id: String) -> [Mail] {
-    mails.filter { $0.labels.contains(id) && $0.labels.isDisjoint(with: ["TRASH", "SPAM"]) && !queuedTrashIDs.contains($0.id) }
+    mails.filter { $0.labels.contains(id) && $0.labels.isDisjoint(with: id == "SPAM" ? ["TRASH"] : ["TRASH", "SPAM"]) && !queuedTrashIDs.contains($0.id) }
   }
   func labels(on mail: Mail) -> [GmailLabel] { customMailLabels.filter { mail.labels.contains($0.id) } }
   func labelAttribution(for mail: Mail) -> String? {
@@ -2628,6 +2629,10 @@ extension AppStore {
     return unique.isEmpty ? nil : "Labeled by " + unique.joined(separator: ", ")
   }
   func chooseLabel(_ label: GmailLabel) { chooseFolder("label:" + label.id) }
+  /// Back to the Inbox; Gmail learns from it. Reversible with Report spam.
+  func markNotSpam(_ mail: Mail) async { await modify(mail, add: ["INBOX"], remove: ["SPAM"]) }
+  /// Moves an email to Spam (Gmail learns from it). Reversible with Not spam; nothing is deleted.
+  func reportSpam(_ mail: Mail) async { await modify(mail, add: ["SPAM"], remove: ["INBOX", "STARRED"]) }
   func toggleFlag(_ mail: Mail) async {
     guard let current = mails.first(where: { $0.id == mail.id }), !current.labels.contains("DRAFT") else { return }
     await modify(current, add: current.isStarred ? [] : ["STARRED"], remove: current.isStarred ? ["STARRED"] : [])

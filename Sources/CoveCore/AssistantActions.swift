@@ -87,7 +87,7 @@ public struct AssistantNavigation: Equatable, Sendable {
   public static let folders: [String: String] = [
     "inbox": "Inbox", "flagged": "Flagged", "starred": "Flagged", "snoozed": "Snoozed", "sent": "Sent",
     "drafts": "Drafts", "draft": "Drafts", "archive": "Archive", "archived": "Archive",
-    "all mail": "All mail", "all": "All mail",
+    "all mail": "All mail", "all": "All mail", "spam": "Spam", "junk": "Spam",
   ]
   public var screen: String
   public var folder: String?

@@ -193,7 +193,7 @@ struct Sidebar: View {
   @Bindable var store: AppStore
   let folders: [(String, String)] = [
     ("Inbox", "tray"), ("Flagged", "flag"), ("Snoozed", "clock"), ("Sent", "paperplane"),
-    ("Drafts", "doc.badge.ellipsis"), ("Archive", "archivebox"),
+    ("Drafts", "doc.badge.ellipsis"), ("Archive", "archivebox"), ("Spam", "xmark.octagon"),
   ]
   private var inMail: Bool { store.screen == "mail" || store.screen == "categories" }
   private var inAgents: Bool { store.screen == "agents" || store.screen == "agent" }

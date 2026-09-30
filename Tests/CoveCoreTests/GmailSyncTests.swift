@@ -340,6 +340,27 @@ final class GmailSyncTests: XCTestCase {
     XCTAssertEqual(paths.filter { $0 == "stored" }.count, 1)
   }
 
+  func testSpamIsListedOnlyWhenItsFolderAsksForIt() async throws {
+    let transport = SyncFixtureHTTP { request in
+      switch request.url!.lastPathComponent {
+      case "messages":
+        if request.query("labelIds") == "SPAM" {
+          XCTAssertEqual(request.query("q"), "in:spam")
+          XCTAssertEqual(request.query("includeSpamTrash"), "true")
+        } else {
+          XCTAssertEqual(request.query("q"), "-in:trash -in:spam")
+          XCTAssertNil(request.query("includeSpamTrash"))
+        }
+        return (200, ["messages": []])
+      default: throw SyncFixtureError.unexpectedRequest(request.url!.absoluteString)
+      }
+    }
+    let client = GmailClient(transport: transport)
+    _ = try await client.page(token: "fixture", labelID: "SPAM")
+    _ = try await client.page(token: "fixture", labelID: "STARRED")
+    _ = try await client.page(token: "fixture")
+  }
+
   func testMessageDisappearingBetweenListAndFetchDoesNotAbortPage() async throws {
     let transport = SyncFixtureHTTP { request in
       switch request.url!.lastPathComponent {
