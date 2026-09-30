@@ -1488,8 +1488,22 @@ import SwiftUI
         + (isSample ? " · no Jev request" : " · selected by Jev"),
       passages: available)
   }
+  /// Brings stored messages of an opened conversation into memory, including ones older than the
+  /// loaded window, so the reader and Ask Cove see the whole downloaded thread.
+  func includeStoredThread(of mail: Mail) {
+    guard entered, !isSample, !mail.threadID.isEmpty, let database else { return }
+    do {
+      let live = Set(mails.map(\.id))
+      let missing = try database.loadThread(threadID: mail.threadID).filter { !live.contains($0.id) }
+      guard !missing.isEmpty else { return }
+      let merged = (mails + missing).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
+      try database.saveMailSnapshot(merged)
+      mails = merged
+    } catch { self.error = error.localizedDescription }
+  }
   func aiThreadContext(_ mail: Mail) async throws -> (messages: [Mail], coverage: String) {
     guard entered else { throw CoveError.message("Open a mailbox before asking Cove.") }
+    includeStoredThread(of: mail)
     let generation = mailboxGeneration
     guard !mail.threadID.isEmpty else {
       throw CoveError.message("This email has no Gmail thread. Choose This email to ask about it.")

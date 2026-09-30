@@ -35,6 +35,7 @@ struct ReaderConversation: View {
       }
     }
     .task(id: "\(store.accountEmail):\(anchor.id):\(retry)") {
+      store.includeStoredThread(of: anchor)
       loading = !store.isSample && !anchor.threadID.isEmpty && !anchor.labels.contains("DRAFT")
       failure = nil
       defer { loading = false }

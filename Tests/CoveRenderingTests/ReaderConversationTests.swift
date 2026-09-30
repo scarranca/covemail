@@ -49,6 +49,22 @@ import XCTest
     do { try await pending.value; XCTFail("Must reject stale reader request") } catch { XCTAssertTrue(error is CancellationError) }
     XCTAssertEqual(try secondDB.loadMail().count, 1)
   }
+  func testOpeningAConversationLoadsItsStoredOlderMessages() throws {
+    let (store, db, mail) = try fixture()
+    var older = mail
+    older.id = "m0"; older.labels = []; older.draft = ""
+    older.date = mail.date.addingTimeInterval(-400 * 86_400)
+    older.decision = Samples.mail[0].decision
+    try db.storeArchived([older])
+    XCTAssertFalse(store.mails.contains { $0.id == "m0" })
+    store.includeStoredThread(of: mail)
+    XCTAssertEqual(MailConversation.messages(in: store.mails, anchor: mail).map(\.id).sorted(), ["m0", "m1"])
+    XCTAssertEqual(store.mails.first { $0.id == "m0" }?.decision, older.decision)
+    XCTAssertEqual(store.mails.first { $0.id == "m1" }?.draft, "Keep my reply")
+    store.includeStoredThread(of: mail)
+    XCTAssertEqual(store.mails.filter { $0.id == "m0" }.count, 1)
+  }
+
   func testOfflineAndSampleKeepCachedConversation() async throws {
     let http = ConversationHTTP(); http.status = 503
     let (store, db, mail) = try fixture(http)
