@@ -46,6 +46,7 @@ import XCTest
   }
 
   func testAgentFacePortrait() async throws {
+    XCTAssertNotNil(AgentPortrait.image, "the bundled portrait loads")
     _ = NSApplication.shared
     try await render(AgentFaceView(previewTime: 0).frame(width: 320, height: 250)
       .background(Color(red: 0.114, green: 0.125, blue: 0.165)), size: CGSize(width: 320, height: 250), name: "agent-face")
@@ -65,18 +66,18 @@ import XCTest
 }
 
 @MainActor final class AgentPortraitHalftoneTests: XCTestCase {
-  /// Dark areas of the portrait become dots in the same place; white areas stay empty.
-  func testDotsFollowTheDarkPartOfThePortraitUpright() throws {
+  /// Lit areas of the portrait become dots in the same place; black areas stay empty.
+  func testDotsFollowTheLitPartOfThePortraitUpright() throws {
     let size = 40
     let context = try XCTUnwrap(CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size,
       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
-    context.setFillColor(gray: 1, alpha: 1); context.fill(CGRect(x: 0, y: 0, width: size, height: size))
-    // CoreGraphics' origin is bottom-left: this darkens the image's top half.
-    context.setFillColor(gray: 0, alpha: 1); context.fill(CGRect(x: 0, y: size / 2, width: size, height: size / 2))
+    context.setFillColor(gray: 0, alpha: 1); context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+    // CoreGraphics' origin is bottom-left: this lights the image's top half.
+    context.setFillColor(gray: 1, alpha: 1); context.fill(CGRect(x: 0, y: size / 2, width: size, height: size / 2))
     let image = try XCTUnwrap(context.makeImage())
     let dots = AgentPortrait.dots(image, width: 100, height: 100, spacing: 4)
     XCTAssertFalse(dots.isEmpty)
-    XCTAssertTrue(dots.allSatisfy { $0.y < 55 }, "dots belong to the dark top half")
+    XCTAssertTrue(dots.allSatisfy { $0.y < 55 }, "dots belong to the lit top half")
     XCTAssertTrue(dots.contains { $0.y < 10 })
   }
 }

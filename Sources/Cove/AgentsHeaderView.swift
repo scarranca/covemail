@@ -97,8 +97,8 @@ enum AgentFaceGeometry {
   }
 }
 
-/// Halftones a real portrait: each dot's size follows how dark the photo is under it, so a light-background
-/// portrait with strong side light becomes a face painted by its shadows.
+/// Halftones a real portrait cut out on black: each dot's size follows how much light falls on the face there,
+/// so the lit side is drawn in dots and the shadow side and hair fade into the dark card.
 enum AgentPortrait {
   static let image: CGImage? = {
     guard let url = Bundle.module.url(forResource: "agent-portrait", withExtension: "jpg") ?? Bundle.module.url(forResource: "agent-portrait", withExtension: "png"),
@@ -110,7 +110,7 @@ enum AgentPortrait {
     let columns = max(1, Int(width.rounded())), rows = max(1, Int(height.rounded()))
     guard let context = CGContext(data: nil, width: columns, height: rows, bitsPerComponent: 8, bytesPerRow: columns,
                                   space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return [] }
-    context.setFillColor(gray: 1, alpha: 1)
+    context.setFillColor(gray: 0, alpha: 1)
     context.fill(CGRect(x: 0, y: 0, width: columns, height: rows))
     let drawnHeight = Double(rows)
     let drawnWidth = drawnHeight * Double(image.width) / Double(max(image.height, 1))
@@ -133,8 +133,9 @@ enum AgentPortrait {
             total += Double(data[sy * columns + sx]) / 255; count += 1
           }
         }
-        let luminance = count > 0 ? total / count : 1
-        let ink = max(0, min(1, (0.93 - luminance) / 0.78))
+        let luminance = count > 0 ? total / count : 0
+        // A soft curve: highlights get the biggest dots, shadow thins out to nothing.
+        let ink = pow(max(0, min(1, (luminance - 0.16) / 0.72)), 1.9)
         if ink > 0.07 { result.append(AgentFaceGeometry.Dot(x: px, y: py, ink: ink, accent: 0)) }
         px += spacing
       }
