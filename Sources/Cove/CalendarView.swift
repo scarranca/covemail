@@ -97,11 +97,7 @@ struct CalendarView: View {
           ScrollView {
             VStack(alignment: .leading, spacing: 20) {
               if let event = selected {
-                Button {
-                  store.calendarEventID = nil
-                } label: {
-                  Label("Day agenda", systemImage: "chevron.left")
-                }.buttonStyle(.plain).font(.coveSecondary)
+                eventToolbar(event)
                 Text(event.title).font(.coveDetailTitle)
                 Label(event.calendarTitle, systemImage: "calendar")
                   .font(.coveMetadata).foregroundStyle(Palette.muted)
@@ -137,28 +133,6 @@ struct CalendarView: View {
                     }
                   }
                 }
-                if let mailID = event.mailID {
-                  Button("View email") {
-                    store.selectedID = mailID
-                    store.screen = "mail"
-                  }.buttonStyle(SecondaryButton())
-                }
-                if let link = event.meetURL, let url = URL(string: link), url.scheme == "https",
-                  url.host == "meet.google.com"
-                {
-                  Link("Join Google Meet", destination: url).buttonStyle(SecondaryButton())
-                }
-                if let link = event.webURL, let url = URL(string: link), url.scheme == "https",
-                  url.host == "google.com" || url.host?.hasSuffix(".google.com") == true
-                {
-                  Link("Open in Google Calendar", destination: url).buttonStyle(SecondaryButton())
-                }
-                if event.allDay != true {
-                  Button("Edit event") { eventDraft = CalendarEventDraft(editing: event) }
-                    .buttonStyle(SecondaryButton()).disabled(store.busy || store.calendarSyncing)
-                }
-                Button("Delete event", role: .destructive) { deleteTarget = event }
-                  .buttonStyle(SecondaryButton()).disabled(store.busy || store.calendarSyncing)
               } else {
                 agenda
               }
@@ -176,9 +150,6 @@ struct CalendarView: View {
                   Text("Calendar couldn’t sync. " + error).font(.coveSecondary)
                     .foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
                 }
-                Button(store.calendarSyncing ? "Syncing calendar…" : "Sync calendar") {
-                  Task { await refresh() }
-                }.buttonStyle(SecondaryButton()).disabled(store.calendarSyncing)
               }
               Label("Your time. Your call.", systemImage: "checkmark.shield")
                 .font(.coveMetadata).foregroundStyle(Palette.muted)
@@ -224,6 +195,42 @@ struct CalendarView: View {
     .sheet(item: $eventDraft) { draft in
       CalendarEventEditor(store: store, draft: draft)
     }
+  }
+  /// Event actions read like the email reader's toolbar: quiet icons with tooltips, not a stack of
+  /// buttons competing for attention.
+  private func eventToolbar(_ event: LocalEvent) -> some View {
+    HStack(spacing: 4) {
+      Button { store.calendarEventID = nil } label: { eventAction("Day agenda", icon: "chevron.left") }
+        .help("Back to day agenda")
+      Spacer(minLength: 8)
+      if let link = event.meetURL, let url = URL(string: link), url.scheme == "https",
+        url.host == "meet.google.com"
+      {
+        Link(destination: url) { eventAction("Join Google Meet", icon: "video") }.help("Join Google Meet")
+      }
+      if let mailID = event.mailID {
+        Button {
+          store.selectedID = mailID
+          store.screen = "mail"
+        } label: { eventAction("View email", icon: "envelope") }.help("View email")
+      }
+      if let link = event.webURL, let url = URL(string: link), url.scheme == "https",
+        url.host == "google.com" || url.host?.hasSuffix(".google.com") == true
+      {
+        Link(destination: url) { eventAction("Open in Google Calendar", icon: "arrow.up.right.square") }
+          .help("Open in Google Calendar")
+      }
+      if event.allDay != true {
+        Button { eventDraft = CalendarEventDraft(editing: event) } label: { eventAction("Edit event", icon: "pencil") }
+          .help("Edit event").disabled(store.busy || store.calendarSyncing)
+      }
+      Button(role: .destructive) { deleteTarget = event } label: { eventAction("Delete event", icon: "trash") }
+        .help("Delete event").disabled(store.busy || store.calendarSyncing)
+    }.buttonStyle(ReaderActionStyle()).foregroundStyle(Palette.body)
+  }
+  private func eventAction(_ title: String, icon: String) -> some View {
+    Image(systemName: icon).font(.system(size: 15)).frame(minWidth: 32, minHeight: 40)
+      .contentShape(Rectangle()).accessibilityLabel(title)
   }
   private func scrollToTime(_ proxy: ScrollViewProxy) {
     proxy.scrollTo(CalendarLayout.scrollHour(now: Date(), selected: selected, on: store.calendarDay), anchor: .top)
@@ -360,6 +367,16 @@ struct CalendarView: View {
       } label: {
         Label("New event", systemImage: "plus")
       }.buttonStyle(PrimaryButton())
+      if store.calendarConnected && !store.isSample {
+        Button { Task { await refresh() } } label: {
+          Group {
+            if store.calendarSyncing { ProgressView().controlSize(.small) }
+            else { Image(systemName: "arrow.clockwise") }
+          }.frame(width: 24, height: 32)
+        }.buttonStyle(.plain).disabled(store.calendarSyncing)
+          .help(store.calendarSyncing ? "Syncing calendar…" : "Sync calendar")
+          .accessibilityLabel(store.calendarSyncing ? "Syncing calendar" : "Sync calendar")
+      }
       Button {
         showingSearch = true
       } label: {
