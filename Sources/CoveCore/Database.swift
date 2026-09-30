@@ -283,6 +283,20 @@ public final class Database {
     }
   }
 
+  /// Ids of every stored email in a thread, without decrypting anything.
+  public func storedMessageIDs(threadID: String) throws -> Set<String> {
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, "SELECT id FROM messages WHERE thread_id=?", -1, &statement, nil) == SQLITE_OK
+    else { throw CoveError.message("Could not read local storage.") }
+    defer { sqlite3_finalize(statement) }
+    sqlite3_bind_text(statement, 1, threadID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+    var ids = Set<String>()
+    while sqlite3_step(statement) == SQLITE_ROW {
+      if let text = sqlite3_column_text(statement, 0) { ids.insert(String(cString: text)) }
+    }
+    return ids
+  }
+
   /// Every stored email in a thread, oldest first. Does not add them to the live mailbox.
   public func loadThread(threadID: String) throws -> [Mail] {
     guard !threadID.isEmpty else { return [] }

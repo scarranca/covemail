@@ -47,6 +47,13 @@ User decisions: index the last 365 days (plus older starred mail), keep formatte
   - New: `MailboxPersistenceTests` (legacy migration, changed-only writes via an insert-counting trigger, archive rows never dropped, starred/draft outside the window, newer version rejected, rollback then retry); `EncryptedStorageTests.testEncryptedSnapshotMigratesToEncryptedRows`; erase then re-save.
   - Core: 217 passed, 1 skipped (the perf test is opt-in).
   - Rendering: storage-related tests pass. `EmailRenderingTests` wheel/scroll tests failed only inside large batches; they pass alone on this branch (twice) and on the previous commit, so they are timing-sensitive, not storage-related.
+- **Archive safety (steps 2–4):**
+  - *Tracking:* only emails in the live mailbox are tracked for removal-by-absence. Migration output and the archive primitives (`storedMessageIDs`, `loadMessages`, `loadThread`, `storeArchived`, `deleteMessages`) are untracked, so a windowed load can never let a snapshot delete older rows. Test: `MailboxPersistenceTests.testArchiveAccessNeverJoinsTheLiveMailboxOrItsDeletions`.
+  - *Single merge path:* all eight Gmail merge sites use `GmailSyncResult.merging`. Stored-but-unloaded emails are read first, so label changes and re-downloads keep the Jev decision, draft and snooze. Results outside the working set are written back untracked, and Gmail deletions purge the local copy. Stored ids are sent as "already stored", so Gmail returns only their labels. Search and cited sources adopt the stored copy. Tests: `ArchivedMailMergeTests`.
+  - *Threads:* opening a conversation (and Ask Cove's thread scope) brings its stored older messages into memory. Only missing ids are decrypted. Test: `ReaderConversationTests.testOpeningAConversationLoadsItsStoredOlderMessages`.
+  - *Known limit:* a full resync after Gmail's history expires verifies only loaded ids, so a Gmail deletion of unloaded mail during that gap is caught later by retention reconciliation (phase 4), not immediately.
+- **Order from here:** keyed-hash index and wiring (search box, All mail/labels, Ask Cove downloaded mode) *before* narrowing the window. Otherwise already-downloaded mail from 90–365 days ago would vanish from lists and search.
+  - Narrowing also needs: cloud snoozes applied to unloaded rows; every `saveMessage` caller confirmed to target loaded mail; a window of at least 30 days (cloud mirror); and a recorded decision on very large Inboxes, since Inbox mail of any age loads.
 - **Not done yet:**
   - The app still calls `loadMail()`.
   - The working-set switch, keyed-hash index, 365-day backfill, retention/limit/purge and Settings → Storage are phases 2–5.

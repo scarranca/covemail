@@ -1494,8 +1494,10 @@ import SwiftUI
     guard entered, !isSample, !mail.threadID.isEmpty, let database else { return }
     do {
       let live = Set(mails.map(\.id))
-      let missing = try database.loadThread(threadID: mail.threadID).filter { !live.contains($0.id) }
-      guard !missing.isEmpty else { return }
+      // Ids are clear text: decrypt only messages not already in memory.
+      let missingIDs = try database.storedMessageIDs(threadID: mail.threadID).subtracting(live)
+      guard !missingIDs.isEmpty else { return }
+      let missing = try database.loadMessages(ids: missingIDs)
       let merged = (mails + missing).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
       try database.saveMailSnapshot(merged)
       mails = merged
