@@ -101,7 +101,11 @@ private actor TasksFlowHTTP: HTTPTransport {
       notes: "She asked on Sept 30\nFrom: Millet · Plan for our account\nhttps://mail.google.com/mail/u/0/#all/18f2abc",
       due: "2026-10-02T00:00:00.000Z", status: "needsAction", webViewLink: "https://tasks.google.com/task/3")
     store.googleTasks.append(linked)
-    try await render(TaskDetailView(store: store, task: linked, close: {}), size: CGSize(width: 560, height: 560), name: "tasks-detail")
+    store.calendarConnected = true
+    let step = GoogleTask(id: "4", title: "Open the admin panel", status: "completed", parent: "3")
+    store.googleTasks.append(step)
+    try await render(TaskDetailView(store: store, task: linked, subtasks: [step], close: {}), size: CGSize(width: 600, height: 720), name: "tasks-detail")
+    try await render(TasksView(store: store), size: CGSize(width: 1000, height: 560), name: "tasks-screen-grouped")
   }
 
   private func render<V: View>(_ view: V, size: CGSize, name: String) async throws {

@@ -8,8 +8,13 @@ public struct GoogleTask: Codable, Identifiable, Equatable, Sendable {
   public var due: String?
   public var status: String?
   public var webViewLink: String?
-  public init(id: String, title: String, notes: String? = nil, due: String? = nil, status: String? = nil, webViewLink: String? = nil) {
+  /// The parent task for a subtask (steps Cove adds under a task).
+  public var parent: String?
+  public var position: String?
+  public init(id: String, title: String, notes: String? = nil, due: String? = nil, status: String? = nil,
+              webViewLink: String? = nil, parent: String? = nil, position: String? = nil) {
     self.id = id; self.title = title; self.notes = notes; self.due = due; self.status = status; self.webViewLink = webViewLink
+    self.parent = parent; self.position = position
   }
   public var isCompleted: Bool { status == "completed" }
   /// The due date as a local calendar day (Google stores tasks' due dates without a time).
@@ -54,7 +59,8 @@ public struct GoogleTasksClient {
   }
 
   /// Creates a task in the user's default list. `due` is a local day; Google keeps only the date.
-  public func create(title: String, notes: String?, due: Date?, token: String, calendar: Calendar = .current) async throws -> GoogleTask {
+  public func create(title: String, notes: String?, due: Date?, parent: String? = nil, token: String,
+                     calendar: Calendar = .current) async throws -> GoogleTask {
     let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !clean.isEmpty, clean.count <= 300 else { throw CoveError.message("A task needs a short title.") }
     var body: [String: Any] = ["title": clean]
@@ -63,8 +69,13 @@ public struct GoogleTasksClient {
       let parts = calendar.dateComponents([.year, .month, .day], from: due)
       body["due"] = String(format: "%04d-%02d-%02dT00:00:00.000Z", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
     }
+    if let parent, parent.rangeOfCharacter(from: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).inverted) != nil {
+      throw CoveError.message("Invalid task ID.")
+    }
+    // Subtasks are placed with the `parent` query parameter; `previous` keeps steps in order.
     return try JSONDecoder().decode(GoogleTask.self,
-      from: await request("lists/@default/tasks", token: token, method: "POST", body: body))
+      from: await request("lists/@default/tasks", token: token, method: "POST", body: body,
+                          query: parent.map { [URLQueryItem(name: "parent", value: $0)] } ?? []))
   }
 
   /// Open tasks first, from the default list (up to 100).

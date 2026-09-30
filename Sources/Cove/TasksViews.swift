@@ -147,59 +147,78 @@ struct TaskSuggestionsView: View {
   }
 }
 
-/// Google Tasks, open first; selecting one shows its details and the email it came from.
+/// Google Tasks grouped by when they're due, with instant quick-add and an AI plan for today.
 struct TasksView: View {
   @Bindable var store: AppStore
   @State private var selectedID: String?
+  @State private var quickAdd = ""
+  @State private var adding = false
+  @State private var planning = false
+  @State private var plan: [TaskQuickAdd.DayPick]?
+  @State private var planError: String?
+  @State private var showDone = false
+  @FocusState private var quickAddFocused: Bool
   private var selected: GoogleTask? { store.googleTasks.first { $0.id == selectedID } }
+  private var topLevel: [GoogleTask] { store.googleTasks.filter { $0.parent == nil } }
+  private func children(of task: GoogleTask) -> [GoogleTask] { store.googleTasks.filter { $0.parent == task.id } }
+
+  private enum Group: String, CaseIterable { case overdue = "Overdue", today = "Today", tomorrow = "Tomorrow", upcoming = "Upcoming", someday = "No date" }
+  private func group(_ task: GoogleTask) -> Group {
+    guard let due = task.dueDay else { return .someday }
+    let today = Calendar.current.startOfDay(for: Date())
+    if due < today { return .overdue }
+    if Calendar.current.isDateInToday(due) { return .today }
+    if Calendar.current.isDateInTomorrow(due) { return .tomorrow }
+    return .upcoming
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack {
-        Text("Tasks").font(.coveTitle)
-        if store.tasksConnected && !store.googleTasks.isEmpty {
-          Text("\(store.googleTasks.filter { !$0.isCompleted }.count) open").font(.coveSecondary).foregroundStyle(Palette.body)
-        }
-        Spacer()
-        if store.tasksConnected {
-          Button { Task { await store.refreshTasks() } } label: {
-            Group { if store.tasksLoading { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") } }
-              .frame(width: 24, height: 32)
-          }.buttonStyle(.plain).disabled(store.tasksLoading).help("Refresh from Google Tasks")
-            .accessibilityLabel("Refresh tasks")
-        }
-      }.padding(.horizontal, 32).padding(.vertical, 24)
+      header
       Divider()
       if store.isSample {
         empty("Tasks sync with Google Tasks once you connect Gmail.")
       } else if !store.tasksConnected {
-        VStack(alignment: .leading, spacing: 14) {
-          Text("Keep the promises in your email.").font(.coveSection)
-          Text("Cove finds commitments and requests in your mail and adds them to Google Tasks when you approve, so they’re on your phone too.")
-            .font(.coveBody).foregroundStyle(Palette.body).frame(maxWidth: 520, alignment: .leading)
-          Button("Connect Google Tasks") { Task { await store.connectTasks() } }
-            .buttonStyle(PrimaryButton()).disabled(store.busy)
-          if let error = store.tasksConnectError { Text(error).font(.coveMetadata).foregroundStyle(Palette.body) }
-        }.padding(32)
-        Spacer()
-      } else if store.googleTasks.isEmpty && !store.tasksLoading {
-        empty("No open tasks. Cove suggests them after you send or read an email with a promise.")
+        connect
       } else {
         HStack(spacing: 0) {
           ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-              ForEach(store.googleTasks) { task in
-                row(task)
-                Divider()
+            VStack(alignment: .leading, spacing: 18) {
+              quickAddBar
+              if planning || plan != nil || planError != nil { planCard }
+              if topLevel.filter({ !$0.isCompleted }).isEmpty && !store.tasksLoading {
+                Text("Nothing open. Add one above, or Cove will suggest tasks after you send or read an email with a promise.")
+                  .font(.coveSecondary).foregroundStyle(Palette.body).padding(.top, 8)
               }
-            }.padding(.horizontal, 20)
-          }.frame(minWidth: 320, maxWidth: selected == nil ? .infinity : 460)
+              ForEach(Group.allCases, id: \.self) { section in
+                let tasks = topLevel.filter { !$0.isCompleted && group($0) == section }
+                if !tasks.isEmpty {
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(section.rawValue).font(.coveLabel).foregroundStyle(section == .overdue ? Palette.danger : Palette.body)
+                      .padding(.horizontal, 12).padding(.bottom, 4)
+                    ForEach(tasks) { task in
+                      row(task)
+                      ForEach(children(of: task)) { child in row(child).padding(.leading, 30) }
+                    }
+                  }
+                }
+              }
+              let done = topLevel.filter(\.isCompleted)
+              if !done.isEmpty {
+                DisclosureGroup("Done · \(done.count)", isExpanded: $showDone) {
+                  VStack(spacing: 2) { ForEach(done) { row($0) } }.padding(.top, 6)
+                }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle()).padding(.horizontal, 12)
+              }
+            }.padding(20).frame(maxWidth: 720, alignment: .leading)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }.frame(minWidth: 340, maxWidth: selected == nil ? .infinity : 480)
           if let selected {
             Divider()
-            TaskDetailView(store: store, task: selected) { selectedID = nil }
-              .id(selected.id)
-              .frame(maxWidth: .infinity)
+            TaskDetailView(store: store, task: selected, subtasks: children(of: selected)) { selectedID = nil }
+              .id(selected.id).frame(maxWidth: .infinity)
+              .transition(.move(edge: .trailing).combined(with: .opacity))
           }
-        }
+        }.animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedID)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -209,34 +228,129 @@ struct TasksView: View {
       if let selectedID, !tasks.contains(where: { $0.id == selectedID }) { self.selectedID = nil }
     }
   }
+
+  private var header: some View {
+    HStack(spacing: 12) {
+      Text("Tasks").font(.coveTitle)
+      if store.tasksConnected {
+        Text("\(topLevel.filter { !$0.isCompleted }.count) open").font(.coveSecondary).foregroundStyle(Palette.body)
+      }
+      Spacer()
+      if store.tasksConnected && !store.isSample {
+        if AIProviderSettings.shared.writingProvider() != nil {
+          Button { runPlan() } label: { Label("Plan my day", systemImage: "sparkles") }
+            .buttonStyle(SecondaryButton(compact: true)).disabled(planning || topLevel.allSatisfy(\.isCompleted))
+            .help("Cove picks what to do today and finds time for it")
+        }
+        Button { Task { await store.refreshTasks() } } label: {
+          SwiftUI.Group { if store.tasksLoading { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") } }
+            .frame(width: 24, height: 32)
+        }.buttonStyle(.plain).disabled(store.tasksLoading).help("Refresh from Google Tasks").accessibilityLabel("Refresh tasks")
+      }
+    }.padding(.horizontal, 32).padding(.vertical, 22)
+  }
+
+  private var connect: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      Text("Keep the promises in your email.").font(.coveSection)
+      Text("Cove finds commitments and requests in your mail and adds them to Google Tasks when you approve, so they’re on your phone too.")
+        .font(.coveBody).foregroundStyle(Palette.body).frame(maxWidth: 520, alignment: .leading)
+      Button("Connect Google Tasks") { Task { await store.connectTasks() } }.buttonStyle(PrimaryButton()).disabled(store.busy)
+      if let error = store.tasksConnectError { Text(error).font(.coveMetadata).foregroundStyle(Palette.body) }
+      Spacer()
+    }.padding(32)
+  }
+
+  private var quickAddBar: some View {
+    let parsed = TaskQuickAdd.parse(quickAdd)
+    return HStack(spacing: 10) {
+      Image(systemName: adding ? "hourglass" : "plus").font(.cove(size: 14)).foregroundStyle(Palette.body).frame(width: 20)
+      TextField("Add a task… try “Call Millet Friday”", text: $quickAdd)
+        .textFieldStyle(.plain).font(.coveBody).focused($quickAddFocused)
+        .onSubmit { submitQuickAdd() }.disabled(adding).accessibilityLabel("Add a task")
+      if let due = parsed.due, !parsed.title.isEmpty {
+        Label(due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()), systemImage: "calendar")
+          .font(.coveMetadata).foregroundStyle(Palette.ink).padding(.horizontal, 8).padding(.vertical, 4)
+          .background(Palette.sidebar, in: Capsule()).transition(.scale.combined(with: .opacity))
+      }
+    }
+    .padding(.horizontal, 14).frame(height: 46)
+    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(quickAddFocused ? Palette.inputBorder : Color.clear))
+    .animation(.easeOut(duration: 0.15), value: parsed.due)
+  }
+  private func submitQuickAdd() {
+    let text = quickAdd
+    guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+    adding = true
+    Task {
+      if await store.addQuickTask(text) != nil { quickAdd = "" }
+      adding = false
+      quickAddFocused = true
+    }
+  }
+
+  private var planCard: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Label("Your day", systemImage: "sparkles").font(.coveSubheading)
+        Spacer()
+        Button { plan = nil; planError = nil } label: { Image(systemName: "xmark").font(.cove(size: 11)) }
+          .buttonStyle(.plain).foregroundStyle(Palette.muted).accessibilityLabel("Close plan")
+      }
+      if planning {
+        WritingThinkingBar(stage: "Choosing what matters today…")
+      } else if let planError {
+        Text(planError).font(.coveSecondary).foregroundStyle(Palette.body)
+      } else if let plan, plan.isEmpty {
+        Text("Nothing stands out for today.").font(.coveSecondary).foregroundStyle(Palette.body)
+      } else if let plan {
+        ForEach(Array(plan.enumerated()), id: \.element.id) { index, pick in
+          if let task = store.googleTasks.first(where: { $0.id == pick.id }) {
+            PlanRow(store: store, number: index + 1, task: task, pick: pick) { selectedID = task.id }
+          }
+        }
+      }
+    }
+    .padding(16).background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+  }
+  private func runPlan() {
+    planning = true; planError = nil; plan = nil
+    Task {
+      do { plan = try await store.planDay { try await AIProviderSettings.shared.complete($0) } }
+      catch { planError = error.localizedDescription }
+      planning = false
+    }
+  }
+
   private func row(_ task: GoogleTask) -> some View {
     HStack(alignment: .firstTextBaseline, spacing: 12) {
-      Button { Task { await store.setTask(task, completed: !task.isCompleted) } } label: {
-        Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle").font(.cove(size: 17))
-      }.buttonStyle(.plain).foregroundStyle(task.isCompleted ? Palette.muted : Palette.ink)
+      TaskCheckbox(done: task.isCompleted) { Task { await store.setTask(task, completed: !task.isCompleted) } }
         .accessibilityLabel(task.isCompleted ? "Mark \(task.title) not done" : "Mark \(task.title) done")
       VStack(alignment: .leading, spacing: 4) {
         Text(task.title).font(.coveBody).strikethrough(task.isCompleted).lineLimit(2)
           .foregroundStyle(task.isCompleted ? Palette.muted : Palette.ink)
-        HStack(spacing: 10) {
-          if let due = task.dueDay {
-            Label(due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()), systemImage: "calendar")
-              .foregroundStyle(due < Calendar.current.startOfDay(for: Date()) && !task.isCompleted ? Palette.danger : Palette.body)
-          }
-          if let mail = store.sourceMail(for: task) {
-            Label(mail.sender.isEmpty ? mail.senderEmail : mail.sender, systemImage: "envelope").lineLimit(1)
-          }
-        }.font(.coveMetadata).foregroundStyle(Palette.body)
+        let meta = rowMeta(task)
+        if !meta.isEmpty { Text(meta).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1) }
       }
       Spacer(minLength: 0)
-      Image(systemName: "chevron.right").font(.cove(size: 11)).foregroundStyle(Palette.muted).accessibilityHidden(true)
     }
-    .padding(.vertical, 14).padding(.horizontal, 12)
+    .padding(.vertical, 10).padding(.horizontal, 12)
     .background(selectedID == task.id ? Palette.selection : .clear, in: RoundedRectangle(cornerRadius: 8))
     .contentShape(Rectangle())
     .onTapGesture { selectedID = task.id }
     .accessibilityElement(children: .contain)
     .accessibilityAction(named: "Show details") { selectedID = task.id }
+  }
+  private func rowMeta(_ task: GoogleTask) -> String {
+    var parts: [String] = []
+    if let due = task.dueDay, group(task) == .upcoming || group(task) == .overdue {
+      parts.append(due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+    }
+    if let mail = store.sourceMail(for: task) { parts.append(mail.sender.isEmpty ? mail.senderEmail : mail.sender) }
+    let steps = children(of: task)
+    if !steps.isEmpty { parts.append("\(steps.filter(\.isCompleted).count)/\(steps.count) steps") }
+    return parts.joined(separator: " · ")
   }
   private func empty(_ text: String) -> some View {
     VStack { Text(text).font(.coveBody).foregroundStyle(Palette.body).frame(maxWidth: 460) }
@@ -244,102 +358,319 @@ struct TasksView: View {
   }
 }
 
-/// One task: edit its title, notes and due date, see the email it came from, or finish it.
+extension TaskQuickAdd.DayPick: Identifiable {}
+
+/// A round checkbox that fills with a small spring when a task is completed.
+struct TaskCheckbox: View {
+  let done: Bool
+  var size: CGFloat = 18
+  let toggle: () -> Void
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var body: some View {
+    Button(action: toggle) {
+      ZStack {
+        Circle().strokeBorder(done ? Palette.ink : Palette.inputBorder, lineWidth: 1.5)
+        Circle().fill(Palette.ink).scaleEffect(done ? 1 : 0.2).opacity(done ? 1 : 0)
+        Image(systemName: "checkmark").font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(.white)
+          .opacity(done ? 1 : 0).scaleEffect(done ? 1 : 0.5)
+      }.frame(width: size, height: size).contentShape(Circle())
+    }.buttonStyle(.plain)
+      .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.6), value: done)
+  }
+}
+
+/// One of today's picks: why it matters, then a free slot on the calendar with one click.
+private struct PlanRow: View {
+  @Bindable var store: AppStore
+  let number: Int
+  let task: GoogleTask
+  let pick: TaskQuickAdd.DayPick
+  let open: () -> Void
+  @State private var finding = false
+  @State private var slot: DateInterval?
+  @State private var added = false
+  @State private var note: String?
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Text("\(number)").font(.coveMetadata).frame(width: 22, height: 22).background(Palette.canvas, in: Circle())
+      VStack(alignment: .leading, spacing: 4) {
+        Button(action: open) { Text(task.title).font(.coveBody).multilineTextAlignment(.leading) }.buttonStyle(.plain)
+        Text("\(pick.why) · \(pick.minutes) min").font(.coveMetadata).foregroundStyle(Palette.body)
+        if let note { Text(note).font(.coveMetadata).foregroundStyle(Palette.body) }
+      }
+      Spacer(minLength: 8)
+      if added {
+        Label("On your calendar", systemImage: "checkmark").font(.coveMetadata).foregroundStyle(Palette.body)
+      } else if let slot {
+        Button("Add \(slot.start.formatted(date: .omitted, time: .shortened))") {
+          Task {
+            added = await store.createEvent(title: task.title, start: slot.start, end: slot.end,
+                                            onGoogle: store.calendarConnected && !store.isSample)
+            if !added { note = store.error ?? "Couldn’t add it." }
+          }
+        }.buttonStyle(PrimaryButton(compact: true))
+      } else {
+        Button(finding ? "Finding…" : "Find time") {
+          finding = true
+          Task {
+            do {
+              slot = try await store.firstFreeSlot(minutes: pick.minutes)
+              if slot == nil { note = store.calendarConnected ? "No free \(pick.minutes) min today or tomorrow." : "Connect Google Calendar to find time." }
+            } catch { note = error.localizedDescription }
+            finding = false
+          }
+        }.buttonStyle(SecondaryButton(compact: true)).disabled(finding)
+      }
+    }
+  }
+}
+
+/// One task, edited in place (saved automatically), with AI help to get it done.
 struct TaskDetailView: View {
   @Bindable var store: AppStore
   let task: GoogleTask
+  var subtasks: [GoogleTask] = []
   let close: () -> Void
   @State private var title = ""
   @State private var notes = ""
   @State private var due: Date?
-  @State private var saving = false
+  @State private var saveState: String?
+  @State private var pickingDate = false
+  @State private var loaded = false
+  // AI actions
+  @State private var working: String?
+  @State private var steps: [String] = []
+  @State private var chosenSteps: Set<String> = []
+  @State private var slot: DateInterval?
+  @State private var scheduled = false
+  @State private var aiNote: String?
+  @FocusState private var titleFocused: Bool
   private var source: Mail? { store.sourceMail(for: task) }
-  /// Cove's source line and Gmail link are kept out of the editable notes and shown as the email card.
-  private static func editableNotes(_ notes: String?) -> String {
-    (notes ?? "").split(separator: "\n", omittingEmptySubsequences: false).filter {
-      !$0.hasPrefix("https://mail.google.com/") && !$0.hasPrefix("From: ")
-    }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-  }
-  private var changed: Bool {
-    title != task.title || notes != Self.editableNotes(task.notes) || due != task.dueDay
-  }
+  private var hasModel: Bool { AIProviderSettings.shared.writingProvider() != nil }
+  private var changed: Bool { title != task.title || notes != TaskDetailText.userNotes(task.notes) || due != task.dueDay }
+
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        HStack {
-          Button { Task { await store.setTask(task, completed: !task.isCompleted) } } label: {
-            Label(task.isCompleted ? "Done" : "Mark done", systemImage: task.isCompleted ? "checkmark.circle.fill" : "circle")
-          }.buttonStyle(ReaderActionStyle()).font(.coveControl)
+      VStack(alignment: .leading, spacing: 22) {
+        HStack(spacing: 6) {
           Spacer()
+          if let saveState { Text(saveState).font(.coveMetadata).foregroundStyle(Palette.muted).transition(.opacity) }
           if let link = task.webViewLink, let url = URL(string: link), url.scheme == "https" {
-            Link(destination: url) { Image(systemName: "arrow.up.right.square").frame(width: 32, height: 40) }
+            Link(destination: url) { Image(systemName: "arrow.up.right.square").frame(width: 32, height: 36) }
               .buttonStyle(ReaderActionStyle()).help("Open in Google Tasks").accessibilityLabel("Open in Google Tasks")
           }
-          Button(action: close) { Image(systemName: "xmark").frame(width: 32, height: 40) }
+          Button(action: close) { Image(systemName: "xmark").frame(width: 32, height: 36) }
             .buttonStyle(ReaderActionStyle()).help("Close").accessibilityLabel("Close details")
         }
-        TextField("Task", text: $title, axis: .vertical).font(.coveDetailTitle).textFieldStyle(.plain)
-          .lineLimit(1...4).accessibilityLabel("Task title")
-        HStack(spacing: 10) {
-          Image(systemName: "calendar").foregroundStyle(Palette.body)
-          if let current = due {
-            DatePicker("Due", selection: Binding(get: { current }, set: { due = $0 }), displayedComponents: .date)
-              .labelsHidden()
-            Button("Remove") { due = nil }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
-          } else {
-            Button("Add due date") { due = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date())) }
-              .buttonStyle(.plain).font(.coveControl)
-          }
-          Spacer()
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+          TaskCheckbox(done: task.isCompleted, size: 24) { Task { await store.setTask(task, completed: !task.isCompleted) } }
+            .accessibilityLabel(task.isCompleted ? "Mark not done" : "Mark done")
+          TextField("Task", text: $title, axis: .vertical).font(.coveTitle).textFieldStyle(.plain)
+            .lineLimit(1...4).focused($titleFocused).onSubmit { save() }
+            .strikethrough(task.isCompleted).accessibilityLabel("Task title")
         }
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Notes").font(.coveLabel)
-          TextField("Add notes", text: $notes, axis: .vertical).textFieldStyle(CoveFieldStyle(font: .coveBody))
-            .lineLimit(3...10).accessibilityLabel("Task notes")
-        }
-        if changed {
-          HStack(spacing: 12) {
-            Button("Save changes") {
-              saving = true
-              let fullNotes = [notes] + (task.notes ?? "").split(separator: "\n").map(String.init)
-                .filter { $0.hasPrefix("From: ") || $0.hasPrefix("https://mail.google.com/") }
-              Task {
-                await store.updateTask(task, title: title, notes: fullNotes.filter { !$0.isEmpty }.joined(separator: "\n"), due: due)
-                saving = false
+        dueChips
+        TextField("Add notes…", text: $notes, axis: .vertical).font(.coveBody).textFieldStyle(.plain)
+          .lineLimit(2...12).foregroundStyle(Palette.ink).accessibilityLabel("Task notes")
+          .padding(12).background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+        if !subtasks.isEmpty {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Steps").font(.coveLabel).foregroundStyle(Palette.body)
+            ForEach(subtasks) { step in
+              HStack(spacing: 10) {
+                TaskCheckbox(done: step.isCompleted, size: 16) { Task { await store.setTask(step, completed: !step.isCompleted) } }
+                Text(step.title).font(.coveSecondary).strikethrough(step.isCompleted)
+                  .foregroundStyle(step.isCompleted ? Palette.muted : Palette.ink)
               }
-            }.buttonStyle(PrimaryButton(compact: true)).disabled(saving || title.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("Discard") { reset() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
-            if saving { ProgressView().controlSize(.small) }
+            }
           }
         }
-        if let mail = source {
-          VStack(alignment: .leading, spacing: 10) {
-            Text("From this email").font(.coveLabel)
-            VStack(alignment: .leading, spacing: 6) {
-              Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).font(.coveSubheading).lineLimit(2)
-              Text("\(mail.sender.isEmpty ? mail.senderEmail : mail.sender) · \(mail.date.formatted(date: .abbreviated, time: .shortened))")
-                .font(.coveMetadata).foregroundStyle(Palette.body)
-              Text(String(mail.body.prefix(280))).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(5)
-              Button {
-                store.chooseFolder(mail.labels.contains("SENT") ? "Sent" : "Inbox")
-                store.selectedID = mail.id
-                store.screen = "mail"
-              } label: { Label("Open email", systemImage: "envelope") }
-                .buttonStyle(SecondaryButton(compact: true)).padding(.top, 4)
-            }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-              .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
-          }
-        } else if TaskDetection.threadID(inNotes: task.notes) != nil {
-          Text("The email isn’t downloaded on this Mac.").font(.coveMetadata).foregroundStyle(Palette.body)
-        }
-      }.padding(28).frame(maxWidth: 560, alignment: .leading)
+        if hasModel || store.calendarConnected { aiSection }
+        if let mail = source { sourceCard(mail) }
+      }.padding(28).frame(maxWidth: 600, alignment: .leading)
     }
-    .onAppear { reset() }
-    .onChange(of: task) { _, _ in if !saving { reset() } }
+    .onAppear { reset(); loaded = true }
+    .onChange(of: task) { _, _ in if saveState != "Saving…" { reset() } }
+    // Autosave shortly after typing stops; the date saves at once.
+    .task(id: "\(title)|\(notes)") {
+      guard loaded, changed else { return }
+      try? await Task.sleep(for: .milliseconds(900))
+      if !Task.isCancelled { save() }
+    }
+    .onChange(of: due) { _, _ in if loaded && changed { save() } }
+  }
+
+  private var dueChips: some View {
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: Date())
+    let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+    let nextWeek = calendar.nextDate(after: today, matching: DateComponents(weekday: calendar.firstWeekday == 1 ? 2 : calendar.firstWeekday),
+                                     matchingPolicy: .nextTime) ?? calendar.date(byAdding: .day, value: 7, to: today)!
+    let presets: [(String, Date)] = [("Today", today), ("Tomorrow", tomorrow), ("Next week", nextWeek)]
+    let custom = due.map { value in !presets.contains { calendar.isDate($0.1, inSameDayAs: value) } } ?? false
+    return HStack(spacing: 8) {
+      Image(systemName: "calendar").foregroundStyle(Palette.body).accessibilityHidden(true)
+      ForEach(presets, id: \.0) { name, day in
+        chip(name, selected: due.map { calendar.isDate($0, inSameDayAs: day) } ?? false) {
+          due = due.map { calendar.isDate($0, inSameDayAs: day) } == true ? nil : day
+        }
+      }
+      chip(custom ? due!.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) : "Pick date", selected: custom,
+           icon: custom ? nil : "chevron.down") { pickingDate = true }
+        .popover(isPresented: $pickingDate) {
+          DatePicker("Due date", selection: Binding(get: { due ?? tomorrow }, set: { due = calendar.startOfDay(for: $0); pickingDate = false }),
+                     displayedComponents: .date)
+            .datePickerStyle(.graphical).labelsHidden().padding(12)
+        }
+      if due != nil {
+        Button { due = nil } label: { Image(systemName: "xmark").font(.cove(size: 10)) }
+          .buttonStyle(.plain).foregroundStyle(Palette.muted).help("Remove due date").accessibilityLabel("Remove due date")
+      }
+    }
+  }
+  private func chip(_ title: String, selected: Bool, icon: String? = nil, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      HStack(spacing: 4) {
+        Text(title)
+        if let icon { Image(systemName: icon).font(.cove(size: 9)) }
+      }.font(.coveControl).padding(.horizontal, 12).frame(height: 30)
+        .foregroundStyle(selected ? Color.white : Palette.ink)
+        .background(selected ? Palette.ink : Palette.sidebar, in: Capsule())
+        .contentShape(Capsule())
+    }.buttonStyle(.plain).animation(.easeOut(duration: 0.15), value: selected)
+  }
+
+  @ViewBuilder private var aiSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Label("Get it done", systemImage: "sparkles").font(.coveLabel).foregroundStyle(Palette.body)
+      if let working { WritingThinkingBar(stage: working) }
+      if !steps.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+          ForEach(steps, id: \.self) { step in
+            Toggle(step, isOn: Binding(get: { chosenSteps.contains(step) },
+                                       set: { if $0 { chosenSteps.insert(step) } else { chosenSteps.remove(step) } }))
+              .toggleStyle(.checkbox).font(.coveSecondary)
+          }
+          HStack(spacing: 12) {
+            Button(chosenSteps.count == 1 ? "Add step" : "Add \(chosenSteps.count) steps") {
+              let picked = steps.filter { chosenSteps.contains($0) }
+              working = "Adding steps…"
+              Task { _ = await store.addSubtasks(picked, under: task); steps = []; working = nil }
+            }.buttonStyle(PrimaryButton(compact: true)).disabled(chosenSteps.isEmpty || working != nil)
+            Button("Not now") { steps = [] }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+          }
+        }.padding(14).background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+      }
+      if let slot, !scheduled {
+        HStack(spacing: 12) {
+          Image(systemName: "calendar.badge.clock").foregroundStyle(Palette.body)
+          Text(slotText(slot)).font(.coveSecondary)
+          Spacer(minLength: 8)
+          Button("Add to calendar") {
+            Task {
+              scheduled = await store.createEvent(title: task.title, start: slot.start, end: slot.end,
+                                                  onGoogle: store.calendarConnected && !store.isSample)
+              if !scheduled { aiNote = store.error ?? "Couldn’t add it to your calendar." }
+            }
+          }.buttonStyle(PrimaryButton(compact: true))
+          Button("Not now") { self.slot = nil }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+        }.padding(14).background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+      }
+      if scheduled, let slot { Label("Blocked \(slotText(slot))", systemImage: "checkmark").font(.coveSecondary).foregroundStyle(Palette.body) }
+      if let aiNote { Text(aiNote).font(.coveMetadata).foregroundStyle(Palette.body) }
+      if working == nil && steps.isEmpty && (slot == nil || scheduled) {
+        HStack(spacing: 8) {
+          if hasModel, let mail = source {
+            aiButton(task.isCompleted ? "Tell \(firstName(mail)) it’s done" : "Draft a reply", "arrowshape.turn.up.left") { draftReply() }
+          }
+          if hasModel && subtasks.isEmpty { aiButton("Break into steps", "list.bullet.indent") { suggestSteps() } }
+          if store.calendarConnected && !task.isCompleted && !scheduled { aiButton("Find time", "calendar.badge.clock") { findTime() } }
+        }
+      }
+    }
+  }
+  private func aiButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Label(title, systemImage: icon).font(.coveControl).lineLimit(1).padding(.horizontal, 12).frame(height: 34)
+        .background(Palette.surface, in: Capsule()).contentShape(Capsule())
+    }.buttonStyle(.plain).foregroundStyle(Palette.ink)
+  }
+  private func firstName(_ mail: Mail) -> String {
+    String((mail.sender.isEmpty ? mail.senderEmail : mail.sender).split(separator: " ").first ?? "them")
+  }
+  private func slotText(_ slot: DateInterval) -> String {
+    let day = Calendar.current.isDateInToday(slot.start) ? "Today" : "Tomorrow"
+    return "\(day) \(slot.start.formatted(date: .omitted, time: .shortened))–\(slot.end.formatted(date: .omitted, time: .shortened))"
+  }
+  private func draftReply() {
+    working = "Writing your reply…"; aiNote = nil
+    Task {
+      do {
+        let mail = try await store.draftReply(for: task) { try await AIProviderSettings.shared.complete($0) }
+        store.chooseFolder(mail.labels.contains("SENT") ? "Sent" : "Inbox")
+        store.selectedID = mail.id
+        store.screen = "mail"
+      } catch { aiNote = error.localizedDescription }
+      working = nil
+    }
+  }
+  private func suggestSteps() {
+    working = "Breaking it into steps…"; aiNote = nil
+    Task {
+      do {
+        steps = try await store.suggestSteps(for: task) { try await AIProviderSettings.shared.complete($0) }
+        chosenSteps = Set(steps)
+        if steps.isEmpty { aiNote = "No clear steps for this one." }
+      } catch { aiNote = error.localizedDescription }
+      working = nil
+    }
+  }
+  private func findTime() {
+    working = "Looking at your calendar…"; aiNote = nil
+    Task {
+      do {
+        slot = try await store.firstFreeSlot(minutes: 30)
+        if slot == nil { aiNote = "No free 30 minutes today or tomorrow." }
+      } catch { aiNote = error.localizedDescription }
+      working = nil
+    }
+  }
+
+  private func sourceCard(_ mail: Mail) -> some View {
+    Button {
+      store.chooseFolder(mail.labels.contains("SENT") ? "Sent" : "Inbox")
+      store.selectedID = mail.id
+      store.screen = "mail"
+    } label: {
+      HStack(alignment: .top, spacing: 12) {
+        Image(systemName: mail.labels.contains("SENT") ? "paperplane" : "envelope").foregroundStyle(Palette.body).padding(.top, 2)
+        VStack(alignment: .leading, spacing: 4) {
+          Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).font(.coveLabel).lineLimit(1)
+          Text("\(mail.sender.isEmpty ? mail.senderEmail : mail.sender) · \(mail.date.formatted(date: .abbreviated, time: .omitted))")
+            .font(.coveMetadata).foregroundStyle(Palette.body)
+          Text(String(mail.body.prefix(220))).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(3)
+            .multilineTextAlignment(.leading)
+        }
+        Spacer(minLength: 0)
+        Image(systemName: "arrow.right").font(.cove(size: 11)).foregroundStyle(Palette.muted)
+      }.padding(14).background(Palette.surface, in: RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
+    }.buttonStyle(.plain).help("Open email").accessibilityLabel("Open the email: \(mail.subject)")
+  }
+
+  private func save() {
+    guard changed, !title.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+    saveState = "Saving…"
+    let fullNotes = ([notes] + TaskDetailText.cove(task.notes)).filter { !$0.isEmpty }.joined(separator: "\n")
+    Task {
+      let ok = await store.updateTask(task, title: title, notes: fullNotes, due: due)
+      withAnimation { saveState = ok ? "Saved" : "Not saved" }
+      try? await Task.sleep(for: .seconds(1.5))
+      withAnimation { if saveState == "Saved" { saveState = nil } }
+    }
   }
   private func reset() {
     title = task.title
-    notes = Self.editableNotes(task.notes)
+    notes = TaskDetailText.userNotes(task.notes)
     due = task.dueDay
   }
 }

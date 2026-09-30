@@ -23,3 +23,23 @@
   - Renders inspected: `/tmp/cove-tasks-toast-found.png`, `/tmp/cove-tasks-screen.png`.
 - **Fixed during QA:** Google's midnight-UTC due date showed one day early in Pacific time. It is now read as a calendar date, with a test.
 - **Not verified live:** the Google consent with the new scope, real Jev and model quality, and real Tasks creation. These need the user's reconnect in QA.
+
+## Tasks redesign with AI (September 30)
+
+- **User feedback:** the detail view "is not SUPER good", the due date is "super old school", and the task list needs AI.
+- **Details:**
+  - A large checkbox with a spring fill, and an in-place title in the page-title style.
+  - Due-date chips: Today / Tomorrow / Next week / Pick date (a graphical calendar popover) / ✕.
+  - Plain notes. Changes save automatically (about 0.9 s after typing, and immediately for dates) with "Saving… / Saved". Cove's source lines are preserved.
+  - Subtask checklist.
+  - **Get it done:**
+    - Draft a reply, or "Tell <name> it's done", on the source email via `draftReply`. It opens the reader for review; nothing is sent.
+    - Break into steps: the `.taskSteps` prompt returns 2–5 steps; the user approves them and they become Google subtasks (`parent`), kept in order.
+    - Find time: the first free 30 minutes today or tomorrow, 09:00–18:00, from the real calendar, then Add to calendar.
+  - A tappable source-email card.
+- **List:**
+  - Quick add with instant date parsing (`TaskQuickAdd`: today/tomorrow/mañana plus `NSDataDetector`; a live date chip).
+  - Groups: Overdue / Today / Tomorrow / Upcoming / No date, with subtasks indented and a collapsed Done group.
+  - ✦ Plan my day: the `.planDay` prompt picks at most 3 tasks, limited to real task ids, each with a reason and a duration snapped to 15/30/60/90. Each pick has Find time → Add at the time found.
+- **Tests:** `TaskQuickAddTests`, `TaskDetectionTests` (update and clearing a due date), and `TasksFlowTests` renders (`/tmp/cove-tasks-detail.png`, `/tmp/cove-tasks-screen-grouped.png`), all inspected.
+- **Not verified live:** the model's quality for steps and plans, real subtask ordering in Google Tasks, and the reply draft on a real thread.

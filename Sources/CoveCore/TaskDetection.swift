@@ -88,3 +88,67 @@ public enum TaskDetection {
     return id.isEmpty ? nil : String(id)
   }
 }
+
+/// Instant, offline quick-add: "Call Millet Friday" → title "Call Millet", due Friday.
+public enum TaskQuickAdd {
+  public static func parse(_ text: String, now: Date = Date(), calendar: Calendar = .current) -> (title: String, due: Date?) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return ("", nil) }
+    let lower = trimmed.lowercased()
+    let start = calendar.startOfDay(for: now)
+    // Common words first; NSDataDetector handles weekdays and explicit dates.
+    let words: [(String, Int)] = [("today", 0), ("tonight", 0), ("tomorrow", 1), ("hoy", 0), ("mañana", 1), ("manana", 1)]
+    for (word, offset) in words {
+      if let range = lower.range(of: "\\b\(word)\\b", options: .regularExpression) {
+        let title = (trimmed[..<range.lowerBound] + trimmed[range.upperBound...])
+        return (clean(String(title)), calendar.date(byAdding: .day, value: offset, to: start))
+      }
+    }
+    if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue),
+      let match = detector.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)),
+      let date = match.date, let range = Range(match.range, in: trimmed)
+    {
+      let title = clean(String(trimmed[..<range.lowerBound] + trimmed[range.upperBound...]))
+      if !title.isEmpty { return (title, calendar.startOfDay(for: date)) }
+    }
+    return (trimmed, nil)
+  }
+  private static func clean(_ text: String) -> String {
+    var value = text.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    for suffix in [" by", " on", " due", " para el", " el"] where value.lowercased().hasSuffix(suffix) {
+      value = String(value.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+    }
+    return value
+  }
+
+  /// Steps from the model: 2–5 short lines, deduplicated.
+  public static func steps(from reply: String) -> [String] {
+    struct Payload: Decodable { let steps: [String]? }
+    let cleaned = reply.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
+    guard let start = cleaned.firstIndex(of: "{"), let end = cleaned.lastIndex(of: "}"),
+      let payload = try? JSONDecoder().decode(Payload.self, from: Data(cleaned[start...end].utf8)) else { return [] }
+    var seen = Set<String>()
+    return (payload.steps ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ") }
+      .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }.prefix(5).map { String($0.prefix(100)) }
+  }
+
+  public struct DayPick: Equatable, Sendable {
+    public let id: String
+    public let why: String
+    public let minutes: Int
+  }
+  /// Today's picks, limited to real task ids, at most 3.
+  public static func dayPlan(from reply: String, validIDs: Set<String>) -> [DayPick] {
+    struct Payload: Decodable { struct Item: Decodable { let id: String?; let why: String?; let minutes: Int? }; let today: [Item]? }
+    let cleaned = reply.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
+    guard let start = cleaned.firstIndex(of: "{"), let end = cleaned.lastIndex(of: "}"),
+      let payload = try? JSONDecoder().decode(Payload.self, from: Data(cleaned[start...end].utf8)) else { return [] }
+    var seen = Set<String>()
+    return (payload.today ?? []).compactMap { item -> DayPick? in
+      guard let id = item.id, validIDs.contains(id), seen.insert(id).inserted else { return nil }
+      let minutes = [15, 30, 60, 90].min { abs($0 - (item.minutes ?? 30)) < abs($1 - (item.minutes ?? 30)) } ?? 30
+      return DayPick(id: id, why: String((item.why ?? "").prefix(90)), minutes: minutes)
+    }.prefix(3).map { $0 }
+  }
+}

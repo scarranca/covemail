@@ -3378,3 +3378,99 @@ extension AppStore {
     }
   }
 }
+
+// MARK: - Task AI (suggestions only; every change is a user click)
+extension AppStore {
+  /// "Call Millet Friday" → a task due Friday. Dates are read on this Mac; no model involved.
+  @discardableResult
+  func addQuickTask(_ text: String) async -> GoogleTask? {
+    guard entered, !isSample, tasksConnected else { return nil }
+    let parsed = TaskQuickAdd.parse(text, now: syncClock())
+    guard !parsed.title.isEmpty else { return nil }
+    let generation = mailboxGeneration
+    do {
+      let task = try await tasksClient.create(title: parsed.title, notes: nil, due: parsed.due, token: tasksToken())
+      guard generation == mailboxGeneration else { return nil }
+      googleTasks = (googleTasks + [task]).sorted { ($0.dueDay ?? .distantFuture) < ($1.dueDay ?? .distantFuture) }
+      return task
+    } catch { self.error = error.localizedDescription; return nil }
+  }
+
+  func suggestSteps(for task: GoogleTask, complete: (AIPrompt) async throws -> String) async throws -> [String] {
+    let generation = mailboxGeneration
+    let source = sourceMail(for: task).map { mail -> Mail in var m = mail; m.body = String(m.body.prefix(3_000)); return m }
+    let prompt = try AIPrompt(intent: .taskSteps,
+      instruction: "Task: \(task.title)\nNotes: \(TaskDetailText.userNotes(task.notes))", mails: source.map { [$0] } ?? [])
+    let reply = try await complete(prompt)
+    guard generation == mailboxGeneration else { throw CancellationError() }
+    return TaskQuickAdd.steps(from: reply)
+  }
+
+  func addSubtasks(_ steps: [String], under parent: GoogleTask) async -> Int {
+    guard entered, !isSample, tasksConnected else { return 0 }
+    let generation = mailboxGeneration
+    var added: [GoogleTask] = []
+    // Google places each new subtask first, so add in reverse to keep the suggested order.
+    for step in steps.reversed() {
+      do {
+        added.append(try await tasksClient.create(title: step, notes: nil, due: nil, parent: parent.id, token: tasksToken()))
+      } catch { self.error = error.localizedDescription; break }
+      guard generation == mailboxGeneration else { return added.count }
+    }
+    googleTasks += added.reversed()
+    return added.count
+  }
+
+  /// Drafts a reply on the task's source email and opens it for review. Nothing is sent.
+  func draftReply(for task: GoogleTask, write: @escaping (AIPrompt) async throws -> String) async throws -> Mail {
+    guard let mail = sourceMail(for: task) else { throw CoveError.message("The email for this task isn’t on this Mac.") }
+    let request = task.isCompleted
+      ? "Let them know this is done: \(task.title). Keep it short and warm."
+      : "Give a short update on this: \(task.title). If it's a promise I made, confirm I'm on it without inventing a date."
+    _ = try await draftReply(to: mail, request: request, write: write)
+    return mail
+  }
+
+  /// The first free block today (from now) or tomorrow, from the real calendar. Nil if Calendar isn't
+  /// connected or nothing fits.
+  func firstFreeSlot(minutes: Int) async throws -> DateInterval? {
+    guard entered, calendarConnected || isSample else { return nil }
+    let now = syncClock()
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd"
+    for offset in 0...1 {
+      guard let day = Calendar.current.date(byAdding: .day, value: offset, to: Calendar.current.startOfDay(for: now)) else { continue }
+      let window = try WritingAvailability(day: formatter.string(from: day), durationMinutes: minutes,
+                                           startMinute: 540, endMinute: 1080, timeZone: .current)
+      let events = try await writingCalendar(from: window.dayRange.start, to: window.dayRange.end)
+      if let slot = try window.firstSlot(events: events, now: now) { return slot }
+    }
+    return nil
+  }
+
+  func planDay(complete: (AIPrompt) async throws -> String) async throws -> [TaskQuickAdd.DayPick] {
+    let open = googleTasks.filter { !$0.isCompleted && $0.parent == nil }.prefix(40)
+    guard !open.isEmpty else { return [] }
+    let today = syncClock()
+    let list = open.map { task in
+      "- id \(task.id): \(task.title.prefix(160))" + (task.dueDay.map { " (due \($0.formatted(date: .abbreviated, time: .omitted)))" } ?? "")
+        + (sourceMail(for: task).map { " · from an email with \($0.sender.isEmpty ? $0.senderEmail : $0.sender)" } ?? "")
+    }.joined(separator: "\n")
+    let prompt = try AIPrompt(intent: .planDay,
+      instruction: "Today is \(today.formatted(date: .complete, time: .omitted)). Open tasks:\n\(list)", mails: [])
+    let reply = try await complete(prompt)
+    return TaskQuickAdd.dayPlan(from: reply, validIDs: Set(open.map(\.id)))
+  }
+}
+
+enum TaskDetailText {
+  /// The notes the user wrote, without Cove's "From:" line and Gmail link.
+  static func userNotes(_ notes: String?) -> String {
+    (notes ?? "").split(separator: "\n", omittingEmptySubsequences: false).filter {
+      !$0.hasPrefix("https://mail.google.com/") && !$0.hasPrefix("From: ")
+    }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+  static func cove(_ notes: String?) -> [String] {
+    (notes ?? "").split(separator: "\n").map(String.init).filter { $0.hasPrefix("From: ") || $0.hasPrefix("https://mail.google.com/") }
+  }
+}
