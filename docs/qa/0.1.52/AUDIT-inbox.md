@@ -28,6 +28,7 @@ Scope: split Inbox tabs, per-email and per-sender votes with Undo, a quieter lis
   - A dark toast offers Undo for 6 s and restores the previous votes and rules.
   - When the open email is moved, it stays listed until selection moves on, the same way a read email does.
 - **Setting:** a "Split inbox" toggle (on by default; `Preferences.splitInbox == nil` means on) sits in Settings → Reading. It needed a one-line change in `SettingsView.swift`: `ReadingSettingsView(showsHeading: false, store: store)`.
+- **Removed behavior:** the Priority / All mail filter row is gone from non-Inbox folders (Sent, Archive and others). In the Inbox, the Important tab replaces it.
 - **Header simplification:**
   - Removed the "N need attention · N drafts ready" strip and the Priority / Unread / All mail text row.
   - The header now holds the title, a sync icon with a tooltip, search, the Important/Other tabs with unread counts, and a compact Unread toggle.
@@ -39,7 +40,7 @@ Scope: split Inbox tabs, per-email and per-sender votes with Undo, a quieter lis
 
 ## Verified
 
-- `swift build` passes.
+- The base is `scarranca/secure-incremental-mail-cache` at 1f20f97, merged cleanly. `swift build` passes.
 - New `CoveCoreTests.InboxSplitTests` (4 tests) cover:
   - the membership rules and the precedence of vote over sender rule over Jev
   - that Gmail `IMPORTANT` alone does not move mail to Important
@@ -53,14 +54,16 @@ Scope: split Inbox tabs, per-email and per-sender votes with Undo, a quieter lis
   - unread counts per tab
   - memoization: exactly one `visible` computation per tab switch on 5,000 emails, measured at about 11 ms for 6 reads, with an assertion under 250 ms. Search narrowing still computes once per keystroke state when a tab is part of the key.
 - Full `swift test`:
-  - CoveRenderingTests: 299 tests, 7 skipped (live, opt-in), 0 failures.
-  - CoveCoreTests: 226 tests, 1 skipped, 0 failures.
+  - CoveRenderingTests: 317 tests, 7 skipped (live, opt-in), 0 failures (after merging 1f20f97).
+  - CoveCoreTests: 236 tests, 1 skipped, 0 failures.
   - Contacts/CoreData XPC log noise in the output is environmental.
 - Screenshots inspected:
   - `/tmp/cove-mail-tabs-important.png` and `/tmp/cove-mail-tabs-other-unread.png` (1100 pt)
   - `/tmp/cove-mail-tabs-undo.png` and `/tmp/cove-mail-tabs-off.png` (900 pt, 300 pt list column)
   - `/tmp/cove-mail-900.png` (existing fixture)
   - Fixed while inspecting: the Unread toggle truncated to "Unr…" at 300 pt, and the capsule stroke left a stray edge in the cached render. The toggle is now fixed-size with a 6 pt rounded rectangle.
+  - `/tmp/cove-settings-Reading-900.png` and `-1100.png` (existing `SettingsLayoutTests`): the Split inbox toggle renders on, above Text-only reading.
+  - Realistic counts: the undo fixture adds 150 Other and 120 Important unread emails. The counts cap at "99+", and at 300 pt `ViewThatFits` switches the Unread toggle to icon-only, keeping its tooltip. Nothing clips.
 
 ## Not verified / limits
 

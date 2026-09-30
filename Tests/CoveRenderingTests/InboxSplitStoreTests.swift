@@ -162,6 +162,12 @@ import XCTest
     }
     store.labelUnreadOnly = false
     store.chooseInboxTab(.important)
+    // Realistic three-digit counts must still fit the 300 pt list column.
+    store.mails += (0..<150).map { Mail(id: "bulk-\($0)", sender: "Deals", senderEmail: "deals@shop.com", subject: "Offer \($0)",
+      body: "Sale", date: Date().addingTimeInterval(Double(-4000 - $0)), labels: ["INBOX", "UNREAD"], isBulkOrAutomated: true) }
+    store.mails += (0..<120).map { Mail(id: "person-\($0)", sender: "Colleague \($0)", senderEmail: "c\($0)@example.com", subject: "Note \($0)",
+      body: "Hi", date: Date().addingTimeInterval(Double(-9000 - $0)), labels: ["INBOX", "UNREAD"], isBulkOrAutomated: false) }
+    XCTAssertEqual(store.inboxUnreadCounts[.other], 152)
     store.moveToInboxTab(store.mails[1], .other)
     let host = NSHostingView(rootView: MailboxView(store: store).foregroundStyle(Palette.ink))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.borderless], backing: .buffered, defer: false)

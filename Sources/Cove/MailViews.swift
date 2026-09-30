@@ -387,6 +387,13 @@ struct GmailSearchMoreButton: View {
 struct InboxFilterBar: View {
   @Bindable var store: AppStore
   var body: some View {
+    // Narrow list columns keep the tabs and fall back to an icon-only Unread toggle.
+    ViewThatFits(in: .horizontal) {
+      bar(compactUnread: false)
+      bar(compactUnread: true)
+    }
+  }
+  private func bar(compactUnread: Bool) -> some View {
     HStack(spacing: 16) {
       if store.priorityOnly {
         Button { store.priorityOnly = false; store.reconcileSelection() } label: {
@@ -405,7 +412,7 @@ struct InboxFilterBar: View {
             HStack(spacing: 5) {
               Text(tab.title).fontWeight(selected ? .medium : .regular)
               if let count = counts[tab], count > 0 {
-                Text("\(count)").font(.coveMetadata).monospacedDigit()
+                Text(count > 99 ? "99+" : "\(count)").font(.coveMetadata).monospacedDigit()
               }
             }.foregroundStyle(selected ? Palette.ink : Palette.muted)
               .padding(.bottom, 6)
@@ -425,6 +432,7 @@ struct InboxFilterBar: View {
         let on = store.labelUnreadOnly
         Button { store.labelUnreadOnly.toggle(); store.reconcileSelection() } label: {
           Label("Unread", systemImage: on ? "envelope.badge.fill" : "envelope.badge")
+            .labelStyle(UnreadLabelStyle(iconOnly: compactUnread))
             .font(.coveControl).foregroundStyle(on ? Palette.canvas : Palette.body)
             .padding(.horizontal, 10).frame(height: 26)
             .background {
@@ -436,6 +444,13 @@ struct InboxFilterBar: View {
           .accessibilityLabel("Unread only").accessibilityAddTraits(on ? .isSelected : [])
       }
     }.buttonStyle(.plain).font(.coveText).lineLimit(1)
+  }
+}
+
+private struct UnreadLabelStyle: LabelStyle {
+  let iconOnly: Bool
+  func makeBody(configuration: Configuration) -> some View {
+    if iconOnly { configuration.icon } else { HStack(spacing: 6) { configuration.icon; configuration.title } }
   }
 }
 
