@@ -79,3 +79,13 @@ All runs are offline with injected transports, temporary databases and hidden wi
   - `AssistantScreenBulkTests.testLargeSearchDownloadsOnlyTheRowsTheCardShows`: with 20 matches, 8 downloads and 1 batch.
   - The approve test now expects a single batch request.
   - The failure test covers the one-by-one retry.
+
+## "Which Martha?" follow-up (September 30, live QA)
+
+- **Report:** "Write an email to Martha…" listed two Marthas. The reply "@gigstack one" produced the same question again: the follow-up went through the planner, which re-extracted "Martha".
+- **Fix:**
+  - `draftNewEmail` returns `.ambiguous(name:candidates:)`, and the exchange keeps a `PendingCompose`.
+  - The candidates are shown as clickable cards.
+  - The next message is first matched by `RecipientResolver.pick`: a full address, part of the address or domain ("@gigstack", "the icloud one"), a surname ("la de Rico"), or an ordinal ("the first one", "2").
+  - A unique match resumes the draft with that address, skipping the planner. An unclear reply still asks.
+- **Tests:** `RecipientPickTests` and `AssistantComposeTests.testTwoMarthasAskOnceThenTheChosenOneGetsTheDraft`. Render inspected: `/tmp/cove-assistant-which-martha.png`.

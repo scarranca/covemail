@@ -1,5 +1,5 @@
 import AppKit
-import CoveCore
+@testable import CoveCore
 import SwiftUI
 import XCTest
 @testable import Cove
@@ -76,6 +76,14 @@ import XCTest
     memory.rememberedMemory = "I prefer morning meetings"
     try await render(store: store, settings: settings, exchanges: [event, draft, memory], available: CGSize(width: 800, height: 1400), name: "artifacts")
     try await render(store: store, settings: settings, exchanges: [draft, memory], available: CGSize(width: 800, height: 1400), name: "artifacts-draft")
+    var which = ChatExchange(question: "Write an email to Martha to ask how the account and process are going", mail: nil, scope: .email)
+    which.answer = "Which Martha?"
+    which.pendingCompose = PendingCompose(
+      request: .init(recipients: ["Martha"], subject: "", purpose: "Ask how the account is going", intro: false),
+      question: which.question, name: "Martha",
+      candidates: [MailContact(email: "martha@gigstack.io", name: "Martha Salazar", record: nil, messages: []),
+                   MailContact(email: "mpcrico@icloud.com", name: "Martha Cayetano Rico", record: nil, messages: [])])
+    try await render(store: store, settings: settings, exchanges: [which], available: CGSize(width: 800, height: 900), name: "which-martha")
     XCTAssertTrue(store.events.isEmpty, "Showing a proposal never creates an event")
   }
 

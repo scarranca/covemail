@@ -62,6 +62,33 @@ public enum RecipientResolver {
     return unique.isEmpty ? .missing(name: names.first ?? "") : .resolved(unique)
   }
 
+  /// Reads the user's answer to "Which Martha?": a full address, part of the address or domain
+  /// ("@gigstack", "the icloud one"), a surname, or an ordinal ("the first one", "2"). Returns a
+  /// candidate only when exactly one matches.
+  public static func pick(from candidates: [MailContact], reply: String) -> MailContact? {
+    guard !candidates.isEmpty else { return nil }
+    let text = fold(reply)
+    if let exact = candidates.first(where: { text.contains(ContactDirectory.normalizedEmail($0.email)) }) { return exact }
+    let ordinals: [(Int, [String])] = [
+      (0, ["first", "1st", "primero", "primera", "#1"]), (1, ["second", "2nd", "segundo", "segunda", "#2"]),
+      (2, ["third", "3rd", "tercero", "tercera", "#3"]),
+    ]
+    let words = text.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
+    for (index, names) in ordinals where index < candidates.count {
+      if names.contains(where: { words.contains($0) || text.contains($0) }) || (words == ["\(index + 1)"]) { return candidates[index] }
+    }
+    let filler: Set<String> = ["one", "the", "that", "this", "uno", "una", "que", "the", "please", "mean", "meant", "com", "with", "con", "email"]
+    let tokens = words.filter { $0.count >= 3 && !filler.contains($0) }
+    guard !tokens.isEmpty else { return nil }
+    let matches = candidates.filter { candidate in
+      let address = ContactDirectory.normalizedEmail(candidate.email)
+        .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count >= 3 }
+      let name = fold(candidate.name).components(separatedBy: CharacterSet.alphanumerics.inverted)
+      return tokens.contains { token in address.contains(token) || name.contains(token) }
+    }
+    return matches.count == 1 ? matches[0] : nil
+  }
+
   /// Case- and accent-insensitive comparison, so "Alberto Diaz" matches "Alberto Díaz".
   static func fold(_ text: String) -> String {
     text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)

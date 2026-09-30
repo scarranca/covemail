@@ -63,4 +63,29 @@ import XCTest
     guard case .clarification(let question) = unknown else { return XCTFail() }
     XCTAssertTrue(question.contains("Luis"))
   }
+
+  func testTwoMarthasAskOnceThenTheChosenOneGetsTheDraft() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveCompose-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try AppStore(database: Database(url: root.appendingPathComponent("mail.sqlite")),
+      accountEmail: "me@example.com", gmail: GmailClient(), gmailTokenProvider: { "fixture" }, syncClock: Date.init)
+    store.mails = [
+      Mail(id: "g", sender: "Martha Salazar", senderEmail: "martha@gigstack.io", subject: "Account", body: "Hi"),
+      Mail(id: "i", sender: "Martha Cayetano Rico", senderEmail: "mpcrico@icloud.com", subject: "Hola", body: "Hola"),
+    ]
+    let write: (AIPrompt) async throws -> String = { prompt in
+      prompt.system.contains("You plan read-only evidence lookups") ? #"{"tools":[]}"# : "Hi Martha,\n\nHow are the account and process going?"
+    }
+    let ask = AssistantCalendar.ComposeRequest(recipients: ["Martha"], subject: "", purpose: "Ask how the account is going", intro: false)
+    let first = try await store.draftNewEmail(ask, question: "Write an email to Martha", present: false, write: write)
+    guard case .ambiguous(let name, let candidates) = first else { return XCTFail("\(first)") }
+    XCTAssertEqual(name, "Martha")
+    let chosen = try XCTUnwrap(RecipientResolver.pick(from: candidates, reply: "@gigstack one"))
+    let resumed = AssistantCalendar.ComposeRequest(recipients: [chosen.email], subject: "", purpose: ask.purpose, intro: false)
+    let second = try await store.draftNewEmail(resumed, question: "Write an email to Martha", present: false, write: write)
+    guard case .opened(let people, _) = second else { return XCTFail("\(second)") }
+    XCTAssertEqual(people.map(\.email), ["martha@gigstack.io"])
+    XCTAssertEqual(store.mails.first { $0.id == store.composeID }?.to, "Martha Salazar <martha@gigstack.io>")
+    XCTAssertFalse(store.mails.contains { $0.labels.contains("SENT") })
+  }
 }

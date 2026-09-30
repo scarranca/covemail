@@ -114,6 +114,25 @@ struct AssistantView: View {
     }
   }
 
+  private func showComposeOutcome(_ outcome: AppStore.AssistantDraftOutcome, exchangeID: UUID,
+                                  request: AssistantCalendar.ComposeRequest, question: String, source: String) {
+    guard let index = exchanges.firstIndex(where: { $0.id == exchangeID }) else { return }
+    switch outcome {
+    case .clarification(let text):
+      exchanges[index].answer = text
+      exchanges[index].source = "Your contacts · nothing drafted"
+    case .ambiguous(let name, let candidates):
+      exchanges[index].answer = "Which \(name)?"
+      exchanges[index].source = "Your contacts · nothing drafted yet"
+      exchanges[index].pendingCompose = PendingCompose(request: request, question: question, name: name, candidates: candidates)
+    case .opened(let recipients, _):
+      exchanges[index].answer = "Here’s your draft to \(recipients.map(\.name).joined(separator: " and ")). It’s saved in Drafts; nothing has been sent."
+      exchanges[index].source = source
+      if let id = store.composeID, let saved = store.mails.first(where: { $0.id == id }) {
+        exchanges[index].draft = AssistantDraftArtifact(mailID: id, to: saved.to, subject: saved.subject, body: saved.body, isReply: false)
+      }
+    }
+  }
   private func update(_ id: UUID, _ change: (inout ChatExchange) -> Void) {
     guard let index = exchanges.firstIndex(where: { $0.id == id }) else { return }
     change(&exchanges[index])
@@ -408,6 +427,24 @@ struct AssistantView: View {
                   update(exchange.id) { $0.bulk?.plan.targets = detailed }
                 } catch { actionNotice = error.localizedDescription }
               })
+          }
+          if let pending = exchange.pendingCompose, !pending.resolved {
+            VStack(alignment: .leading, spacing: 8) {
+              ForEach(pending.candidates) { contact in
+                Button { ask(contact.email) } label: {
+                  HStack(spacing: 10) {
+                    CoveAvatar(initials: contact.initials.isEmpty ? String(contact.email.prefix(1)).uppercased() : contact.initials, size: 28)
+                    VStack(alignment: .leading, spacing: 1) {
+                      Text(contact.name).font(.coveLabel)
+                      Text(contact.email).font(.coveMetadata).foregroundStyle(Palette.body)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.right").font(.cove(size: 11)).foregroundStyle(Palette.muted)
+                  }.padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: 420, alignment: .leading)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10)).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(working).accessibilityLabel("Write to \(contact.name), \(contact.email)")
+              }
+            }
           }
           if let draft = exchange.draft {
             AssistantDraftCard(draft: draft, review: { reviewDraft(draft) }, copy: {
@@ -779,6 +816,12 @@ struct AssistantView: View {
     }()
     // What the user is looking at when they ask; "this" and "these" resolve from it.
     let screenContext = store.assistantScreenContext()
+    // An answer to "Which Martha?" continues that draft instead of starting over.
+    let resume: (exchangeID: UUID, pending: PendingCompose, contact: MailContact)? = {
+      guard let last = exchanges.last, let pending = last.pendingCompose, !pending.resolved,
+        let contact = RecipientResolver.pick(from: pending.candidates, reply: question) else { return nil }
+      return (last.id, pending, contact)
+    }()
     let exchange = ChatExchange(question: question, mail: mail, scope: scope)
     exchanges.append(exchange)
     query = ""
@@ -790,6 +833,24 @@ struct AssistantView: View {
         var source: String?
         var passages: [MailPassage] = []
         var response: AssistantResponse?
+        if let resume, useAI, let choice = modelChoice {
+          if let old = exchanges.firstIndex(where: { $0.id == resume.exchangeID }) { exchanges[old].pendingCompose?.resolved = true }
+          if let index = exchanges.firstIndex(where: { $0.id == exchange.id }) {
+            exchanges[index].progress = "Writing your draft to \(resume.contact.name)…"
+          }
+          let folded = { (text: String) in text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+          let original = resume.pending.request
+          let request = AssistantCalendar.ComposeRequest(
+            recipients: original.recipients.map { folded($0) == folded(resume.pending.name) ? resume.contact.email : $0 },
+            subject: original.subject, purpose: original.purpose, intro: original.intro)
+          let outcome = try await store.draftNewEmail(request, question: resume.pending.question, present: false) { prompt in
+            try await aiSettings.complete(prompt, provider: choice.provider, model: choice.model)
+          }
+          guard !Task.isCancelled, store.accountEmail == account else { return }
+          showComposeOutcome(outcome, exchangeID: exchange.id, request: request, question: resume.pending.question,
+                             source: "Draft · \(choice.provider.title) · \(choice.model)")
+          return
+        }
         if mailboxQuestion == .unsupportedCount, useAI, searchingGmail, !store.isSample, let choice = modelChoice {
           let counted = try await store.countMatchingMail(question, history: conversationHistory) { prompt in
             try await aiSettings.complete(prompt, provider: choice.provider, model: choice.model)
@@ -910,19 +971,9 @@ struct AssistantView: View {
             let outcome = try await store.draftNewEmail(request, question: question, present: false) { prompt in
               try await aiSettings.complete(prompt, provider: provider, model: model)
             }
-            guard !Task.isCancelled, store.accountEmail == account,
-              let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
-            switch outcome {
-            case .clarification(let question):
-              exchanges[index].answer = question
-              exchanges[index].source = "Your contacts · nothing drafted"
-            case .opened(let recipients, _):
-              exchanges[index].answer = "Here’s your draft to \(recipients.map(\.name).joined(separator: " and ")). It’s saved in Drafts; nothing has been sent."
-              exchanges[index].source = "Draft · \(provider.title) · \(model)"
-              if let id = store.composeID, let saved = store.mails.first(where: { $0.id == id }) {
-                exchanges[index].draft = AssistantDraftArtifact(mailID: id, to: saved.to, subject: saved.subject, body: saved.body, isReply: false)
-              }
-            }
+            guard !Task.isCancelled, store.accountEmail == account else { return }
+            showComposeOutcome(outcome, exchangeID: exchange.id, request: request, question: question,
+                               source: "Draft · \(provider.title) · \(model)")
             return
           case .reply(let instruction):
             guard let mail else { return }
@@ -1114,6 +1165,14 @@ enum AssistantFeedback: CaseIterable {
   var symbol: String { self == .helpful ? "hand.thumbsup" : "hand.thumbsdown" }
 }
 
+struct PendingCompose {
+  let request: AssistantCalendar.ComposeRequest
+  let question: String
+  let name: String
+  let candidates: [MailContact]
+  var resolved = false
+}
+
 struct ChatExchange: Identifiable {
   let id = UUID()
   let question: String
@@ -1134,6 +1193,8 @@ struct ChatExchange: Identifiable {
   var eventDismissed = false
   var draft: AssistantDraftArtifact?
   var rememberedMemory: String?
+  /// A new email waiting for the user to say which of several contacts they meant.
+  var pendingCompose: PendingCompose?
   var memoryUndone = false
   var bulk: AssistantBulkState?
   /// The selected event's times before an approved move, for Undo.
@@ -1146,6 +1207,7 @@ struct ChatExchange: Identifiable {
       return eventCreated ? "Event added" : eventProposal == nil ? "Calendar" : "Event ready to review"
     }
     if let draft { return draft.isReply ? "Reply ready to review" : "Draft ready to review" }
+    if let pendingCompose { return pendingCompose.resolved ? "Recipient chosen" : "Choose who to write to" }
     if rememberedMemory != nil { return memoryUndone ? "Memory removed" : "Saved to memories" }
     let count = Set(passages.map { $0.mail.id }).count
     if count > 0 { return "\(count) email\(count == 1 ? "" : "s") used" }

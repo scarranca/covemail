@@ -870,6 +870,8 @@ import SwiftUI
   }
   enum AssistantDraftOutcome: Equatable {
     case clarification(String)
+    /// More than one contact matches a name; the chat offers them and waits for a pick.
+    case ambiguous(name: String, candidates: [MailContact])
     case opened(recipients: [MailContact], subject: String)
   }
   /// Writes a new email (for example an introduction) to people matched in the user's contacts,
@@ -882,6 +884,7 @@ import SwiftUI
     let generation = mailboxGeneration
     let resolution = RecipientResolver.resolve(
       request.recipients, contacts: contacts, question: question, accountEmail: accountEmail)
+    if case .ambiguous(let name, let candidates) = resolution { return .ambiguous(name: name, candidates: candidates) }
     guard case .resolved(let people) = resolution else { return .clarification(resolution.clarification ?? "") }
     let to = people.map { $0.name == $0.email ? $0.email : "\($0.name) <\($0.email)>" }.joined(separator: ", ")
     let firstNames = people.map { $0.name == $0.email ? $0.email : String($0.name.split(separator: " ").first ?? "") }
