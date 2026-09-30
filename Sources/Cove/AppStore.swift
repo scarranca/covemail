@@ -755,7 +755,7 @@ import SwiftUI
   /// then opens it in the composer for review. Nothing is sent.
   func draftNewEmail(
     _ request: AssistantCalendar.ComposeRequest, question: String,
-    write: @escaping (AIPrompt) async throws -> String
+    present: Bool = true, write: @escaping (AIPrompt) async throws -> String
   ) async throws -> AssistantDraftOutcome {
     guard entered else { throw CoveError.message("Open a mailbox before drafting.") }
     let generation = mailboxGeneration
@@ -783,7 +783,7 @@ import SwiftUI
     guard !body.isEmpty else { throw CoveError.message("The writing model returned an empty draft. Try again.") }
     let subject = !request.subject.isEmpty ? request.subject
       : request.intro && people.count == 2 ? "Intro: \(firstNames[0]) ⟷ \(firstNames[1])" : ""
-    newDraft()
+    newDraft(present: present)
     guard let id = composeID else { throw CoveError.message("Couldn’t open a new draft.") }
     saveComposition(id: id, to: to, subject: subject, body: body)
     return .opened(recipients: people, subject: subject)
@@ -798,6 +798,12 @@ import SwiftUI
     return memory
   }
   /// Removes memories that contain the text; returns what was removed.
+  /// Undo for a memory just saved: removes only that exact memory.
+  func forgetMemory(exactly memory: String) {
+    guard entered, preferences.memories.contains(memory) else { return }
+    preferences.memories.removeAll { $0 == memory }
+    persistPreferences()
+  }
   func forgetMemories(matching text: String) -> [String] {
     let needle = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard entered, !needle.isEmpty else { return [] }
@@ -1740,14 +1746,15 @@ import SwiftUI
     return [email] + addresses.filter { $0.caseInsensitiveCompare(email) != .orderedSame }
   }
 
-  func newDraft() {
+  /// Creates an empty local draft; `present: false` keeps it closed (the assistant shows it inline).
+  func newDraft(present: Bool = true) {
     let mail = Mail(
       id: "local-\(UUID().uuidString)", sender: accountEmail, senderEmail: accountEmail,
       subject: "", body: "", labels: ["DRAFT"])
     mails.insert(mail, at: 0)
     composeID = mail.id
     persistMessage(mail)
-    showComposer = true
+    if present { showComposer = true }
   }
   func saveComposition(id: String, to: String, subject: String, body: String, from: String? = nil) {
     guard let index = mails.firstIndex(where: { $0.id == id }) else { return }

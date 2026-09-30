@@ -41,6 +41,15 @@ import XCTest
     XCTAssertTrue(store.showComposer)
     XCTAssertFalse(store.mails.contains { $0.labels.contains("SENT") })
 
+    // From the assistant, the draft is saved but stays closed so the chat can show it inline.
+    store.showComposer = false
+    _ = try await store.draftNewEmail(request, question: "make an intro between Alberto and Maya", present: false) { prompt in
+      prompt.system.contains("You plan read-only evidence lookups") ? #"{"tools":[]}"# : "Hi both,\n\nMeet each other."
+    }
+    XCTAssertFalse(store.showComposer)
+    XCTAssertEqual(store.mails.first { $0.id == store.composeID }?.body, "Hi both,\n\nMeet each other.")
+    XCTAssertFalse(store.mails.contains { $0.labels.contains("SENT") })
+
     var single = ""
     _ = try await store.draftNewEmail(.init(recipients: ["Maya"], subject: "", purpose: "Introduce myself", intro: true),
       question: "introduce me to Maya") { prompt in

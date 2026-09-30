@@ -77,6 +77,21 @@
   - Mail search is a filled chip rather than a pill with a switch. It keeps an explicit focus outline, and the system focus ring is disabled because it drew clipped marks.
   - Renders inspected: `AssistantChatRenderingTests` design and compact sizes.
 
+## Ask Cove: approval cards
+
+- **Event card:** a date badge, title, weekday and time, destination (Google Calendar or This Mac) and the availability result (check or warning icon).
+  - Buttons: **Add to calendar** (the explicit click is the commit, as in the editor, and a past start is refused), **Edit** (opens the existing editor sheet) and **Not now**.
+  - Once added, it shows "Added" with **Undo** (deletes that event) and **Open in Calendar**.
+- **Draft card** (new emails and replies): To, Subject and a 10-line body preview, with **Review & send** and **Copy**.
+  - The assistant no longer closes itself after drafting. `draftNewEmail(present: false)` saves the draft without opening the composer.
+  - Review & send opens the composer or reader, where the user sends. The assistant still never sends.
+- **Memory card:** "Remembered" with **Undo**. `forgetMemory(exactly:)` removes only that memory.
+- **Tests:**
+  - Renders inspected: `/tmp/cove-assistant-artifacts*.png`.
+  - `AssistantComposeTests`: an inline draft stays closed and is never sent.
+  - `AssistantCalendarTests`: the event card renders at a narrow width.
+  - Add and Undo reuse `createEvent` / `deleteEvent`, which are already covered.
+
 ## Suites
 
 - Full offline run: core 232 passed (1 skipped), rendering 301 passed (7 skipped).

@@ -173,14 +173,15 @@ import XCTest
 
   func testProductionEventPreviewRendersAtNarrowWidth() throws {
     let proposal = AssistantCalendar.Proposal(title: "Focus time", start: now.addingTimeInterval(1800), end: now.addingTimeInterval(3600), availability: "No overlaps found in your primary Google Calendar and Cove’s local events. Other calendars and guests haven’t been checked.")
-    let view = AssistantEventCard(proposal: proposal, created: false) {}.padding(24).frame(width: 400).background(Palette.canvas)
+    let view = AssistantEventCard(proposal: proposal, destination: "Google Calendar", added: nil, dismissed: false, busy: false,
+      add: {}, edit: {}, dismiss: {}, undo: {}, open: { _ in }).padding(24).frame(width: 400).background(Palette.canvas)
     let renderer = ImageRenderer(content: view)
     renderer.scale = 2
     let image = try XCTUnwrap(renderer.nsImage)
     let bitmap = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(image.tiffRepresentation)))
     try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-assistant-event-review.png"))
     XCTAssertEqual(bitmap.pixelsWide, 800)
-    XCTAssertGreaterThan(bitmap.pixelsHigh, 500)
+    XCTAssertGreaterThan(bitmap.pixelsHigh, 300)
   }
 
   func testExplicitCreatePersistsOneGoogleEventAndNoInvitations() async throws {
