@@ -7,6 +7,7 @@ struct ReaderView: View {
   let mail: Mail
   @State private var reply = ""
   @State private var confirmUnsubscribe = false
+  @State var askingCove = false
   @State private var unsubscribing = false
   @State private var unsubscribeNote: (text: String, failed: Bool)?
   @State private var replyTarget: Mail?
@@ -87,6 +88,7 @@ struct ReaderView: View {
           }.padding(.horizontal, 32).padding(.top, 24).padding(.bottom, 24)
             .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity)
         }
+        .overlay(alignment: .bottom) { askPanel }
         Divider()
         responseBar { all in
           replyAll = all
@@ -113,6 +115,7 @@ struct ReaderView: View {
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
+    .onChange(of: current.id) { _, _ in askingCove = false }
     // Ask Cove can write the reply while this email is open. Typing keeps both in step, so a difference
     // means the draft was written elsewhere: show it instead of an empty editor.
     .onChange(of: replySource.draft) { _, written in
@@ -375,10 +378,40 @@ struct ReaderView: View {
       Text("Sender uses a no-reply address.").font(.coveSecondary).foregroundStyle(Palette.body)
     }
   }
+  /// A small ✦ opens Ask Cove inside the email instead of a separate window.
   @ViewBuilder private var askButton: some View {
     if !current.labels.contains("DRAFT") {
-      Button { store.askAboutEmail(current) } label: { Label("Ask Cove", systemImage: "sparkles") }
-      .buttonStyle(SecondaryButton()).fixedSize()
+      Button {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { askingCove.toggle() }
+      } label: {
+        Image(systemName: askingCove ? "xmark" : "sparkles").font(.cove(size: 15))
+          .foregroundStyle(askingCove ? Palette.canvas : Palette.ink)
+          .frame(width: 40, height: 40)
+          .background(askingCove ? Palette.ink : Palette.sidebar, in: Circle())
+          .contentShape(Circle())
+      }.buttonStyle(.plain)
+        .help(askingCove ? "Close Ask Cove" : "Ask Cove about this email")
+        .accessibilityLabel(askingCove ? "Close Ask Cove" : "Ask Cove about this email")
+    }
+  }
+  @ViewBuilder private var askPanel: some View {
+    if askingCove {
+      GeometryReader { geometry in
+        VStack {
+          Spacer(minLength: 0)
+          AssistantView(store: store, availableSize: CGSize(width: geometry.size.width, height: geometry.size.height),
+                        pinnedMailID: current.id,
+                        onClose: { withAnimation(.easeOut(duration: 0.2)) { askingCove = false } })
+            .frame(height: min(460, max(260, geometry.size.height * 0.5)))
+            .background(Palette.canvas)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Palette.line))
+            .shadow(color: .black.opacity(0.10), radius: 18, y: 6)
+            .frame(maxWidth: 760)
+            .padding(.horizontal, 20).padding(.bottom, 14)
+            .frame(maxWidth: .infinity)
+        }
+      }.transition(.move(edge: .bottom).combined(with: .opacity))
     }
   }
   var replyEditor: some View {

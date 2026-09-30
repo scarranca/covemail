@@ -113,6 +113,17 @@ import XCTest
     try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-reader-assistant-reply.png"))
     XCTAssertEqual(store.mails.first?.draft, "Thanks so much, Martha! I appreciate you sending this over.")
   }
+  func testAskCoveOpensInsideTheEmail() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let store = try fixture()
+    var plain = message; plain.htmlBody = nil
+    store.mails = [plain]; store.selectedID = plain.id
+    let suite = "Cove.ReaderDesignTests." + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    try await render(ReaderView(store: store, mail: plain, askingCove: true).defaultAppStorage(defaults), width: 824, name: "ask-inline")
+    XCTAssertFalse(store.showAssistant, "the separate assistant window stays closed")
+  }
   private func render<V: View>(_ view: V, width: CGFloat, name: String) async throws {
     let host = NSHostingView(rootView: view.font(.coveBody).foregroundStyle(Palette.ink).background(Palette.canvas))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 960), styleMask: [.borderless], backing: .buffered, defer: false)

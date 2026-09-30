@@ -5,7 +5,7 @@ import SwiftUI
 struct AssistantView: View {
   @Bindable var store: AppStore
   let availableSize: CGSize
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.dismiss) private var dismissSheet
   @FocusState private var composerFocused: Bool
   @State private var query = ""
   @State private var eventReview: AssistantEventReview?
@@ -33,15 +33,25 @@ struct AssistantView: View {
     aiSettings.assistantChoice(preferred: selectedModel)
   }
   private var writingProvider: AIProvider? { modelChoice?.provider }
+  /// Embedded in the reader: the conversation is about this email and closes in place.
+  var pinnedMailID: String?
+  var onClose: (() -> Void)?
+  private var embedded: Bool { pinnedMailID != nil }
   init(store: AppStore, availableSize: CGSize, settings: AIProviderSettings = .shared,
-       initialExchanges: [ChatExchange] = [], initialQuery: String = "") {
+       initialExchanges: [ChatExchange] = [], initialQuery: String = "",
+       pinnedMailID: String? = nil, onClose: (() -> Void)? = nil) {
     self.store = store
+    self.pinnedMailID = pinnedMailID
+    self.onClose = onClose
     self.availableSize = availableSize
     _aiSettings = State(initialValue: settings)
     _exchanges = State(initialValue: initialExchanges)
     _query = State(initialValue: initialQuery)
   }
   private var working: Bool { request != nil }
+  private func close() {
+    if let onClose { onClose() } else { store.showAssistant = false; dismissSheet() }
+  }
   private var context: Mail? {
     store.mails.first { $0.id == contextID }
   }
@@ -55,21 +65,21 @@ struct AssistantView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      header
+      if embedded { embeddedHeader } else { header }
       Divider()
       conversation
       composer
     }
     .frame(
-      width: min(800, max(1, availableSize.width - 48)),
-      height: min(896, max(1, availableSize.height - 48))
+      width: embedded ? nil : min(800, max(1, availableSize.width - 48)),
+      height: embedded ? nil : min(896, max(1, availableSize.height - 48))
     )
     .background(Palette.canvas)
     .font(.coveBody).foregroundStyle(Palette.ink)
     .onAppear {
       // The hub asks about the mailbox; only the mail reader starts with a selected email.
-      contextID =
-        store.screen == "mail" ? availableMail.first { $0.id == store.selectedID }?.id : nil
+      contextID = pinnedMailID ?? (
+        store.screen == "mail" ? availableMail.first { $0.id == store.selectedID }?.id : nil)
       // A conversation is read as a whole by default; "This email" remains in the scope picker.
       if let context, !context.threadID.isEmpty,
         MailConversation.messages(in: store.mails, anchor: context).count > 1
@@ -99,7 +109,7 @@ struct AssistantView: View {
         store.saveReply(id: review.mail.id, text: value)
         replyReview = nil
         openSource(review.mail)
-      }, onConfigure: { store.screen = "integrations"; dismiss() }, store: store,
+      }, onConfigure: { store.screen = "integrations"; close() }, store: store,
         initialInstruction: "Draft a reply to this email. Consider the earlier recommendation, but verify it against the email. Do not invent commitments. Use the language of my original question: \(review.question)",
         recommendationContext: review.recommendation)
     }
@@ -239,7 +249,7 @@ struct AssistantView: View {
       actionNotice = "This draft is no longer available."
       return
     }
-    store.showAssistant = false
+    close()
     if draft.isReply {
       store.screen = "mail"
       store.select(mail)
@@ -249,6 +259,22 @@ struct AssistantView: View {
     }
   }
 
+  /// A slim header for the reader: what the conversation is about, a fresh start, and close.
+  private var embeddedHeader: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "sparkles").font(.cove(size: 13)).foregroundStyle(Palette.body).accessibilityHidden(true)
+      Text(scope == .thread ? "Ask about this conversation" : "Ask about this email").font(.coveLabel)
+      Spacer()
+      if !exchanges.isEmpty {
+        Button("New") {
+          exchanges = []; expandedSources = []; query = ""; actionNotice = nil; researchedIDs = []; composerFocused = true
+        }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).disabled(working)
+      }
+      Button { close() } label: { Image(systemName: "xmark").font(.cove(size: 12)).frame(width: 24, height: 24) }
+        .buttonStyle(.plain).foregroundStyle(Palette.body).help("Close").accessibilityLabel("Close Ask Cove")
+        .keyboardShortcut(.cancelAction)
+    }.padding(.horizontal, 20).padding(.vertical, 12)
+  }
   private var header: some View {
     HStack(spacing: 14) {
       Image(systemName: "sparkles").font(.cove(size: 16)).foregroundStyle(Palette.body)
@@ -278,7 +304,7 @@ struct AssistantView: View {
         .help("Conversation history").accessibilityLabel("Conversation history")
       Rectangle().fill(Palette.line).frame(width: 1, height: 20)
       Button {
-        dismiss()
+        close()
       } label: {
         Image(systemName: "xmark").font(.cove(size: 17)).frame(width: 28, height: 30)
       }.buttonStyle(.plain).help("Close chat").accessibilityLabel("Close chat")
@@ -290,7 +316,7 @@ struct AssistantView: View {
     ScrollViewReader { proxy in
       ScrollView {
         VStack(alignment: .leading, spacing: 22) {
-          if let mail = context {
+          if let mail = context, !embedded {
             Button {
               choosingContext = true
             } label: {
@@ -302,7 +328,7 @@ struct AssistantView: View {
               .font(.coveSecondary).lineLimit(1).foregroundStyle(Palette.body)
               .padding(.vertical, 4).contentShape(Rectangle())
             }.buttonStyle(.plain).help("Choose an email or its whole thread").disabled(working)
-          } else {
+          } else if !embedded {
             Label(
               exchanges.last?.isCalendar == true
                 ? (store.isSample ? "Calendar · sample data on this Mac" : "Your calendar")
@@ -317,7 +343,7 @@ struct AssistantView: View {
             exchangeView(exchange).id(exchange.id)
           }
           Color.clear.frame(height: 1).id("conversation-end")
-        }.padding(.horizontal, 32).padding(.top, 24).padding(.bottom, 28)
+        }.padding(.horizontal, embedded ? 20 : 32).padding(.top, embedded ? 16 : 24).padding(.bottom, embedded ? 16 : 28)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       .onChange(of: exchanges.count) { _, _ in proxy.scrollTo("conversation-end", anchor: .bottom) }
@@ -335,6 +361,14 @@ struct AssistantView: View {
   }
 
   @ViewBuilder private var introduction: some View {
+    if embedded {
+      // The header already says what this is about; start with the suggestions.
+      MailChipLayout(spacing: 9) {
+        ForEach(suggestions, id: \.label) { suggestion in
+          Button(suggestion.label) { ask(suggestion.question) }
+        }
+      }.buttonStyle(SecondaryButton(compact: true)).disabled(working)
+    } else {
     VStack(alignment: .leading, spacing: 18) {
       Image(systemName: "sparkles").font(.cove(size: 25)).foregroundStyle(Palette.muted)
         .accessibilityHidden(true)
@@ -349,6 +383,7 @@ struct AssistantView: View {
         }
       }.buttonStyle(SecondaryButton(compact: true)).disabled(working)
     }.padding(.vertical, 34)
+    }
   }
 
   /// Short starting points for what's on screen, instead of a paragraph of instructions.
@@ -411,7 +446,7 @@ struct AssistantView: View {
                 store.selectCalendarDay(event.start)
                 store.calendarEventID = event.id
                 store.screen = "calendar"
-                store.showAssistant = false
+                close()
               }, isMove: proposal.eventID != nil,
               note: proposal.eventID.flatMap { id in store.events.first { $0.id == id } }
                 .flatMap { $0.hasOtherGuests && !store.isSample ? "Guests will see the new time." : nil })
@@ -478,11 +513,11 @@ struct AssistantView: View {
               HStack(spacing: 10) {
                 Button("Add TypeSafe key") {
                   store.settingsSection = "Jev · Mail agent"
-                  store.showAssistant = false
+                  close()
                   store.showConnections = true
                 }.buttonStyle(PrimaryButton())
                 Button("Connect a writing model") {
-                  store.showAssistant = false
+                  close()
                   store.screen = "integrations"
                 }.buttonStyle(SecondaryButton())
               }
@@ -617,7 +652,7 @@ struct AssistantView: View {
         } manage: {
           showingModels = false
           store.screen = "integrations"
-          dismiss()
+          close()
         }
       }
   }
@@ -634,6 +669,7 @@ struct AssistantView: View {
           .accessibilityLabel("Question for Cove")
           .focused($composerFocused).onSubmit { ask(query) }
         HStack(spacing: 12) {
+          if !embedded {
           Button {
             choosingContext = true
           } label: {
@@ -641,6 +677,7 @@ struct AssistantView: View {
           }.buttonStyle(.plain).foregroundStyle(Palette.body).disabled(working)
             .help("Choose downloaded mail, one email, or its whole thread")
             .accessibilityLabel("Choose email context")
+          }
           modelMenu
           Toggle("Mail search", isOn: $searchingGmail)
             .toggleStyle(AssistantMailSearchStyle(compact: availableSize.width < 640)).focusEffectDisabled()
@@ -683,7 +720,7 @@ struct AssistantView: View {
               .padding(20).frame(width: 330)
           }
       }
-    }.padding(.horizontal, 24).padding(.bottom, 20)
+    }.padding(.horizontal, embedded ? 16 : 24).padding(.bottom, embedded ? 14 : 20)
       .popover(isPresented: $choosingContext) { contextPicker }
   }
 
@@ -788,7 +825,7 @@ struct AssistantView: View {
     store.chooseFolder(researchedIDs.contains(current.id) ? "All mail" : folder)
     store.priorityOnly = false
     store.select(current)
-    dismiss()
+    close()
   }
 
   private func ask(_ question: String) {
@@ -912,7 +949,7 @@ struct AssistantView: View {
             exchanges[index].answer = destination.summary
             exchanges[index].source = "Opened in Cove"
             store.perform(destination)
-            dismiss()
+            close()
             return
           case .bulk(let bulkRequest):
             exchanges[index].progress = bulkRequest.scope == .query && searchingGmail && !store.isSample
