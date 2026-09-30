@@ -8,8 +8,8 @@ import plistlib
 import re
 import sys
 
-version = os.environ.get("COVE_VERSION", "0.1.49")
-build = os.environ.get("COVE_BUILD", "51")
+version = os.environ.get("COVE_VERSION", "0.1.50")
+build = os.environ.get("COVE_BUILD", "52")
 if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"\d+", build):
     sys.exit("COVE_VERSION must be x.y.z and COVE_BUILD must be an integer.")
 info = {

@@ -58,7 +58,13 @@ User decisions: index the last 365 days (plus older starred mail), keep formatte
   - The app still calls `loadMail()`.
   - The working-set switch, keyed-hash index, 365-day backfill, retention/limit/purge and Settings → Storage are phases 2–5.
   - Before narrowing the working set: route Gmail merges for stored-but-unloaded emails through untracked archive reads and writes, so Jev decisions, drafts and snoozes are kept and Gmail deletions purge rows (the read-site audit found every merge site would otherwise overwrite archived rows); and load threads by `thread_id`.
-  - **A live real-account migration check with an isolated QA build is required before release.**
+- **Live real-account migration check (September 29):**
+  1. A QA build of the published 0.1.49 commit (`5fd1f42`, bundle `ai.cove.qa`, data under `Cove/QA`, separate Keychain) was connected by the user to their real Gmail account.
+     - Store: version 2, one 1.5 MB encrypted `mail` snapshot plus one `mailOverride:` record, no `messages` table.
+  2. The user opened the 0.1.50 QA build over the same data and confirmed the inbox and opened emails looked the same.
+     - Store after: version 3; `mail` and `mailOverride:` removed.
+     - 150 message rows (132 threads, 145 in Inbox); the six other records (cursor, labels, pagination, snoozes, last sync, decoding version) kept.
+  - Only metadata (version, counts, cleartext columns) was read; no mail content was read or logged. The user's own Cove and its data were not touched.
 
 ## Not done / limits
 
