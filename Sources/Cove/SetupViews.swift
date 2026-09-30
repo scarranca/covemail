@@ -32,9 +32,7 @@ struct WelcomeView: View {
       Text("A quieter inbox.\nA clearer mind.").font(.coveDisplay)
         .tracking(-1.6).lineSpacing(0).foregroundStyle(Color(white: 0.141))
         .fixedSize(horizontal: false, vertical: true)
-      Text(
-        "Meet the email client that makes room for you.\nLet Jev help you find what needs your attention."
-      )
+      Text("Jev helps you find what needs your attention.")
       .font(.coveBody).lineSpacing(7).foregroundStyle(Color(white: 0.408))
       .fixedSize(horizontal: false, vertical: true).padding(.top, 16)
       Button {
@@ -63,17 +61,12 @@ struct WelcomeView: View {
         Button("Cancel sign-in") { store.auth.cancel() }
           .buttonStyle(.plain).font(.coveControl).padding(.top, 16)
       }
-      HStack(spacing: 10) {
-        Image(systemName: "checkmark.shield").font(.cove(size: 17))
-        Text("Your agents help. You always have the final say.")
-          .font(.coveSecondary).fixedSize(horizontal: false, vertical: true)
-      }.foregroundStyle(Color(white: 0.404)).padding(.top, 40)
     }
   }
 
   private var footer: some View {
     VStack(alignment: .leading, spacing: 18) {
-      Text("Mail is stored locally on this Mac.\nCredentials are kept in macOS Keychain.")
+      Text("Mail stays on this Mac. Credentials stay in Keychain.")
         .font(.coveMetadata).lineSpacing(6).foregroundStyle(Palette.muted)
       HStack {
         Button("Connection settings") { store.showConnections = true }
