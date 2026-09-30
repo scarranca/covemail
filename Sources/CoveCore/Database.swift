@@ -87,11 +87,11 @@ public final class Database {
       )
       if let encryptionKey {
         // Rows written before a key existed are plain JSON; read them before the cipher applies.
-        let plainMessages = version == 0 ? try loadMail() : []
+        let plainMessages = version == 0 ? try queryMessages("") { _ in } : []
         cipher = try RecordCipher(key: encryptionKey, namespace: namespace)
         if version == 0 {
           try transaction {
-            for mail in plainMessages { try writeMessageRow(mail) }
+            for mail in plainMessages { try writeMessageRow(mail, track: false) }
             // Read every old value before changing any. Migration commits all records or none.
             let old = try rawRecords(prefix: "")
             guard !old.contains(where: { $0.0 == Self.keyCheck }) else {
@@ -175,8 +175,12 @@ public final class Database {
     CREATE INDEX IF NOT EXISTS messages_date ON messages(date);
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id);
     """
-  /// Last saved value per email in this session, for change detection. Strings are shared with the
+  /// Last saved value per email in the live mailbox, for change detection. Strings are shared with the
   /// in-memory mailbox (copy-on-write), so this doesn't duplicate message bodies.
+  ///
+  /// Invariant: keys are exactly the emails the app holds in memory (returned by `loadMail` or saved
+  /// by `saveMessage`/`saveMailSnapshot`). A snapshot deletes tracked emails it no longer contains, so
+  /// archive reads and writes (`loadMessages`, `loadThread`, `storeArchived`) must never touch it.
   private var savedMessages: [String: Mail] = [:]
 
   /// Moves the original single-record mailbox (and its edit overrides) into rows, all or nothing.
@@ -191,7 +195,8 @@ public final class Database {
         for mail in try loadRecords(Mail.self, prefix: "mailOverride:") {
           if let index = positions[mail.id] { mails[index] = mail } else { positions[mail.id] = mails.count; mails.append(mail) }
         }
-        for mail in mails { try writeMessageRow(mail) }
+        // Untracked: migration output is archive, not the live mailbox.
+        for mail in mails { try writeMessageRow(mail, track: false) }
         // Only the two legacy mail keys are removed; preferences, cursors and cloud state stay.
         try deleteRecords(prefix: "mailOverride:")
         try deleteRecord(key: "mail")
@@ -203,7 +208,7 @@ public final class Database {
     }
   }
 
-  private func writeMessageRow(_ mail: Mail) throws {
+  private func writeMessageRow(_ mail: Mail, track: Bool = true) throws {
     let plain = try JSONEncoder().encode(mail)
     let data = try cipher?.seal(plain, record: "message:" + mail.id) ?? plain
     var statement: OpaquePointer?
@@ -222,7 +227,7 @@ public final class Database {
     sqlite3_bind_int(statement, 7, mail.snoozedUntil == nil ? 0 : 1)
     _ = data.withUnsafeBytes { sqlite3_bind_blob(statement, 8, $0.baseAddress, Int32(data.count), transient) }
     guard sqlite3_step(statement) == SQLITE_DONE else { throw CoveError.message("Could not save the local mailbox.") }
-    savedMessages[mail.id] = mail
+    if track { savedMessages[mail.id] = mail }
   }
 
   private func deleteMessageRow(_ id: String) throws {
@@ -244,14 +249,66 @@ public final class Database {
     guard sqlite3_step(statement) == SQLITE_DONE else { throw CoveError.message("Could not update the local mailbox.") }
   }
 
-  /// Emails dated on or after `since`, plus every starred, drafted, Inbox or snoozed email.
+  /// Emails dated on or after `since`, plus every starred, drafted, Inbox or snoozed email. These
+  /// become the tracked live mailbox.
   public func loadMail(since: Date = .distantPast) throws -> [Mail] {
+    let mails = try queryMessages(
+      "WHERE date>=? OR starred=1 OR has_draft=1 OR in_inbox=1 OR snoozed=1 ORDER BY date DESC, id DESC"
+    ) { sqlite3_bind_double($0, 1, since == .distantPast ? -Double.greatestFiniteMagnitude : since.timeIntervalSince1970) }
+    for mail in mails { savedMessages[mail.id] = mail }
+    return mails
+  }
+
+  // MARK: Archive access (untracked)
+
+  /// Every stored email id, loaded or not. Ids are clear text, so nothing is decrypted.
+  public func storedMessageIDs() throws -> Set<String> {
     var statement: OpaquePointer?
-    guard sqlite3_prepare_v2(handle, """
-      SELECT id,value FROM messages WHERE date>=? OR starred=1 OR has_draft=1 OR in_inbox=1 OR snoozed=1 ORDER BY date DESC, id DESC
-      """, -1, &statement, nil) == SQLITE_OK else { throw CoveError.message("Could not read local storage.") }
+    guard sqlite3_prepare_v2(handle, "SELECT id FROM messages", -1, &statement, nil) == SQLITE_OK
+    else { throw CoveError.message("Could not read local storage.") }
     defer { sqlite3_finalize(statement) }
-    sqlite3_bind_double(statement, 1, since == .distantPast ? -Double.greatestFiniteMagnitude : since.timeIntervalSince1970)
+    var ids = Set<String>()
+    while sqlite3_step(statement) == SQLITE_ROW {
+      if let text = sqlite3_column_text(statement, 0) { ids.insert(String(cString: text)) }
+    }
+    return ids
+  }
+
+  /// Stored emails with these ids, newest first. Does not add them to the live mailbox.
+  public func loadMessages(ids: some Collection<String>) throws -> [Mail] {
+    guard !ids.isEmpty else { return [] }
+    let list = String(decoding: try JSONEncoder().encode(Array(ids)), as: UTF8.self)
+    return try queryMessages("WHERE id IN (SELECT value FROM json_each(?)) ORDER BY date DESC, id DESC") {
+      sqlite3_bind_text($0, 1, list, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+    }
+  }
+
+  /// Every stored email in a thread, oldest first. Does not add them to the live mailbox.
+  public func loadThread(threadID: String) throws -> [Mail] {
+    guard !threadID.isEmpty else { return [] }
+    return try queryMessages("WHERE thread_id=? ORDER BY date ASC, id ASC") {
+      sqlite3_bind_text($0, 1, threadID, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+    }
+  }
+
+  /// Saves emails that are not in the live mailbox (older mail updated by Gmail, backfill).
+  public func storeArchived(_ mails: [Mail]) throws {
+    guard !mails.isEmpty else { return }
+    try transaction { for mail in mails { try writeMessageRow(mail, track: false) } }
+  }
+
+  /// Permanently removes local copies, e.g. after Gmail deletes the emails.
+  public func deleteMessages(ids: some Collection<String>) throws {
+    guard !ids.isEmpty else { return }
+    try transaction { for id in ids { try deleteMessageRow(id) } }
+  }
+
+  private func queryMessages(_ clause: String, bind: (OpaquePointer?) -> Void) throws -> [Mail] {
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, "SELECT id,value FROM messages " + clause, -1, &statement, nil) == SQLITE_OK
+    else { throw CoveError.message("Could not read local storage.") }
+    defer { sqlite3_finalize(statement) }
+    bind(statement)
     var mails: [Mail] = []
     while true {
       let result = sqlite3_step(statement)
@@ -261,9 +318,7 @@ public final class Database {
       else { throw CoveError.message("Could not read the local mailbox.") }
       let id = String(cString: idText)
       let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 1)))
-      let mail = try JSONDecoder().decode(Mail.self, from: cipher?.open(data, record: "message:" + id) ?? data)
-      savedMessages[mail.id] = mail
-      mails.append(mail)
+      mails.append(try JSONDecoder().decode(Mail.self, from: cipher?.open(data, record: "message:" + id) ?? data))
     }
     return mails
   }

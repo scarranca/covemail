@@ -98,6 +98,42 @@ final class MailboxPersistenceTests: XCTestCase {
     }
   }
 
+  func testArchiveAccessNeverJoinsTheLiveMailboxOrItsDeletions() throws {
+    try withDatabase { url in
+      let now = Date()
+      func mail(_ id: String, thread: String, daysAgo: Double, labels: Set<String> = []) -> Mail {
+        var mail = Samples.mail[0]
+        mail.id = id; mail.threadID = thread; mail.labels = labels
+        mail.date = now.addingTimeInterval(-daysAgo * 86_400)
+        return mail
+      }
+      var old = mail("old", thread: "t", daysAgo: 400)
+      old.draft = ""
+      old.decision = Samples.mail[0].decision
+      let recent = mail("recent", thread: "t", daysAgo: 1, labels: ["INBOX"])
+      do {
+        // A legacy store migrates untracked, so a later windowed snapshot can't drop archived mail.
+        let legacy = try Database(url: url)
+        try legacy.save([recent, old], key: "mail")
+      }
+      let database = try Database(url: url)
+      let live = try database.loadMail(since: now.addingTimeInterval(-90 * 86_400))
+      XCTAssertEqual(live.map(\.id), ["recent"])
+      XCTAssertEqual(try database.storedMessageIDs(), ["old", "recent"])
+      XCTAssertEqual(try database.loadThread(threadID: "t").map(\.id), ["old", "recent"])
+      // Gmail updates the archived email's labels; the stored decision is kept by the caller.
+      var relabeled = try XCTUnwrap(database.loadMessages(ids: ["old", "missing"]).first)
+      relabeled.labels = ["IMPORTANT"]
+      try database.storeArchived([relabeled])
+      try database.saveMailSnapshot(live)
+      try database.saveMailSnapshot([])  // removes only the tracked "recent"
+      XCTAssertEqual(try database.loadMessages(ids: ["old"]), [relabeled])
+      XCTAssertEqual(try database.storedMessageIDs(), ["old"])
+      try database.deleteMessages(ids: ["old"])
+      XCTAssertEqual(try database.messageCount(), 0)
+    }
+  }
+
   func testNewerStorageVersionIsRejectedWithoutChanges() throws {
     try withDatabase { url in
       _ = try Database(url: url)
