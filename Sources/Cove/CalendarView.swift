@@ -57,28 +57,6 @@ struct CalendarView: View {
         }
       }.padding(30).padding(.top, 22)
       CalendarRule()
-      HStack {
-        Label(
-          focus == nil
-            ? "A little breathing room. Make space for what matters."
-            : "A little breathing room on \(store.calendarDay.formatted(.dateTime.month(.abbreviated).day())).",
-          systemImage: "sparkles")
-        Spacer()
-        if let focus {
-          Button {
-            reviewFocus(focus)
-          } label: {
-            Label("Review focus time", systemImage: "arrow.right")
-          }.buttonStyle(.plain).foregroundStyle(Palette.ink)
-        } else {
-          Text(
-            store.calendarConnected && !store.isSample
-              ? "Google Calendar + local" : "Local calendar"
-          ).font(.coveMetadata)
-        }
-      }.font(.coveText).foregroundStyle(Palette.muted).padding(20).background(
-        Palette.surface)
-      CalendarRule()
       GeometryReader { geometry in
         let agendaWidth = CalendarLayout.agendaWidth(
           preferred: preferredAgendaWidth, available: geometry.size.width)
@@ -180,8 +158,6 @@ struct CalendarView: View {
                   Task { await refresh() }
                 }.buttonStyle(SecondaryButton()).disabled(store.calendarSyncing)
               }
-              Label("Your time. Your call.", systemImage: "checkmark.shield")
-                .font(.coveMetadata).foregroundStyle(Palette.muted)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
           }.frame(width: agendaWidth)
             .accessibilityLabel("Day agenda")
@@ -356,11 +332,6 @@ struct CalendarView: View {
       }.buttonStyle(.plain).help(displayMode == .month ? "Next month" : "Next week")
         .accessibilityLabel(displayMode == .month ? "Next month" : "Next week")
       Button {
-        newEvent()
-      } label: {
-        Label("New event", systemImage: "plus")
-      }.buttonStyle(PrimaryButton())
-      Button {
         showingSearch = true
       } label: {
         Image(systemName: "magnifyingglass").frame(width: 24, height: 32)
@@ -418,25 +389,18 @@ struct CalendarView: View {
         }
       }
       CalendarRule()
-      Text("Make room to focus").font(.coveSubheading)
+      Text("Focus time").font(.coveSubheading)
       if let focus {
         Text(timeRange(focus.start, focus.end)).font(.coveLabel)
-        Text(
-          store.calendarConnected && !store.isSample
-            ? "Available in your last sync of Google’s primary calendar and local events."
-            : "Available in your saved local events."
-        )
-        .font(.coveSecondary).foregroundStyle(Palette.muted)
         Button("Block focus time") {
           reviewFocus(focus)
         }.buttonStyle(SecondaryButton())
+          .help(store.calendarConnected && !store.isSample
+            ? "Free in your last sync of Google’s primary calendar and local events"
+            : "Free in your saved local events")
       } else {
-        Text(
-          store.calendarAvailabilityReady
-            ? "No hour-long opening left between 9 AM and 5 PM on this day."
-            : "Sync this week to check availability in your primary Google calendar."
-        )
-        .font(.coveSecondary).foregroundStyle(Palette.muted)
+        Text(store.calendarAvailabilityReady ? "No free hour between 9 AM and 5 PM." : "Sync to check availability.")
+          .font(.coveSecondary).foregroundStyle(Palette.muted)
       }
     }
   }
