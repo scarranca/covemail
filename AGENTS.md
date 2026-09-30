@@ -11,10 +11,18 @@ This is the shared handoff for the Cove repository. Read it before changing the 
 
 Some README/status/distribution sections are historical and still mention older versions, no deployed backend, or the old `Cove / Needs review` behavior. Newer code, versioned evidence, and this handoff supersede those claims. Do not report old test totals as verification of new changes.
 
-## Current checkpoint — September 29, 2026
+## Current checkpoint — September 30, 2026
 
+- **Unreleased work:** branch `scarranca/secure-incremental-mail-cache` is 40+ commits ahead of `origin/main` (`f5d77df`, the 0.1.50 publish). None of it is pushed.
+  - A 0.1.51 app was built and signed but **not notarized or published**. Its release notes, beta page and landing page are committed.
+  - The plan is to ship everything as **0.1.52**. `scripts/write-app-info.py` is already at 0.1.52 / build 54.
+  - 0.1.52 adds tasks from email (Google Tasks), the Important/Other inbox, assistant screen context, navigation and approval-gated bulk actions, "try an agent on recent mail" and notify mode, inline AI writing, calendar dragging, Gmail rate-limit backoff, Dock reopen, and a UI simplification pass.
+  - Evidence: `docs/qa/0.1.51/AUDIT.md` and `docs/qa/0.1.52/AUDIT-*.md`. It is being tested by the user in QA builds.
+- **QA builds** (`scripts/build-qa.sh` with `COVE_GOOGLE_OAUTH_FILE`) are copied to `dist/QA-<version>[-letter]/Cove QA.app`.
+  - The QA bundle (`ai.cove.qa`) keeps its data under `~/Library/Application Support/Cove/QA`, and that data holds the user's real, migrated account. Treat it as real mail.
+  - The user launches QA builds themselves. Never force-quit one: it may be holding an unsaved draft.
 - **Cove 0.1.50, build 52**, is published (Pages deployment `e50c3f33`). It adds instant search, faster and streaming drafts, Ask Cove follow-ups that reuse found emails, per-email encrypted storage (storage version 3, verified by a real-account migration check), and a landing refresh. Evidence: `docs/qa/0.1.50/AUDIT.md`. The local-first index continues: the working set is not narrowed yet (see the audit's order).
-- **Cove 0.1.49, build 51**, is published at `https://covemail.xyz` (Pages deployment `463c0cae`, commit `5fd1f42`). It adds large-question Gmail research (up to 100 matches, batched and cited), a daily brief, chat replies, contact lookups and memories in every AI draft. Evidence: `docs/qa/0.1.49/AUDIT.md`.
+- 0.1.49, build 51 (Pages deployment `463c0cae`, commit `5fd1f42`). It adds large-question Gmail research (up to 100 matches, batched and cited), a daily brief, chat replies, contact lookups and memories in every AI draft. Evidence: `docs/qa/0.1.49/AUDIT.md`.
 - 0.1.48 (deployment `75e0a625`) was a hotfix for 0.1.47: login-keychain queries must set `kSecUseDataProtectionKeychain: false` (`Vault.legacyQuery`), because otherwise deletes also remove data-protection items on the hardened build. Evidence: `docs/qa/0.1.48/AUDIT.md` and `docs/qa/0.1.47/AUDIT.md`.
 - 0.1.47 (deployment `9c0a9d4f`) added the learned voice (shared across accounts and, via cloud sync, across Macs), Ask Cove new emails and introductions, conversation cards with a Reply menu, a searchable label picker, Inbox Unread, one-step Calendar, and hardened AI/TypeSafe keys with optional Touch ID.
 - Backend: migration 003 `voice_profiles` applied (user-approved exact SQL); Cloud Run `cove-sync-api-00005-xtt` serves `/v1/voice`.
@@ -33,6 +41,7 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 - Keep passwords, API keys, refresh tokens, signing keys, and database credentials local. Never ask for them in chat or print secret-bearing files/CLI responses.
 - Push/merge/publish only within the current task's authorization. Check both worktrees and remote state; avoid force pushes and destructive resets. A prior release is not blanket authorization for unrelated external changes.
 - If parallel agent work is authorized, assign separate files or read-only reviews, share findings, and inspect every result. Agents share the filesystem.
+  - Worktree-isolated agents start from `main`, not the current branch. Tell them to merge the working branch first, then review, merge and run the full suite yourself.
 
 ## Repository map
 
@@ -41,15 +50,16 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 | App shell, navigation, state | `Sources/Cove/CoveApp.swift`, `AppStore.swift`, `CoveRuntime.swift` |
 | Shared design and text roles | `Sources/Cove/DesignSystem.swift`, `HomeTypography.swift`, `DESIGN.md` |
 | Onboarding, Google auth, Keychain | `SetupViews.swift`, `BundledGoogleOAuth.swift`, `Security.swift`; core Google session/OAuth files |
+| Tasks (Google Tasks) | `TasksViews.swift` (list, details, suggestions sheet, after-send toast); core `GoogleTasks.swift`, `TaskDetection.swift` (eligibility, extraction parsing, quick add, related context) |
 | Home | `AgentHubView.swift`, `HomeActions.swift`, `HomeCalendarView.swift`, `HomeWeatherView.swift`, `MailTideView.swift` |
-| Mail and reader | `MailViews.swift`, `ReaderView.swift`, `ReaderConversation.swift`, `AttachmentPreview.swift`, `EmailBodyView.swift`, `MailNavigationShortcut.swift`, `MailQuickActions.swift`, `MailDeletionToast.swift` |
+| Mail and reader | `MailViews.swift` (Important/Other tabs; core `InboxSplit.swift`), `ReaderView.swift`, `ReaderConversation.swift`, `AttachmentPreview.swift`, `EmailBodyView.swift`, `MailNavigationShortcut.swift`, `MailQuickActions.swift`, `MailDeletionToast.swift` |
 | Categories, labels, flags | `MailCategoriesView.swift`, `MailLabelViews.swift`; core `GmailLabels.swift`, `JevMailFlag.swift` |
 | Compose and AI review | `ComposeTextEditor.swift`, `ComposeSuggestion.swift`, `AIWritingSheet.swift`, `WritingMotion.swift`, `WritingAgent.swift` |
-| Chat | `AgentChatView.swift`, `AssistantResponse.swift`, `AssistantAgenda.swift`, `AssistantCalendar.swift`, `ChatMarkdown.swift`, `AssistantModelPicker.swift` |
+| Chat | `AgentChatView.swift`, `AssistantScreen.swift` (screen context), `AssistantBulkCard.swift` (core `AssistantActions.swift`), `AssistantResponse.swift`, `AssistantAgenda.swift`, `AssistantCalendar.swift`, `ChatMarkdown.swift`, `AssistantModelPicker.swift` |
 | AI accounts and model discovery | `AIProviderSettings.swift`, `ChatGPTConnection.swift`, `ClaudeConnection.swift`, `IntegrationsView.swift`; core provider/sandbox files |
 | Calendar | `CalendarView.swift`, `CalendarMonthView.swift`, `CalendarNavigation.swift`, `CalendarSearchView.swift`; core calendar files |
 | Contacts | `ContactsView.swift`, `Sources/CoveCore/Contacts.swift` |
-| Agents | `CustomAgentViews.swift`, `AgentViews.swift`; core `CustomAgent.swift`, `JevAutomation.swift`, `Jev.swift` |
+| Agents | `CustomAgentViews.swift`, `CustomAgentBackfillView.swift`, `AgentNotifications.swift`, `AgentViews.swift`; core `CustomAgent.swift`, `CustomAgentBackfill.swift`, `JevAutomation.swift`, `Jev.swift` |
 | Settings | `SettingsView.swift`, `SettingsSidebar.swift`, `SettingsPresentation.swift`, `ReadingSettingsView.swift`, `CloudSyncSettings.swift`, `AppUpdater.swift` |
 | Storage and API contracts | `Sources/CoveCore/Database.swift` (records and per-email `messages` rows), `RecordCipher.swift`, `GmailSync.swift` (merging), Gmail/HTTP files |
 | Optional cloud mirror | `Sources/CoveCore/CloudMailSync.swift`, `backend/` |
@@ -105,6 +115,20 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 - Unreleased (0.1.52, user-approved rule change): Ask Cove may archive, mark read/unread, star/unstar, or add/remove a label on many emails, **only after the user clicks the primary button on `AssistantBulkCard`**, which lists exactly the emails that will change (capped at 500). `AppStore.resolveBulk` only reads; `applyBulk` uses the shared `applyLabelChange` path with Gmail pacing/backoff, reports per-email failures, and Undo reverses exactly the succeeded emails. The assistant still cannot send mail, move mail to Trash or delete anything permanently; those operations do not exist in its plan. See `docs/qa/0.1.52/AUDIT-assistant.md`.
 - New drafts follow explicit language instructions, otherwise the current request's language. Rewrites preserve the original language unless asked to change it. Saved voice and foreign-language source mail must not override this.
 - Failures must stay visible with the attempted model and a useful retry/settings action. Snapshot provider/model and draft scope per request; reject stale updates and preserve edits on cancellation/failure.
+
+### Inbox split and agents (0.1.52)
+
+- The Inbox has Important/Other tabs (`InboxSplit.classify`). The first rule that matches decides:
+  1. the user's vote on the email;
+  2. the user's rule for that sender;
+  3. Jev reply or urgency ≥ 0.65 → Important;
+  4. bulk headers → Other;
+  5. a notification sender → Other;
+  6. a Jev newsletter, update or purchase category → Other;
+  7. everything else → Important.
+- Gmail's IMPORTANT label does not decide the tab. Votes live on `Mail.inboxVote`, are kept by `GmailSyncResult.merging`, and stay on this Mac. Settings → Reading → "Split inbox" turns it off. Keep the tab switch to a single `visible` recalculation.
+- "Try on recent mail" previews an agent over up to 200 Inbox emails from the last 14 days without changing anything. "Apply" labels exactly the matches, idempotently. Unclear results go only to Activity.
+- "Notify me when it matches" posts a local notification (sender · subject, never the body) for **new** matches only, never for backfill.
 
 ### Tasks (0.1.52)
 
@@ -183,6 +207,8 @@ For an authorized deployment, `backend/infra/deploy.sh` takes `COVE_SYNC_ENV_FIL
 - **GitHub:** repository remote is `https://github.com/scarranca/emailclassifier`. Use the configured Git credential flow or authenticated GitHub integration. Inspect `git remote -v` and current branch/worktree state; do not place a PAT in the remote URL or project files. Git authentication does not grant permission for unrelated repository changes.
 - **Apple:** distribution uses the existing Developer ID identity and Keychain profile `Cove-notarization`. Follow the release section and `docs/DISTRIBUTION.md`. If the profile is missing, have the user enter credentials at the local notarytool prompt; do not treat browser sign-in as notarytool authentication or reset their Keychain.
 
+Google Cloud changes on September 30: `tasks.googleapis.com` was enabled with `gcloud`, and `https://www.googleapis.com/auth/tasks` was added in Google Auth Platform → Data Access. The Cloud Console asks the user for a passkey confirmation first, so hand that step to them. Consent scopes are now `gmail.modify`, `calendar.events` and `tasks` (plus `openid email` for cloud sync).
+
 Access checked September 26, 2026: PlanetScale MCP returned `connection_ok: 1`; `pscale auth check` reported authenticated for the intended organization; `gcloud` successfully read the Cove Cloud Run service URL. These checks read no mailbox content and changed no database/cloud resources. Sessions may expire; recheck rather than assuming this record means a new agent is authenticated.
 
 ## Build and test without blocking the Mac
@@ -196,7 +222,10 @@ swift test
 ```
 
 - Use injected HTTP transports, synthetic accounts, temporary databases and isolated UserDefaults. Live account/provider tests are opt-in; inspect their environment gates before enabling them.
-- Reuse `NSHostingView`/hidden `NSWindow` rendering fixtures. Never call `orderFront` for routine QA. Avoid `RootView`'s polling task; render the production destination directly. Sample Reader avoids restoring real writing credentials.
+- Reuse `NSHostingView`/hidden `NSWindow` rendering fixtures. Never call `orderFront` for routine QA.
+  - The one exception is SwiftUI gesture tests (`CalendarDragInteractionTests`): gestures only run in an ordered window, so those use `orderFrontRegardless` at alpha 0, 40,000 points off-screen, without activating the app.
+  - Several suites write PNGs to the same `/tmp/cove-*.png` names. Give new renders unique names and inspect them right after the run.
+  - Test files that build `MailContact` or other internal-init types need `@testable import CoveCore`. Avoid `RootView`'s polling task; render the production destination directly. Sample Reader avoids restoring real writing credentials.
 - Useful fixtures: `SettingsLayoutTests`, `TypographyRenderingTests`, `ClaudeConnectionTests.testIntegrationsLayoutOffscreen`, `AgentHubDesignTests`, `MailNavigationTests`, `LabelMailboxTests`, `CalendarSeparationRenderingTests`, `CustomAgentTests`, `AssistantChatRenderingTests`, `AssistantAgendaTests`, and compose rendering/selection suites.
 - Inspect the actual screenshots, not only test exit status. Fixed-width sheets can resize their hosting windows; use their native width or a containing layout rather than treating a cropped fixture as a production bug. Web-only design scanners cannot certify SwiftUI.
 - `scripts/build-qa.sh` creates a separate QA bundle; read its isolation settings before launch. Do not launch a real-account build merely to check typography.
@@ -229,4 +258,6 @@ Google OAuth remains a private beta/tester-allowlist flow. Apple notarization do
 - Mobile UI, multiwriter synchronization, server Gmail ingestion/watch, server-side Jev, and cloud drafts are future work requiring additional design/security review.
 - General-public Google OAuth verification and clean-Mac onboarding coverage remain distinct from shipping notarized private-beta updates.
 - GitHub is a coming-later placeholder; do not display it as connected. Google Tasks is real since 0.1.52 (see below).
+- Tasks: Jev checks mail when it is opened or sent. It does not check new mail as it arrives, which is proposed but not built.
+- Before publishing 0.1.52, refresh the landing page (it currently shows the 0.1.51 feature set) and remove "Google Tasks · Coming soon" from its tools row.
 - Always re-check the current task and repository for newer evidence before acting on this checkpoint.
