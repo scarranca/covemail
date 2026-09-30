@@ -18,10 +18,11 @@ import XCTest
     let view = VStack(alignment: .leading, spacing: 12) {
       Text(draft).font(.coveBody)
       WritingThinkingBar(stage: "Looking up conversations")
+      AIWritingPanel(draft: Binding(get: { draft }, set: { draft = $0 }), inline: true, isOpen: false, providerSettings: settings, onApply: { _ in })
       AIWritingPanel(draft: Binding(get: { draft }, set: { draft = $0 }), inline: true, providerSettings: settings, onApply: { _ in })
     }.padding(20).frame(width: 720).background(Palette.canvas)
     let host = NSHostingView(rootView: view)
-    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 250), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false; window.contentView = host
     defer { window.close() }
     for _ in 0..<8 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }

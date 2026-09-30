@@ -367,6 +367,7 @@ struct ReaderView: View {
             voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt, store: store,
             envelope: "Reply to: \(replyRecipient)\nSubject: \(replySource.subject)", envelopeIdentity: replySource.id,
             activity: writingActivity, reviewOnCanvas: true, inline: true, onClose: { aiOpen = false },
+            isOpen: showAskLine, onOpen: { aiOpen = true; writingActivity.focusRequest += 1 },
             onApply: { value in
               replyBeforeSuggestion = reply
               updateReply(value)
@@ -374,13 +375,11 @@ struct ReaderView: View {
               showReply = true
               aiOpen = false
             }, onConfigure: { store.screen = "integrations" })
-          .frame(height: showAskLine ? nil : 0).opacity(showAskLine ? 1 : 0).clipped()
-          .allowsHitTesting(showAskLine).accessibilityHidden(!showAskLine)
         }
         ViewThatFits(in: .horizontal) {
-          HStack(alignment: .center, spacing: 10) { sendButton; templateMenu; aiToggle; Spacer(minLength: 8); discardButton }
+          HStack(alignment: .center, spacing: 10) { sendButton; templateMenu; Spacer(minLength: 8); discardButton }
           VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) { sendButton; aiToggle; Spacer(minLength: 8); discardButton }
+            HStack(alignment: .center, spacing: 10) { sendButton; Spacer(minLength: 8); discardButton }
             HStack(alignment: .center, spacing: 10) { templateMenu }
           }
         }
@@ -433,18 +432,6 @@ extension ReaderView {
   }
   private var showAskLine: Bool {
     aiOpen || writingActivity.working || writingActivity.preview != nil || writingActivity.needsAttention
-  }
-  @ViewBuilder private var aiToggle: some View {
-    if AIProviderSettings.shared.writingProvider() != nil {
-      Button {
-        aiOpen.toggle()
-        if aiOpen { writingActivity.focusRequest += 1 }
-      } label: {
-        Image(systemName: "sparkles").font(.system(size: 15)).frame(width: 40, height: 40).contentShape(Rectangle())
-      }.buttonStyle(ReaderActionStyle()).disabled(writingActivity.working)
-        .help(replySelection.length > 0 ? "Ask Cove to change the selected text" : "Ask Cove to write or change this reply")
-        .accessibilityLabel("Write with AI").accessibilityValue(showAskLine ? "Open" : "Closed")
-    }
   }
   private var streamingReply: Bool {
     writingActivity.working && !(writingActivity.streaming ?? "").isEmpty

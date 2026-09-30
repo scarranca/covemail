@@ -54,6 +54,10 @@ struct AIWritingPanel: View {
   var inline = false
   /// Inline only: closes the ask line (Esc or ✕) when nothing is pending.
   var onClose: (() -> Void)? = nil
+  /// Inline only: collapsed, the line is just its ✦; opening grows the field out from it.
+  var isOpen = true
+  var onOpen: (() -> Void)? = nil
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @FocusState private var askFocused: Bool
   var providerSettings: AIProviderSettings? = nil
   let onApply: (String) -> Void
@@ -115,7 +119,10 @@ struct AIWritingPanel: View {
         apply()
       }
       .onChange(of: activity?.discardRequest) { _, _ in discardSuggestion() }
-      .onChange(of: activity?.focusRequest) { _, _ in askFocused = true }
+      .onChange(of: activity?.focusRequest) { _, _ in
+        // Focus once the field has grown into place.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.18)) { askFocused = true }
+      }
       .onChange(of: error) { _, value in activity?.needsAttention = value != nil }
       .onChange(of: activity?.rewriteRequest) { _, _ in
         generate(refining: suggestion != nil,
@@ -167,8 +174,27 @@ struct AIWritingPanel: View {
       } else {
         if task != nil { WritingThinkingBar(stage: workingStage).transition(.opacity) }
         HStack(alignment: .center, spacing: 10) {
-          Image(systemName: "sparkles").font(.cove(size: 14)).foregroundStyle(Palette.body)
-            .help(Self.disclosure).accessibilityLabel("About AI writing").accessibilityValue(Self.disclosure)
+          Button { if !isOpen { onOpen?() } } label: {
+            Image(systemName: "sparkles").font(.cove(size: isOpen ? 14 : 16)).foregroundStyle(isOpen ? Palette.body : Palette.ink)
+              .symbolEffect(.bounce, value: isOpen)
+              .frame(width: 24, height: 28).contentShape(Rectangle())
+          }.buttonStyle(.plain)
+            .help(isOpen ? Self.disclosure : (hasSelection ? "Ask Cove to change the selected text" : "Ask Cove to write or change this"))
+            .accessibilityLabel(isOpen ? "About AI writing" : "Write with AI").accessibilityValue(isOpen ? Self.disclosure : "Closed")
+          if isOpen { openControls.transition(.move(edge: .leading).combined(with: .opacity)) }
+        }
+        .padding(.leading, isOpen ? 10 : 8).padding(.trailing, isOpen ? 6 : 8).padding(.vertical, 6).frame(minHeight: 40)
+        .frame(maxWidth: isOpen ? .infinity : 40, alignment: .leading)
+        .background(isOpen ? Palette.canvas : Palette.sidebar, in: RoundedRectangle(cornerRadius: isOpen ? 10 : 20))
+        .overlay(RoundedRectangle(cornerRadius: isOpen ? 10 : 20)
+          .strokeBorder(task != nil ? Palette.inputBorder : isOpen ? Palette.line : Color.clear))
+        .clipped()
+        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.8), value: isOpen)
+      }
+    }
+  }
+
+  @ViewBuilder private var openControls: some View {
           TextField(suggestion != nil ? "Ask for a change…" : hasSelection ? "Ask Cove to change the selected text…" : "Ask Cove to write or change this…",
                     text: $instruction, axis: .vertical)
             .lineLimit(1...4).textFieldStyle(.plain).font(.coveBody)
@@ -193,12 +219,6 @@ struct AIWritingPanel: View {
               }.buttonStyle(.plain).help("Close (Esc)").accessibilityLabel("Close AI writing")
             }
           }
-        }
-        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6).frame(minHeight: 40)
-        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(task != nil ? Palette.inputBorder : Palette.line))
-      }
-    }
   }
 
   private var toolsMenu: some View {

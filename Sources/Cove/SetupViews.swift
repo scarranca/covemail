@@ -260,23 +260,14 @@ struct ComposerView: View {
         }.padding(.horizontal, 24).padding(.vertical, 10).background(Palette.summary)
       }
       // Collapsed to the ✦ button in the footer until asked for; stays mounted so work isn't lost.
-      assistant.padding(.horizontal, 20).padding(.bottom, showAskLine ? 12 : 0)
-        .frame(height: showAskLine ? nil : 0).opacity(showAskLine ? 1 : 0).clipped()
-        .allowsHitTesting(showAskLine).accessibilityHidden(!showAskLine)
+      assistant.padding(.horizontal, 20).padding(.bottom, 12)
       Divider()
       HStack(spacing: 12) {
         Button(store.isSample ? "Save sample" : "Send", systemImage: "paperplane") {
           save(); confirmSend = true
         }.buttonStyle(PrimaryButton()).disabled(sendDisabled)
           .keyboardShortcut(.return, modifiers: .command)
-        Button {
-          aiOpen.toggle()
-          if aiOpen { writingActivity.focusRequest += 1 }
-        } label: {
-          Image(systemName: "sparkles").padding(8).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(writingActivity.working)
-          .help(selection.length > 0 ? "Ask Cove to change the selected text" : "Ask Cove to write or change this email")
-          .accessibilityLabel("Write with AI").accessibilityValue(showAskLine ? "Open" : "Closed")
+
         Spacer(minLength: 0)
         Button { confirmDiscard = true } label: {
           Image(systemName: "trash").padding(8).contentShape(Rectangle())
@@ -361,6 +352,7 @@ struct ComposerView: View {
       voice: store.preferences.voice, instructions: store.preferences.instructions,
       voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt,
       store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: true, inline: true, onClose: { aiOpen = false },
+      isOpen: showAskLine, onOpen: { aiOpen = true; writingActivity.focusRequest += 1 },
       onApply: { value in
         undoSuggestion = text
         text = value
