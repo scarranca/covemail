@@ -59,4 +59,8 @@ All runs are offline with injected transports, temporary databases and hidden wi
 - The move action's store path (`createEvent(editing:)` and move-back Undo) reuses the Calendar drag code but has no dedicated automated test. Only the router and the card rendering are tested.
 - Chat exchanges are view `@State`. An approved bulk change keeps running after the chat closes, but closing the chat loses the result card and its Undo button. The change itself is complete and visible in Gmail and the mail list.
 - While a bulk change runs, Cove's mutation slot is held, so sync and other label actions wait. That is the same rule as other writes, only longer.
+- Navigating to a label only calls `chooseFolder("label:…")`, the same call the sidebar makes. Whether older, uncached label mail then loads depends on the mail view reacting to the folder change. That was not verified here, because it lives in `MailViews.swift`, which belongs to another agent.
+- The local filter (sample mode, or Mail search off) ignores Gmail operators it doesn't know, such as `newer_than:` and `after:`. Those results can be broader than the equivalent Gmail search. The card lists every email, so the user sees exactly what would change before approving.
+- Resolving a 500-match Gmail query fetches headers for uncached matches before the card appears (up to about 25 s), and the progress line shows no count during that time.
+- The move card's destination comes from the event itself (Google or this Mac), not from whether Calendar is connected.
 - `current` scope uses `AppStore.visible` as-is. If the Important/Other inbox split changes what `visible` returns, "these" follows that change.

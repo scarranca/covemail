@@ -375,7 +375,10 @@ struct AssistantView: View {
           } else { ChatMarkdown(answer) }
           if let proposal = exchange.eventProposal {
             AssistantEventCard(
-              proposal: proposal, destination: store.calendarConnected && !store.isSample ? "Google Calendar" : "This Mac",
+              // A move stays where the event lives; a new event goes to Google Calendar when connected.
+              proposal: proposal, destination: proposal.eventID.flatMap { id in store.events.first { $0.id == id } }
+                .map { $0.googleID != nil && !store.isSample ? "Google Calendar" : "This Mac" }
+                ?? (store.calendarConnected && !store.isSample ? "Google Calendar" : "This Mac"),
               added: exchange.addedEvent, dismissed: exchange.eventDismissed, busy: store.busy || store.calendarSyncing,
               add: { addProposal(exchange.id, proposal) },
               edit: {
