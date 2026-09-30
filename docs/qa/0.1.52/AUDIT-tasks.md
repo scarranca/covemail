@@ -3,7 +3,7 @@
 - **Request:** the user sent Millet "of course I'll add this to your account" and wants the promise kept. They asked for Jev to check sent and received mail, an AI-powered way to create tasks, a cool after-send animation, and no tasks from marketing or sales mail.
 - **Google Cloud (September 30):**
   - The Tasks API was enabled in `cove-mail-20260922` with `gcloud services enable tasks.googleapis.com`.
-  - Adding the scope to the consent screen needs the user's passkey confirmation in the Cloud Console. **Pending at the time of writing.**
+  - After the user confirmed with their passkey, `https://www.googleapis.com/auth/tasks` was added in Google Auth Platform → Data Access. Google shows "Data access changes saved", and the sensitive scopes are now tasks and calendar.events alongside gmail.modify.
 - **Sign-in:**
   - New scope `tasks`, requested with `include_granted_scopes` and a login hint.
   - `tasksConnected` is optional (Keychain back-compat). Both the Calendar and Tasks flags are read from the granted `scope`.
