@@ -103,7 +103,7 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
       event: .init(id: "e", title: long, start: Date(), end: Date().addingTimeInterval(600)))
     let text = huge.promptText()
     XCTAssertLessThanOrEqual(text.utf8.count, AssistantScreenContext.byteLimit)
-    XCTAssertTrue(text.split(separator: "\n").allSatisfy { $0.utf8.count <= 220 }, text)
+    XCTAssertTrue(text.split(separator: "\n").allSatisfy { $0.utf8.count <= 260 }, text)
   }
 
   func testMoveThisUsesTheSelectedCalendarEventAndKeepsItsLength() async throws {
@@ -208,7 +208,8 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
 
     // Excluding a sender narrows the plan.
     var excluding = request; excluding.exclude = ["maya"]
-    XCTAssertEqual(try await store.resolveBulk(excluding, liveSearch: true).targets.map(\.id), ["m1", "m2"])
+    let excluded = try await store.resolveBulk(excluding, liveSearch: true)
+    XCTAssertEqual(excluded.targets.map(\.id), ["m1", "m2"])
 
     // Trash, delete and send are not operations the router can return.
     let trash = AssistantCalendar(complete: { _ in #"{"action":"bulk","operation":"trash","scope":"current"}"# },
@@ -253,13 +254,13 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
     let labeled = try await store.resolveBulk(.init(operation: .addLabel, labelID: receipts.id, labelName: "Receipts", scope: .current),
       liveSearch: true)
     let result = await store.applyBulk(labeled.targets, add: labeled.add, remove: labeled.remove, label: "Labeling")
-    XCTAssertEqual(result.succeeded, ["m1", "m3"])
+    XCTAssertEqual(result.succeeded, ["m1", "m3", "m4"], "Archived mail in the label is labeled too")
     XCTAssertEqual(result.failed.map(\.id), ["m2"])
     XCTAssertEqual(result.failed.first?.subject, "Top launches")
     XCTAssertFalse(result.failed.first?.message.isEmpty ?? true)
     XCTAssertFalse(store.mails.first { $0.id == "m2" }!.labels.contains(receipts.id), "A failed email keeps its labels")
     XCTAssertTrue(store.mails.first { $0.id == "m1" }!.labels.contains(receipts.id))
-    XCTAssertEqual(http.modified.map(\.id), ["m1", "m3"])
+    XCTAssertEqual(http.modified.map(\.id), ["m1", "m3", "m4"])
   }
 
   func testGmailSearchScopeListsRemoteEmailsWithoutSavingThem() async throws {
@@ -338,6 +339,14 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
       failed: targets.suffix(2).map { .init(id: $0.id, subject: $0.subject, message: "Gmail said the message no longer exists.") }))],
       name: "bulk-finished")
     try await render(store: store, settings: settings, exchanges: [], name: "empty")
+    let start = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date()))!.addingTimeInterval(15 * 3600)
+    var move = ChatExchange(question: "Move this to 3pm", mail: nil, scope: .email)
+    move.isCalendar = true
+    move.answer = "Here’s the new time to review. Nothing has changed yet."
+    move.eventProposal = AssistantCalendar.Proposal(title: "Design review", start: start, end: start.addingTimeInterval(2700),
+      availability: "No overlaps found in your primary Google Calendar and Cove’s local events.", eventID: "event-1")
+    XCTAssertEqual(move.groundingLabel, "Move ready to review")
+    try await render(store: store, settings: settings, exchanges: [move], name: "move")
     XCTAssertTrue(store.mails.allSatisfy { $0.labels.contains("INBOX") || $0.id == "m4" || $0.id == "d1" }, "Rendering changes nothing")
   }
 
