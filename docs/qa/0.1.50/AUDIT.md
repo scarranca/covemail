@@ -72,3 +72,21 @@ User decisions: index the last 365 days (plus older starred mail), keep formatte
 - Using Jev (TypeSafe) to decide lookups was considered: it can confirm borderline "needs lookup" cases but cannot write queries or extract dates and names, and it sends request text to TypeSafe. Not implemented; its latency would need measuring first.
 - Superhuman also prefetches and indexes the whole mailbox server-side. Cove indexes downloaded mail locally, and model speed is bounded by the user's provider.
 - Full offline suite after review fixes: see commit; not yet checked live.
+
+## Release (September 29)
+
+- Cove 0.1.50, build 52, universal app. Developer ID signed, with the provisioning profile embedded.
+  - App notarization `8c6963af-8595-4f76-9680-117940f89c41`: Accepted, stapled.
+  - DMG notarization `16b7dfc4-71cc-4f3b-ad74-409be7649e76`: Accepted, stapled. Gatekeeper reports "Notarized Developer ID".
+- DMG `Cove-0.1.50.dmg`, 18,329,910 bytes, SHA-256 `bd2e02b3b556e7964908b1d936d3c6160e4d54f6e1c8bc4556458193c1fb5098`.
+- Cloudflare Pages deployment `e50c3f33` (project `covemail`, branch `main`); all 30 historical downloads verified.
+- Public checks:
+  - `/release.json` shows 0.1.50, and `/download/latest` redirects to the 0.1.50 DMG.
+  - The appcast's first item is 0.1.50; the feed keeps 0.1.50, 0.1.49 and 0.1.48.
+  - The beta page shows 0.1.50, and the landing page includes the new "Quicker to find" section.
+  - The downloaded DMG hash matches.
+  - The Ed25519 signature verifies with the bundled public key, and a tampered copy is rejected.
+- Landing refresh: a What's new section with a typing search demo and a streaming draft demo, scroll reveal, hover lift, and a hero sheen. It uses only CSS and `site.js` (CSP-compatible), and turns off under reduced motion.
+  - Checked at 1440px and 390px in headless Chrome.
+  - Live check in Chrome: the hero renders correctly, and every revealed element reaches opacity 1 after navigation.
+- The user's running Cove was not replaced. Install with **Cove → Check for Updates…**.

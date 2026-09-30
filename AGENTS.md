@@ -13,6 +13,7 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 29, 2026
 
+- **Cove 0.1.50, build 52**, is published (Pages deployment `e50c3f33`). It adds instant search, faster and streaming drafts, Ask Cove follow-ups that reuse found emails, per-email encrypted storage (storage version 3, verified by a real-account migration check), and a landing refresh. Evidence: `docs/qa/0.1.50/AUDIT.md`. The local-first index continues: the working set is not narrowed yet (see the audit's order).
 - **Cove 0.1.49, build 51**, is published at `https://covemail.xyz` (Pages deployment `463c0cae`, commit `5fd1f42`). It adds large-question Gmail research (up to 100 matches, batched and cited), a daily brief, chat replies, contact lookups and memories in every AI draft. Evidence: `docs/qa/0.1.49/AUDIT.md`.
 - 0.1.48 (deployment `75e0a625`) was a hotfix for 0.1.47: login-keychain queries must set `kSecUseDataProtectionKeychain: false` (`Vault.legacyQuery`), because otherwise deletes also remove data-protection items on the hardened build. Evidence: `docs/qa/0.1.48/AUDIT.md` and `docs/qa/0.1.47/AUDIT.md`.
 - 0.1.47 (deployment `9c0a9d4f`) added the learned voice (shared across accounts and, via cloud sync, across Macs), Ask Cove new emails and introductions, conversation cards with a Reply menu, a searchable label picker, Inbox Unread, one-step Calendar, and hardened AI/TypeSafe keys with optional Touch ID.

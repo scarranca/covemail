@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.50</title>
+            <pubDate>Tue, 29 Sep 2026 22:32:35 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>52</sparkle:version>
+            <sparkle:shortVersionString>0.1.50</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.50</title></head><body><h1>Faster search, faster drafts</h1><ul><li>Search is instant: matches appear as you type, even across thousands of downloaded emails.</li><li>Drafting is quicker. Simple rewrites skip planning, and with a ChatGPT subscription drafts stream in as they’re written.</li><li>Follow-ups like “make it warmer” reuse the emails Cove already found instead of searching Gmail again.</li><li>Each email is now stored as its own encrypted record on your Mac, so syncing saves only what changed. Your existing mailbox is converted automatically the first time you open this version.</li></ul><p>After updating, earlier versions of Cove can’t open the converted mailbox. Nothing is sent, archived or deleted without you.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.50.dmg" length="18329910" type="application/octet-stream" sparkle:edSignature="XrjJruJNDnjKoiRkJAuVMR2Wj6HfoTcCGOsYP4rsdSCYqoeiBsYbe/aVBFHZUMc2GOT6dE4W6SU5oR5qsyRPCg=="/>
+        </item>
+        <item>
             <title>0.1.49</title>
             <pubDate>Tue, 29 Sep 2026 16:16:31 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.48.dmg" length="17953739" type="application/octet-stream" sparkle:edSignature="p/nPkFy0c5nY8e188NZU6+lCPLMakiYr/YW5FwRu4ld3zWFg+HiuonmKIzEkBcRKfS5yb4tFbasfaptx/PReDA=="/>
         </item>
-        <item>
-            <title>0.1.47</title>
-            <pubDate>Tue, 29 Sep 2026 13:45:41 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>49</sparkle:version>
-            <sparkle:shortVersionString>0.1.47</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.47</title></head><body><h1>An assistant that writes like you</h1><ul><li>Cove can learn your writing voice once from your sent mail. AI drafts, replies and introductions then sound like you, across your accounts and, with cloud sync on, your other Macs.</li><li>Ask Cove to “make an intro between Ana and Luis” or “email Carlos about Friday”. It finds them in your contacts, writes the draft in your voice and opens it for review — nothing is sent.</li><li>Ask Cove now reads the whole conversation, and a missing TypeSafe key takes you straight to the right setting.</li><li>Conversations show each email as its own card. Reply has a Reply all option, labels open a searchable list, and the Inbox has an Unread filter.</li><li>Connect Google Calendar in one step with your existing Google sign-in.</li><li>AI and TypeSafe keys move to protected storage that stays on this Mac, with optional Touch ID in Settings → Privacy.</li><li>Reconnecting reuses mail already saved on your Mac instead of downloading it again.</li></ul><p>Only a description of your writing style is saved, never your emails. Cloud sync remains optional; mobile access and push notifications are not available yet.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.47.dmg" length="17953158" type="application/octet-stream" sparkle:edSignature="1cjsaVLDVZhWLHNmX/St95dICIKvNnpF4/hv22+QvUT90d1vZP4gZUKJ4oS2G3owK6vuoTGyZhZ6d1YgstuUCA=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: oW4G+J+vGuFxn5pJ7q5ogUermW5GP0t36nJY/5wGJmSoEHHsI20xys9gayIoO4Yu9rBRg0S6pJef0hN2qed7AA==
-length: 5475
+edSignature: Qi/VY4MwNVkC1OOb9TZ74WO7iFNtYmy7FG3/oAFWfAUueHZvTa5R6pXRvlzWPKcRjgV+YkRwtopTmI9g3/0KCw==
+length: 5017
 -->
