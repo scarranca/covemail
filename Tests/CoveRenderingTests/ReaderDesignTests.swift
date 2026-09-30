@@ -95,6 +95,24 @@ import XCTest
     XCTAssertEqual(outcome, .done)
     XCTAssertTrue(store.hasUnsubscribed(from: newsletter))
   }
+  func testReplyWrittenByAskCoveWhileOpenAppearsInTheEditor() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let store = try fixture()
+    var plain = message; plain.htmlBody = nil
+    store.mails = [plain]; store.selectedID = plain.id
+    let host = NSHostingView(rootView: ReaderView(store: store, mail: plain).font(.coveBody).foregroundStyle(Palette.ink).background(Palette.canvas))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 824, height: 1400), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    defer { window.close() }
+    for _ in 0..<10 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    // What Ask Cove does after drafting: save the reply on the email that is already open.
+    store.saveReply(id: plain.id, text: "Thanks so much, Martha! I appreciate you sending this over.")
+    for _ in 0..<15 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: bitmap)
+    try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-reader-assistant-reply.png"))
+    XCTAssertEqual(store.mails.first?.draft, "Thanks so much, Martha! I appreciate you sending this over.")
+  }
   private func render<V: View>(_ view: V, width: CGFloat, name: String) async throws {
     let host = NSHostingView(rootView: view.font(.coveBody).foregroundStyle(Palette.ink).background(Palette.canvas))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 960), styleMask: [.borderless], backing: .buffered, defer: false)

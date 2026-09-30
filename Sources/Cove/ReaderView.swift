@@ -113,6 +113,13 @@ struct ReaderView: View {
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
+    // Ask Cove can write the reply while this email is open. Typing keeps both in step, so a difference
+    // means the draft was written elsewhere: show it instead of an empty editor.
+    .onChange(of: replySource.draft) { _, written in
+      guard written != reply else { return }
+      reply = written
+      if !written.isEmpty { showReply = true }
+    }
   }
 
   private func toolbar(compact: Bool) -> some View {
