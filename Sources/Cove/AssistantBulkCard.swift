@@ -29,7 +29,13 @@ struct AssistantBulkCard: View {
   let approve: () -> Void
   let cancel: () -> Void
   let undo: () -> Void
+  var loadAll: () async -> Void = {}
+  @State private var showingAll = false
+  @State private var loadingAll = false
   private var plan: AssistantBulkPlan { state.plan }
+  private var rows: [AssistantBulkTarget] {
+    showingAll ? plan.targets : Array(plan.targets.prefix(AssistantBulkPlan.previewCount))
+  }
   private var symbol: String {
     switch plan.operation {
     case .archive: "archivebox"
@@ -51,8 +57,9 @@ struct AssistantBulkCard: View {
         Spacer(minLength: 0)
       }
       if state.phase == .review || state.phase == .cancelled {
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(plan.targets.prefix(AssistantBulkPlan.previewCount).enumerated()), id: \.element.id) { index, target in
+        ScrollView {
+        LazyVStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(rows.enumerated()), id: \.element.id) { index, target in
             if index > 0 { Divider() }
             HStack(spacing: 8) {
               Text(target.sender.isEmpty ? "Unknown sender" : target.sender).font(.coveLabel).lineLimit(1)
@@ -62,11 +69,28 @@ struct AssistantBulkCard: View {
               Spacer(minLength: 0)
             }.padding(.horizontal, 12).frame(height: 32)
           }
-        }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+        }
+        }.frame(maxHeight: showingAll ? 320 : nil).fixedSize(horizontal: false, vertical: !showingAll)
+        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
           .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.line))
           .accessibilityElement(children: .combine).accessibilityLabel("Emails that will change")
         if plan.targets.count > AssistantBulkPlan.previewCount {
-          Text("and \(plan.targets.count - AssistantBulkPlan.previewCount) more").font(.coveMetadata).foregroundStyle(Palette.body)
+          Button {
+            if showingAll { showingAll = false; return }
+            loadingAll = true
+            Task {
+              await loadAll()
+              loadingAll = false
+              showingAll = true
+            }
+          } label: {
+            HStack(spacing: 6) {
+              if loadingAll { ProgressView().controlSize(.small) }
+              Text(showingAll ? "Show fewer" : "Show all \(plan.targets.count)")
+              Image(systemName: showingAll ? "chevron.up" : "chevron.down").font(.cove(size: 10))
+            }.font(.coveControl)
+          }.buttonStyle(.plain).foregroundStyle(Palette.body).disabled(loadingAll)
+            .accessibilityLabel(showingAll ? "Show fewer emails" : "Show all \(plan.targets.count) emails")
         }
       }
       footer

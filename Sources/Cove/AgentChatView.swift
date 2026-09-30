@@ -400,7 +400,14 @@ struct AssistantView: View {
           if let bulk = exchange.bulk {
             AssistantBulkCard(state: bulk, approve: { runBulk(exchange.id, undo: false) },
               cancel: { update(exchange.id) { $0.bulk?.phase = .cancelled; $0.source = "Nothing changed" } },
-              undo: { runBulk(exchange.id, undo: true) })
+              undo: { runBulk(exchange.id, undo: true) },
+              loadAll: {
+                guard let targets = exchanges.first(where: { $0.id == exchange.id })?.bulk?.plan.targets else { return }
+                do {
+                  let detailed = try await store.bulkTargetDetails(targets)
+                  update(exchange.id) { $0.bulk?.plan.targets = detailed }
+                } catch { actionNotice = error.localizedDescription }
+              })
           }
           if let draft = exchange.draft {
             AssistantDraftCard(draft: draft, review: { reviewDraft(draft) }, copy: {

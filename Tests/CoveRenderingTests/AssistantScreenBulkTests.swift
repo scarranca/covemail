@@ -15,7 +15,12 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
   var forbidAll = false
   var batches = 0
   var listQueries: [String] = []
+  private let lock = NSLock()
   func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    // Metadata fetches run concurrently; record them under a lock.
+    try lock.withLock { try handle(request) }
+  }
+  private func handle(_ request: URLRequest) throws -> (Data, HTTPURLResponse) {
     let url = request.url!
     let method = request.httpMethod ?? "GET"
     requests.append(method + " " + url.path)
@@ -306,6 +311,11 @@ private final class BulkHTTP: HTTPTransport, @unchecked Sendable {
     let downloads = http.requests.filter { $0.hasPrefix("GET /gmail/v1/users/me/messages/") }
     XCTAssertEqual(downloads.count, AssistantBulkPlan.previewCount, "Only the rows the card lists are fetched")
     XCTAssertEqual(plan.targets.first?.subject, "Remote remote-1")
+    // "Show all" fills in the rest, keeping each row's planned labels.
+    let detailed = try await store.bulkTargetDetails(plan.targets)
+    XCTAssertEqual(detailed.map(\.subject), (1...20).map { "Remote remote-\($0)" })
+    XCTAssertEqual(detailed.map(\.labels), plan.targets.map(\.labels))
+    XCTAssertEqual(http.requests.filter { $0.hasPrefix("GET /gmail/v1/users/me/messages/") }.count, 20, "Each email is fetched once")
     let result = await store.applyBulk(plan.targets, add: plan.add, remove: plan.remove, label: "Marking")
     XCTAssertEqual(result.succeeded.count, 20)
     XCTAssertEqual(http.batches, 1)

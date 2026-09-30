@@ -3103,6 +3103,24 @@ extension AppStore {
     }
   }
 
+  /// Sender and subject for listed-by-count rows, so a card can show every email it will change.
+  /// Reads only: stored copies first, then Gmail metadata for the rest.
+  func bulkTargetDetails(_ targets: [AssistantBulkTarget]) async throws -> [AssistantBulkTarget] {
+    let stored = Dictionary(mails.map { ($0.id, $0) }) { first, _ in first }
+    let missing = targets.filter { $0.sender.isEmpty && $0.subject.isEmpty && stored[$0.id] == nil }.map(\.id)
+    var remote: [String: AssistantBulkTarget] = [:]
+    if !missing.isEmpty && !isSample {
+      let token: String
+      if let gmailTokenProvider { token = try await gmailTokenProvider() } else { token = try await auth.token() }
+      for target in try await gmail.bulkTargets(ids: missing, token: token) { remote[target.id] = target }
+    }
+    return targets.map { target in
+      if let mail = stored[target.id] { return AssistantBulkTarget(mail) }
+      guard let found = remote[target.id] else { return target }
+      // Keep the planned labels; only the display fields are filled in.
+      return AssistantBulkTarget(id: target.id, sender: found.sender, subject: found.subject, labels: target.labels)
+    }
+  }
   /// Applies one label change to exactly `targets`, one email at a time with Gmail pacing and backoff,
   /// and reports each email's outcome. Undo calls this again with `add` and `remove` swapped.
   func applyBulk(_ targets: [AssistantBulkTarget], add: [String], remove: [String], label: String,
