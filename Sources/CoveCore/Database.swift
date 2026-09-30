@@ -166,10 +166,12 @@ public final class Database {
   // MARK: Per-message rows (storage version 3)
   //
   // Each email is one AES-GCM row bound to "message:<id>", so a sync rewrites only changed emails.
-  // In clear text: id, thread id, date, starred and has-draft (needed to choose what loads at launch).
+  // In clear text: id, thread id, date and the starred/has-draft/in-Inbox/snoozed flags, which choose
+  // what loads at launch without decrypting older mail. Everything else stays encrypted.
   static let messagesSchema = """
     CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, date REAL NOT NULL,
-      starred INTEGER NOT NULL, has_draft INTEGER NOT NULL, value BLOB NOT NULL);
+      starred INTEGER NOT NULL, has_draft INTEGER NOT NULL, in_inbox INTEGER NOT NULL,
+      snoozed INTEGER NOT NULL, value BLOB NOT NULL);
     CREATE INDEX IF NOT EXISTS messages_date ON messages(date);
     CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id);
     """
@@ -206,7 +208,8 @@ public final class Database {
     let data = try cipher?.seal(plain, record: "message:" + mail.id) ?? plain
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, """
-      INSERT OR REPLACE INTO messages(id,thread_id,date,starred,has_draft,value) VALUES(?,?,?,?,?,?)
+      INSERT OR REPLACE INTO messages(id,thread_id,date,starred,has_draft,in_inbox,snoozed,value)
+      VALUES(?,?,?,?,?,?,?,?)
       """, -1, &statement, nil) == SQLITE_OK else { throw CoveError.message("Could not prepare local save.") }
     defer { sqlite3_finalize(statement) }
     let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -215,7 +218,9 @@ public final class Database {
     sqlite3_bind_double(statement, 3, mail.date.timeIntervalSince1970)
     sqlite3_bind_int(statement, 4, mail.isStarred ? 1 : 0)
     sqlite3_bind_int(statement, 5, (!mail.draft.isEmpty || mail.labels.contains("DRAFT")) ? 1 : 0)
-    _ = data.withUnsafeBytes { sqlite3_bind_blob(statement, 6, $0.baseAddress, Int32(data.count), transient) }
+    sqlite3_bind_int(statement, 6, mail.labels.contains("INBOX") ? 1 : 0)
+    sqlite3_bind_int(statement, 7, mail.snoozedUntil == nil ? 0 : 1)
+    _ = data.withUnsafeBytes { sqlite3_bind_blob(statement, 8, $0.baseAddress, Int32(data.count), transient) }
     guard sqlite3_step(statement) == SQLITE_DONE else { throw CoveError.message("Could not save the local mailbox.") }
     savedMessages[mail.id] = mail
   }
@@ -239,11 +244,11 @@ public final class Database {
     guard sqlite3_step(statement) == SQLITE_DONE else { throw CoveError.message("Could not update the local mailbox.") }
   }
 
-  /// Emails dated on or after `since`, plus every starred email and every email with a draft.
+  /// Emails dated on or after `since`, plus every starred, drafted, Inbox or snoozed email.
   public func loadMail(since: Date = .distantPast) throws -> [Mail] {
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, """
-      SELECT id,value FROM messages WHERE date>=? OR starred=1 OR has_draft=1 ORDER BY date DESC, id DESC
+      SELECT id,value FROM messages WHERE date>=? OR starred=1 OR has_draft=1 OR in_inbox=1 OR snoozed=1 ORDER BY date DESC, id DESC
       """, -1, &statement, nil) == SQLITE_OK else { throw CoveError.message("Could not read local storage.") }
     defer { sqlite3_finalize(statement) }
     sqlite3_bind_double(statement, 1, since == .distantPast ? -Double.greatestFiniteMagnitude : since.timeIntervalSince1970)

@@ -17,6 +17,7 @@ final class MailStoragePerformanceTests: XCTestCase {
       var mail = Samples.mail[0]
       mail.id = "m\(index)"
       mail.threadID = "t\(index / 3)"
+      mail.labels = ["CATEGORY_UPDATES", "UNREAD"]
       mail.body = body + String(index)
       mail.date = now.addingTimeInterval(-Double(index) * 1_050)  // spans about a year
       return mail

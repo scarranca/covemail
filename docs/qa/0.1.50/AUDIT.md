@@ -36,7 +36,7 @@ User decisions: index the last 365 days (plus older starred mail), keep formatte
 - **Before:** every sync re-encrypted and rewrote the entire mailbox as one record (`mail`), plus `mailOverride:<id>` edits.
 - **Now:** a `messages` table with one AES-GCM row per email (AAD `message:<id>`). `saveMailSnapshot` writes only emails that changed since they were loaded or saved and removes only emails this session loaded that are now absent. Cursor keys commit in the same transaction. A rolled-back snapshot restores change tracking. Erase clears the table and the tracking.
 - **Migration:** v2 → v3 on open, all or nothing. The legacy snapshot plus overrides become rows. Only the `mail` and `mailOverride:` keys are removed; preferences, cursors and cloud state stay. Unkeyed rows are sealed if a plain store is later encrypted. Older Cove refuses a v3 store ("needs a newer version of Cove"); downgrading is not supported.
-- **Clear-text metadata (deliberate):** id, thread id, date, starred, has-draft. `loadMail(since:)` uses them to load the recent window, starred and drafted emails without decrypting the rest. Content stays encrypted. Moving a ciphertext to another id fails authentication (tested).
+- **Clear-text metadata (deliberate):** id, thread id, date, and the starred, has-draft, in-Inbox and snoozed flags (booleans, not snooze times). `loadMail(since:)` uses them to load the recent window plus starred, drafted, Inbox and snoozed emails of any age without decrypting the rest. Old unarchived Inbox mail therefore never disappears from the list. Content stays encrypted. Moving a ciphertext to another id fails authentication (tested).
 - **Performance** (release build, 30,000 encrypted emails, `COVE_PERF=1 swift test -c release -Xswiftc -enable-testing --filter MailStoragePerformanceTests`):
   - initial save: 884 ms
   - snapshot with one change: 29 ms (target < 50)
@@ -50,7 +50,7 @@ User decisions: index the last 365 days (plus older starred mail), keep formatte
 - **Not done yet:**
   - The app still calls `loadMail()`.
   - The working-set switch, keyed-hash index, 365-day backfill, retention/limit/purge and Settings → Storage are phases 2–5.
-  - Snoozed mail older than the window needs a decision before the working set is narrowed.
+  - Before narrowing the working set: route Gmail merges for stored-but-unloaded emails through untracked archive reads and writes, so Jev decisions, drafts and snoozes are kept and Gmail deletions purge rows (the read-site audit found every merge site would otherwise overwrite archived rows); and load threads by `thread_id`.
   - **A live real-account migration check with an isolated QA build is required before release.**
 
 ## Not done / limits

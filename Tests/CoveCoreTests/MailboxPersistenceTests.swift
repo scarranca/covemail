@@ -46,6 +46,7 @@ final class MailboxPersistenceTests: XCTestCase {
       let mails = (0..<5).map { index -> Mail in
         var mail = Samples.mail[0]
         mail.id = "m\(index)"
+        mail.labels = ["UNREAD"]
         mail.date = now.addingTimeInterval(-Double(index) * 86_400 * 200)
         return mail
       }
@@ -80,17 +81,20 @@ final class MailboxPersistenceTests: XCTestCase {
     }
   }
 
-  func testStarredAndDraftEmailsLoadRegardlessOfAge() throws {
+  func testStarredDraftInboxAndSnoozedEmailsLoadRegardlessOfAge() throws {
     try withDatabase { url in
       var old = Samples.mail[0]
       old.date = Date(timeIntervalSince1970: 1_000_000_000)
       var starred = old; starred.id = "starred"; starred.labels = ["STARRED"]
       var drafted = old; drafted.id = "drafted"; drafted.labels = []; drafted.draft = "Unsent"
-      var plain = old; plain.id = "plain"; plain.labels = ["INBOX"]
+      var inbox = old; inbox.id = "inbox"; inbox.labels = ["INBOX"]
+      var snoozed = old; snoozed.id = "snoozed"; snoozed.labels = []
+      snoozed.snoozedUntil = Date().addingTimeInterval(86_400)
+      var archived = old; archived.id = "archived"; archived.labels = ["CATEGORY_UPDATES"]
       let database = try Database(url: url)
-      try database.saveMailSnapshot([starred, drafted, plain])
+      try database.saveMailSnapshot([starred, drafted, inbox, snoozed, archived])
       let loaded = try Database(url: url).loadMail(since: Date().addingTimeInterval(-86_400))
-      XCTAssertEqual(Set(loaded.map(\.id)), ["starred", "drafted"])
+      XCTAssertEqual(Set(loaded.map(\.id)), ["starred", "drafted", "inbox", "snoozed"])
     }
   }
 

@@ -104,7 +104,7 @@ final class EncryptedStorageTests: XCTestCase {
       sqlite3_finalize(statement)
       sqlite3_close(handle)
       // A row moved to another email's id fails authentication.
-      try sql(url, "INSERT INTO messages SELECT 'other', thread_id, date, starred, has_draft, value FROM messages")
+      try sql(url, "INSERT INTO messages SELECT 'other', thread_id, date, starred, has_draft, in_inbox, snoozed, value FROM messages")
       XCTAssertThrowsError(try Database(url: url, encryptionKey: key, namespace: namespace).loadMail())
       try assertNoPlaintext(url)
     }
