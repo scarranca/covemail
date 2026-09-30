@@ -85,6 +85,7 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
         Button("Calendar") { store.screen = "calendar" }.keyboardShortcut("2")
         Button("Contacts") { store.screen = "contacts" }.keyboardShortcut("4").disabled(
           !store.entered)
+        Button("Tasks") { store.screen = "tasks" }.keyboardShortcut("5").disabled(!store.entered)
         Button("Your Agents") { store.screen = "agents" }.keyboardShortcut("3")
         Button("Categories") { store.screen = "categories" }.disabled(!store.entered)
         Button("Integrations") { store.screen = "integrations" }.disabled(!store.entered)
@@ -128,6 +129,7 @@ struct RootView: View {
           case "agents": CustomAgentsView(store: store)
           case "calendar": CalendarView(store: store)
           case "contacts": ContactsView(store: store)
+          case "tasks": TasksView(store: store)
           case "categories": MailCategoriesView(store: store)
           case "integrations": IntegrationsView(store: store)
           default: MailboxView(store: store)
@@ -172,6 +174,9 @@ struct RootView: View {
       AssistantView(store: store, availableSize: availableSize, initialQuery: store.assistantInitialQuery)
     }
     .sheet(isPresented: $store.showComposer) { ComposerView(store: store, availableSize: availableSize) }
+    .sheet(item: $store.taskSuggestionMail) { mail in TaskSuggestionsView(store: store, mail: mail) }
+    .overlay(alignment: .bottom) { PostSendTaskToast(store: store) }
+    .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.postSend)
     .alert(
       "Cove couldn’t finish",
       isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })
@@ -231,6 +236,7 @@ struct Sidebar: View {
           nav("Calendar", icon: "calendar", selected: store.screen == "calendar", shortcut: "⌘2") { store.screen = "calendar" }
           nav("Agents", icon: "sparkles", selected: inAgents, shortcut: "⌘3") { store.screen = "agents" }
           nav("Contacts", icon: "person.crop.rectangle", selected: store.screen == "contacts", shortcut: "⌘4") { store.screen = "contacts" }
+          nav("Tasks", icon: "checklist", selected: store.screen == "tasks", shortcut: "⌘5") { store.screen = "tasks" }
           if inMail {
             section("Mail")
             ForEach(folders, id: \.0) { name, icon in

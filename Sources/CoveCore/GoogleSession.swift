@@ -7,11 +7,14 @@ public struct GoogleAccountSession: Codable, Equatable {
   public var clientSecret: String
   public var refreshToken: String
   public var calendarConnected: Bool
+  /// Optional so sessions saved before Google Tasks still decode; nil means not connected.
+  public var tasksConnected: Bool?
 
   public init(
     email: String, clientID: String, clientSecret: String, refreshToken: String,
-    calendarConnected: Bool
+    calendarConnected: Bool, tasksConnected: Bool? = nil
   ) {
+    self.tasksConnected = tasksConnected
     self.email = email
     self.clientID = clientID
     self.clientSecret = clientSecret

@@ -1,0 +1,25 @@
+# 0.1.52 — Tasks from email (Google Tasks)
+
+- **Request:** the user sent Millet "of course I'll add this to your account" and wants the promise kept. They asked for Jev to check sent and received mail, an AI-powered way to create tasks, a cool after-send animation, and no tasks from marketing or sales mail.
+- **Google Cloud (September 30):**
+  - The Tasks API was enabled in `cove-mail-20260922` with `gcloud services enable tasks.googleapis.com`.
+  - Adding the scope to the consent screen needs the user's passkey confirmation in the Cloud Console. **Pending at the time of writing.**
+- **Sign-in:**
+  - New scope `tasks`, requested with `include_granted_scopes` and a login hint.
+  - `tasksConnected` is optional (Keychain back-compat). Both the Calendar and Tasks flags are read from the granted `scope`.
+  - Tests: `TaskDetectionTests.testSessionsSavedBeforeTasksStillDecodeAndScopesAreKept`.
+- **Eligibility:** bulk/automated, no-reply, Other-tab and Jev newsletter/update/purchase mail never reach Jev. The user's sent mail is always eligible. Test: `testOnlyPersonalAndSentMailIsEligible`.
+- **Jev gate:** a fixed custom-agent instruction. It runs once per email, and the result is saved on `Mail.taskCheck` and kept by `GmailSyncResult.merging`. It is never run on sample mail or without a TypeSafe key. The reader runs it when an email opens; a send runs it on the sent text.
+- **Extraction:** the `.extractTasks` prompt treats the email as untrusted and extracts commitments (sent) or requests (received). Parsing is strict: JSON only, at most 5 tasks, titles up to 120 characters, dates validated (never guessed). It runs only on click. Test: `testSuggestionsAreParsedStrictly`.
+- **Creation:**
+  - `TaskSuggestionsView` shows checkboxes, editable titles and optional due dates, with one primary "Add N tasks" button (or "Connect Google Tasks").
+  - Tasks go to `@default`, with notes that link to the Gmail thread. Rate limits back off.
+  - Test: `TasksFlowTests.testJevChecksEligibleMailOnceAndApprovedTasksReachGoogleTasks`: marketing gets no Jev call, the check is saved once, suggesting creates nothing, and approval creates the task with its link.
+- **UI:**
+  - After-send toast: "Sent" with the tide wave while checking, then "Sent · you made a promise" with **Create task** (12 s), or a plain "Sent".
+  - In the reader: a "Create tasks" toolbar icon when Jev found something, and **Find tasks** in the More menu.
+  - A Tasks screen (sidebar ⌘5) with open tasks, completion, due dates (overdue in red) and a link to the source email.
+  - A real Google Tasks card in Integrations.
+  - Renders inspected: `/tmp/cove-tasks-toast-found.png`, `/tmp/cove-tasks-screen.png`.
+- **Fixed during QA:** Google's midnight-UTC due date showed one day early in Pacific time. It is now read as a calendar date, with a test.
+- **Not verified live:** the Google consent with the new scope, real Jev and model quality, and real Tasks creation. These need the user's reconnect in QA.

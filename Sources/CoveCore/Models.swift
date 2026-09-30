@@ -53,6 +53,8 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable {
   public var isBulkOrAutomated: Bool?
   // The user's Important/Other vote for this email; local state kept across Gmail syncs.
   public var inboxVote: InboxSplit?
+  // Whether Jev found a commitment or request in this email; checked once, kept across syncs.
+  public var taskCheck: MailTaskCheck?
   public var isUnread: Bool { labels.contains("UNREAD") }
   public var isStarred: Bool { labels.contains("STARRED") }
   public var replyRecipient: String {

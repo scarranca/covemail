@@ -45,9 +45,9 @@ struct IntegrationsView: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 20) {
             writingPanel
+            tasksPanel
             DisclosureGroup("More integrations · Coming later", isExpanded: $upcomingExpanded) {
               VStack(alignment: .leading, spacing: 12) {
-                Label("Google Tasks · Lists and due dates", systemImage: "checklist")
                 Label("GitHub · Assigned issues", systemImage: "chevron.left.forwardslash.chevron.right")
                 Text("Not available yet. Gmail and Calendar are in Settings.")
                   .font(.coveMetadata).foregroundStyle(Palette.body)
@@ -443,5 +443,32 @@ private struct CTAStyle: ViewModifier {
   let primary: Bool
   func body(content: Content) -> some View {
     if primary { content.buttonStyle(PrimaryButton()) } else { content.buttonStyle(SecondaryButton()) }
+  }
+}
+
+extension IntegrationsView {
+  /// Google Tasks: where Cove adds the promises and requests it finds, once the user approves.
+  var tasksPanel: some View {
+    HStack(alignment: .center, spacing: 14) {
+      Image(systemName: "checklist").font(.cove(size: 18)).frame(width: 32)
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Google Tasks").font(.coveSubheading)
+        Text(store.tasksConnected ? "Connected · tasks you approve are added to your default list"
+             : "Turn promises and requests in your email into tasks").font(.coveSecondary).foregroundStyle(Palette.body)
+        if let error = store.tasksConnectError, !store.tasksConnected {
+          Text(error).font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      Spacer(minLength: 12)
+      if store.tasksConnected {
+        Button("Open Tasks") { store.screen = "tasks" }.buttonStyle(SecondaryButton(compact: true))
+      } else {
+        Button("Connect") { Task { await store.connectTasks() } }
+          .buttonStyle(PrimaryButton(compact: true)).disabled(store.busy || store.isSample || !store.entered)
+      }
+    }
+    .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
   }
 }

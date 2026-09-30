@@ -170,6 +170,17 @@ import SwiftUI
   private var mailDecodingVersion = 0
   var lastSync: Date?
   var calendarConnected = UserDefaults.standard.bool(forKey: "calendarConnected")
+  var tasksConnected = UserDefaults.standard.bool(forKey: "tasksConnected")
+  var tasksConnectError: String?
+  var googleTasks: [GoogleTask] = []
+  var tasksLoading = false
+  /// Emails whose task check is running, so each is sent to Jev at most once at a time.
+  var taskChecksRunning: Set<String> = []
+  var tasksClient = GoogleTasksClient()
+  /// The email whose task suggestions are open.
+  var taskSuggestionMail: Mail?
+  /// After a send: Jev looks for promises in what was just sent.
+  var postSend: PostSendTaskCheck?
   let auth = GoogleAuth()
   private var database: Database?
   private var gmail = GmailClient()
@@ -699,12 +710,14 @@ import SwiftUI
     guard !busy else { return }
     var connected = false
     await run("Connecting to Gmail…") {
-      let pending = try await self.auth.connect(includeCalendar: includeCalendar, includeCloud: self.cloudMirror.enabled)
+      let pending = try await self.auth.connect(includeCalendar: includeCalendar, includeCloud: self.cloudMirror.enabled,
+                                                includeTasks: self.tasksConnected)
       // Nothing in the active account changes until identity, database, and Keychain all succeed.
       let snapshot = try self.loadMailbox(name: pending.session.email)
       try self.auth.commit(pending)
       self.activateMailbox(snapshot)
       self.calendarConnected = pending.session.calendarConnected
+      self.tasksConnected = pending.session.tasksConnected == true
       self.isSample = false
       self.accountEmail = pending.session.email
       self.entered = true
@@ -939,7 +952,7 @@ import SwiftUI
     var connected = false
     await run("Connecting Google Calendar…") {
       let pending = try await self.auth.connect(
-        includeCalendar: true, includeCloud: self.cloudMirror.enabled, loginHint: email)
+        includeCalendar: true, includeCloud: self.cloudMirror.enabled, includeTasks: self.tasksConnected, loginHint: email)
       guard generation == self.mailboxGeneration, email == self.accountEmail else {
         throw CancellationError()
       }
@@ -1884,6 +1897,7 @@ import SwiftUI
     async -> Bool
   {
     guard entered, !busy, let database else { return false }
+    var sentForTasks: Mail?
     let sender = from ?? accountEmail
     let generation = mailboxGeneration
     let primary = accountEmail
@@ -1963,8 +1977,10 @@ import SwiftUI
           "Gmail sent the message, but Cove couldn’t save the local update. Don’t send it again. Refresh Gmail after resolving the storage problem."
       }
       self.mails = updated
+      sentForTasks = sent
       succeeded = true
     }
+    if succeeded, let sentForTasks, !isSample { lookForTasks(inSent: sentForTasks) }
     if succeeded {
       status = isSample ? "Sample reply saved · no email was sent" : "Email sent"
       if keptNewerDraft { status += " · newer draft kept" }
@@ -3194,5 +3210,159 @@ extension AppStore {
     status = result.failed.isEmpty ? (isSample ? "Sample mailbox · changes stay on this Mac" : "Up to date")
       : "\(result.failed.count) email\(result.failed.count == 1 ? "" : "s") couldn’t be updated"
     return result
+  }
+}
+
+
+// MARK: - Google Tasks
+// Cove only suggests tasks; each one is created by an explicit click. Detection is a cheap Jev
+// check (never on marketing, sales or automated mail); the writing model runs only when asked.
+extension AppStore {
+  func connectTasks() async {
+    guard entered, !isSample, !busy, !tasksConnected else { return }
+    tasksConnectError = nil
+    let email = accountEmail
+    let generation = mailboxGeneration
+    var connected = false
+    await run("Connecting Google Tasks…") {
+      let pending = try await self.auth.connect(
+        includeCalendar: self.calendarConnected, includeCloud: self.cloudMirror.enabled, includeTasks: true, loginHint: email)
+      guard generation == self.mailboxGeneration, email == self.accountEmail else { throw CancellationError() }
+      try pending.session.requireMailbox(email)
+      guard pending.session.tasksConnected == true else {
+        let message = "Google didn’t include Tasks access, so nothing changed. Try again and allow Google Tasks."
+        self.tasksConnectError = message
+        throw CoveError.message(message)
+      }
+      try self.auth.commit(pending)
+      self.calendarConnected = pending.session.calendarConnected
+      self.tasksConnected = true
+      connected = true
+    }
+    auth.finishBrowserSignIn(success: connected)
+    if connected { await refreshTasks() }
+    else if tasksConnectError == nil && generation == mailboxGeneration {
+      tasksConnectError = "Google Tasks wasn’t connected. Try again when you’re ready."
+    }
+  }
+
+  private func tasksToken() async throws -> String {
+    if let gmailTokenProvider { return try await gmailTokenProvider() }
+    return try await auth.token()
+  }
+
+  func refreshTasks() async {
+    guard entered, !isSample, tasksConnected else { return }
+    let generation = mailboxGeneration
+    tasksLoading = true
+    defer { if generation == mailboxGeneration { tasksLoading = false } }
+    do {
+      let tasks = try await tasksClient.list(token: tasksToken())
+      guard generation == mailboxGeneration else { return }
+      googleTasks = tasks.sorted { ($0.dueDay ?? .distantFuture) < ($1.dueDay ?? .distantFuture) }
+    } catch { self.error = error.localizedDescription }
+  }
+
+  /// Asks Jev once whether an eligible email holds a promise or request; the answer is saved on it.
+  func checkForTasks(_ mail: Mail) async {
+    guard entered, !isSample, mail.taskCheck == nil, !taskChecksRunning.contains(mail.id),
+      TaskDetection.eligible(mail, accountEmail: accountEmail, senderRules: preferences.inboxSenderRules ?? [:]),
+      let key = try? agentKey()
+    else { return }
+    let generation = mailboxGeneration
+    taskChecksRunning.insert(mail.id)
+    defer { taskChecksRunning.remove(mail.id) }
+    var gate = CustomAgent()
+    gate.name = "Follow-up tasks"
+    gate.instructions = TaskDetection.gateInstructions
+    gate.labelName = "Follow-up"
+    gate.includeAttachments = false
+    do {
+      let result = try await jev.classify(mail, agent: gate, key: key, attachments: [], warnings: [])
+      guard generation == mailboxGeneration, let index = mails.firstIndex(where: { $0.id == mail.id }) else { return }
+      mails[index].taskCheck = MailTaskCheck(found: result.outcome == .match, confidence: result.confidence)
+      persistMessage(mails[index])
+    } catch {
+      // A failed check stays unchecked so it can be retried later; it never blocks reading or sending.
+    }
+  }
+
+  /// The connected writing model turns one email into task suggestions (never created automatically).
+  func suggestTasks(for mail: Mail, complete: (AIPrompt) async throws -> String) async throws -> [TaskSuggestion] {
+    guard entered else { throw CoveError.message("Open a mailbox first.") }
+    let generation = mailboxGeneration
+    let sent = mail.labels.contains("SENT") || mail.senderEmail.caseInsensitiveCompare(accountEmail) == .orderedSame
+    let now = syncClock()
+    let prompt = try AIPrompt(intent: .extractTasks,
+      instruction: "Current LOCAL date: \(now.formatted(.iso8601.year().month().day())) (\(now.formatted(.dateTime.weekday(.wide))))," +
+        " time zone \(TimeZone.current.identifier). This email was \(sent ? "SENT BY the user: find commitments the user made" : "RECEIVED by the user: find requests made of the user").",
+      mails: [mail])
+    let reply = try await complete(prompt)
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration else { throw CancellationError() }
+    return TaskDetection.suggestions(from: reply)
+  }
+
+  /// Creates the approved suggestions in Google Tasks and remembers them on the email.
+  func addTasks(_ suggestions: [TaskSuggestion], from mail: Mail) async -> (created: [GoogleTask], failed: [String]) {
+    guard entered, !isSample, tasksConnected, !suggestions.isEmpty else { return ([], suggestions.map(\.title)) }
+    let generation = mailboxGeneration
+    var created: [GoogleTask] = []
+    var failed: [String] = []
+    for suggestion in suggestions {
+      do {
+        let task = try await tasksClient.create(title: suggestion.title, notes: TaskDetection.notes(for: suggestion, mail: mail),
+                                                due: suggestion.due, token: tasksToken())
+        created.append(task)
+      } catch { failed.append(suggestion.title) }
+      guard generation == mailboxGeneration else { return (created, failed) }
+    }
+    if let index = mails.firstIndex(where: { $0.id == mail.id }) {
+      var check = mails[index].taskCheck ?? MailTaskCheck(found: true, confidence: 1)
+      check.createdTaskIDs = (check.createdTaskIDs ?? []) + created.map(\.id)
+      mails[index].taskCheck = check
+      persistMessage(mails[index])
+    }
+    googleTasks = (googleTasks + created).sorted { ($0.dueDay ?? .distantFuture) < ($1.dueDay ?? .distantFuture) }
+    return (created, failed)
+  }
+
+  func setTask(_ task: GoogleTask, completed: Bool) async {
+    guard entered, !isSample, tasksConnected else { return }
+    let generation = mailboxGeneration
+    do {
+      let updated = try await tasksClient.setCompleted(task, completed: completed, token: tasksToken())
+      guard generation == mailboxGeneration, let index = googleTasks.firstIndex(where: { $0.id == task.id }) else { return }
+      googleTasks[index] = updated
+    } catch { self.error = error.localizedDescription }
+  }
+
+  /// The downloaded email a task came from, via the Gmail link in its notes.
+  func sourceMail(for task: GoogleTask) -> Mail? {
+    guard let thread = TaskDetection.threadID(inNotes: task.notes) else { return nil }
+    return mails.filter { $0.threadID == thread }.max { $0.date < $1.date }
+  }
+}
+
+struct PostSendTaskCheck: Equatable {
+  enum Phase: Equatable { case checking, found, none }
+  let id = UUID()
+  var mailID: String
+  var phase: Phase
+}
+
+extension AppStore {
+  /// A short, non-blocking check after sending; nothing is created without the user's click.
+  func lookForTasks(inSent mail: Mail) {
+    let check = PostSendTaskCheck(mailID: mail.id, phase: .checking)
+    postSend = check
+    Task { @MainActor in
+      await checkForTasks(mail)
+      guard postSend?.id == check.id else { return }
+      let found = mails.first { $0.id == mail.id }?.taskCheck?.found == true
+      postSend?.phase = found ? .found : .none
+      try? await Task.sleep(for: .seconds(found ? 12 : 2.5))
+      if postSend?.id == check.id { postSend = nil }
+    }
   }
 }

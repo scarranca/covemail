@@ -11,17 +11,19 @@ public enum OAuthSupport {
   }
   public static let gmailScope = "https://www.googleapis.com/auth/gmail.modify"
   public static let calendarScope = "https://www.googleapis.com/auth/calendar.events"
+  public static let tasksScope = "https://www.googleapis.com/auth/tasks"
 
   /// Google authorization request. `loginHint` preselects the connected account; with it, previously
   /// granted scopes are kept so adding Calendar never drops Gmail access.
   public static func authorizationURL(
     clientID: String, redirect: String, state: String, challenge: String,
-    includeCalendar: Bool, includeCloud: Bool, loginHint: String? = nil
+    includeCalendar: Bool, includeCloud: Bool, includeTasks: Bool = false, loginHint: String? = nil
   ) -> URL {
     var url = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     var items: [(String, String)] = [
       ("client_id", clientID), ("redirect_uri", redirect), ("response_type", "code"),
-      ("scope", gmailScope + (includeCalendar ? " " + calendarScope : "") + (includeCloud ? " openid email" : "")),
+      ("scope", gmailScope + (includeCalendar ? " " + calendarScope : "") + (includeTasks ? " " + tasksScope : "")
+        + (includeCloud ? " openid email" : "")),
       ("access_type", "offline"), ("prompt", "consent"), ("state", state),
       ("code_challenge", challenge), ("code_challenge_method", "S256"),
     ]

@@ -42,6 +42,7 @@ public struct GmailSyncResult {
         }
         mail.draft = previous.draft
         mail.snoozedUntil = previous.snoozedUntil
+        mail.taskCheck = previous.taskCheck
         mail.inboxVote = previous.inboxVote
       }
       values[mail.id] = mail

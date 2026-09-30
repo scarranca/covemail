@@ -188,7 +188,8 @@ enum Vault {
     }
     return Data(bytes).base64URL
   }
-  func connect(includeCalendar: Bool = false, includeCloud: Bool = false, loginHint: String? = nil) async throws -> PendingConnection {
+  func connect(includeCalendar: Bool = false, includeCloud: Bool = false, includeTasks: Bool = false,
+               loginHint: String? = nil) async throws -> PendingConnection {
     finishBrowserSignIn(success: false)
     guard GoogleOAuthConfiguration(clientID: clientID).isConfigured else {
       throw CoveError.message("Add a Google Desktop OAuth client ID in Connections first.")
@@ -237,7 +238,7 @@ enum Vault {
     let url = OAuthSupport.authorizationURL(
       clientID: connectingClientID, redirect: redirect, state: expectedState,
       challenge: OAuthSupport.challenge(for: verifier), includeCalendar: includeCalendar,
-      includeCloud: includeCloud, loginHint: loginHint)
+      includeCloud: includeCloud, includeTasks: includeTasks, loginHint: loginHint)
     let code: String = try await withCheckedThrowingContinuation { continuation in
       callback = continuation
       if !NSWorkspace.shared.open(url) {
@@ -262,8 +263,10 @@ enum Vault {
       session: GoogleAccountSession(
         email: email, clientID: connectingClientID, clientSecret: connectingSecret,
         refreshToken: refresh,
-        calendarConnected: includeCalendar
-          && (result.scope?.contains(OAuthSupport.calendarScope) ?? true)),
+        // Google returns every granted scope (earlier grants included), so adding one service never
+        // drops another.
+        calendarConnected: result.scope.map { $0.contains(OAuthSupport.calendarScope) } ?? includeCalendar,
+        tasksConnected: result.scope.map { $0.contains(OAuthSupport.tasksScope) } ?? includeTasks),
       accessToken: result.access_token,
       expiration: Date().addingTimeInterval(result.expires_in - 60), identityToken: result.id_token)
   }
@@ -275,6 +278,7 @@ enum Vault {
     expiration = pending.expiration
     UserDefaults.standard.set(pending.session.email, forKey: "accountEmail")
     UserDefaults.standard.set(pending.session.calendarConnected, forKey: "calendarConnected")
+    UserDefaults.standard.set(pending.session.tasksConnected == true, forKey: "tasksConnected")
     // Old versions stored only a refresh token; it must never be reused after a successful switch.
     try? Vault.delete("googleRefreshToken")
   }
@@ -455,5 +459,6 @@ enum Vault {
     expiration = .distantPast
     UserDefaults.standard.removeObject(forKey: "accountEmail")
     UserDefaults.standard.removeObject(forKey: "calendarConnected")
+    UserDefaults.standard.removeObject(forKey: "tasksConnected")
   }
 }

@@ -91,6 +91,8 @@ struct ReaderView: View {
       reply = current.draft; showReply = !reply.isEmpty
       let opened = current
       Task { await store.markViewed(opened) }
+      // Jev checks eligible mail once for promises or requests; marketing and automated mail are skipped.
+      Task { await store.checkForTasks(opened) }
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
   }
@@ -107,6 +109,11 @@ struct ReaderView: View {
         actionLabel(current.isUnread ? "Mark read" : "Mark unread", icon: current.isUnread ? "envelope.open" : "envelope", compact: compact)
       }.disabled(store.busy)
       moreMenu(compact: compact)
+      if current.taskCheck?.found == true && current.taskCheck?.createdTaskIDs == nil {
+        Button { store.taskSuggestionMail = current } label: {
+          actionLabel("Create tasks", icon: "checklist", compact: compact)
+        }.help("Jev found a follow-up task in this email").accessibilityLabel("Create tasks from this email")
+      }
       Spacer(minLength: 8)
       if let position {
         Text("\(position + 1) of \(store.visible.count)").font(.coveSecondary).fixedSize()
@@ -151,6 +158,8 @@ struct ReaderView: View {
       Button(current.isStarred ? "Remove follow-up flag" : "Flag for follow-up", systemImage: current.isStarred ? "flag.fill" : "flag") {
         Task { await store.toggleFlag(current) }
       }.disabled(current.labels.contains("DRAFT"))
+      Button("Find tasks", systemImage: "checklist") { store.taskSuggestionMail = current }
+        .disabled(current.labels.contains("DRAFT") || store.isSample)
       Button("Assess with Jev", systemImage: "sparkles") {
         assessmentHidden = false
         Task { await store.classify(current) }

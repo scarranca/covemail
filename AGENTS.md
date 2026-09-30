@@ -106,6 +106,11 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 - New drafts follow explicit language instructions, otherwise the current request's language. Rewrites preserve the original language unless asked to change it. Saved voice and foreign-language source mail must not override this.
 - Failures must stay visible with the attempted model and a useful retry/settings action. Snapshot provider/model and draft scope per request; reject stale updates and preserve edits on cancellation/failure.
 
+### Tasks (0.1.52)
+
+- Google Tasks uses scope `https://www.googleapis.com/auth/tasks` (Tasks API enabled in `cove-mail-20260922`, scope on the consent screen). `GoogleAccountSession.tasksConnected` is optional so older Keychain sessions still decode; granted Calendar/Tasks flags are read from the token's `scope`, so adding one never drops the other.
+- Detection: `TaskDetection.eligible` skips bulk/automated, no-reply, Other-tab and Jev newsletter/update/purchase mail before any call. Jev (custom-agent gate) checks eligible mail once; the result is saved on `Mail.taskCheck` and kept across sync merges. The writing model extracts tasks (`.extractTasks`, strict JSON, max 5, validated dates) only on the user's click. Tasks are created in `@default` only after the user approves in `TaskSuggestionsView`; notes link to the Gmail thread. After a send, `lookForTasks` shows `PostSendTaskToast` (wave while checking, “Create task” if found).
+
 ### Calendar, Contacts, Home
 
 - Preserve Workweek/Week/Month views, current-time scrolling, selected-day agenda, overlap layout, and quiet grid lines. User scrolling remains in control after initial navigation.
@@ -223,5 +228,5 @@ Google OAuth remains a private beta/tester-allowlist flow. Apple notarization do
 - Record the real-account first cloud consent/upload check; synthetic infrastructure checks already passed in 0.1.39.
 - Mobile UI, multiwriter synchronization, server Gmail ingestion/watch, server-side Jev, and cloud drafts are future work requiring additional design/security review.
 - General-public Google OAuth verification and clean-Mac onboarding coverage remain distinct from shipping notarized private-beta updates.
-- Google Tasks and GitHub are coming-later placeholders. Do not display them as connected.
+- GitHub is a coming-later placeholder; do not display it as connected. Google Tasks is real since 0.1.52 (see below).
 - Always re-check the current task and repository for newer evidence before acting on this checkpoint.
