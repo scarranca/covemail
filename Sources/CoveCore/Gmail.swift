@@ -304,6 +304,11 @@ public struct GmailClient {
       "messages/\(id)/modify", token: token, method: "POST",
       body: ["addLabelIds": add, "removeLabelIds": remove])
   }
+  /// One label change among many (an approved assistant bulk change), paced like bulk reads.
+  public func modifyPaced(id: String, token: String, add: [String] = [], remove: [String] = []) async throws {
+    try await pacedBulk()
+    try await modify(id: id, token: token, add: add, remove: remove)
+  }
   public func trash(id: String, token: String) async throws {
     _ = try await request("messages/\(id)/trash", token: token, method: "POST")
   }

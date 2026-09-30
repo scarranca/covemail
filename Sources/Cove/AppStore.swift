@@ -1147,23 +1147,29 @@ import SwiftUI
     if let task = pendingReadTasks[mail.id] { await task.value }
     guard generation == mailboxGeneration else { return }
     await run("Updating message…") {
-      if !self.isSample && !mail.id.hasPrefix("local-") {
-        let token: String
-        if let provider = self.gmailTokenProvider { token = try await provider() }
-        else { token = try await self.auth.token() }
-        guard generation == self.mailboxGeneration else { throw CancellationError() }
-        try await self.gmail.modify(id: mail.id, token: token, add: add, remove: remove)
-      }
-      guard generation == self.mailboxGeneration else { throw CancellationError() }
-      if let index = self.mails.firstIndex(where: { $0.id == mail.id }) {
-        self.mails[index].labels.formUnion(add)
-        self.mails[index].labels.subtract(remove)
-        if add.contains("UNREAD") || remove.contains("UNREAD") {
-          self.recordReadChange(id: mail.id, unread: self.mails[index].isUnread)
-        }
-        self.persistMessage(self.mails[index])
-      }
+      try await self.applyLabelChange(id: mail.id, add: add, remove: remove, generation: generation)
       self.reconcileSelection()
+    }
+  }
+  /// Gmail first, then the local copy (if this email is stored here). Shared by `modify` and
+  /// approved assistant bulk changes, which pace their requests.
+  private func applyLabelChange(id: String, add: [String], remove: [String], generation: UUID, paced: Bool = false) async throws {
+    if !isSample && !id.hasPrefix("local-") {
+      let token: String
+      if let provider = gmailTokenProvider { token = try await provider() }
+      else { token = try await auth.token() }
+      guard generation == mailboxGeneration else { throw CancellationError() }
+      if paced { try await gmail.modifyPaced(id: id, token: token, add: add, remove: remove) }
+      else { try await gmail.modify(id: id, token: token, add: add, remove: remove) }
+    }
+    guard generation == mailboxGeneration else { throw CancellationError() }
+    if let index = mails.firstIndex(where: { $0.id == id }) {
+      mails[index].labels.formUnion(add)
+      mails[index].labels.subtract(remove)
+      if add.contains("UNREAD") || remove.contains("UNREAD") {
+        recordReadChange(id: id, unread: mails[index].isUnread)
+      }
+      persistMessage(mails[index])
     }
   }
   var pendingTrashIDs: [String] { queuedTrashIDs.filter { !committingTrashIDs.contains($0) } }
@@ -2768,5 +2774,92 @@ extension AppStore {
     let data = try await gmail.attachmentData(messageID: mail.id, attachment: attachment, token: token)
     try ensureCurrent()
     return data
+  }
+}
+
+// MARK: - Assistant bulk changes
+// Approval-gated: `resolveBulk` only reads, and `applyBulk` runs only from the card's Approve or Undo.
+// There is no send, trash or permanent-delete path here.
+extension AppStore {
+  /// The exact emails a bulk request would change. Reads only; nothing is modified.
+  func resolveBulk(_ request: AssistantBulkRequest, liveSearch: Bool) async throws -> AssistantBulkPlan {
+    guard entered else { throw CoveError.message("Open a mailbox first.") }
+    let generation = mailboxGeneration
+    let account = accountEmail
+    let names = Dictionary(gmailLabels.map { ($0.id, $0.name) }) { first, _ in first }
+    let skipped = Set(queuedTrashIDs)
+    func local(_ mails: [Mail]) -> [AssistantBulkTarget] {
+      mails.filter { mail in
+        !skipped.contains(mail.id) && (request.query.map { AssistantMailFilter.matches(mail, query: $0, labelNames: names) } ?? true)
+      }.map(AssistantBulkTarget.init)
+    }
+    switch request.scope {
+    case .current:
+      guard screen == "mail" else { throw CoveError.message("Open the folder or label with those emails first.") }
+      let view = folderTitle
+      return AssistantBulkPlan.make(request, candidates: local(visible),
+        scope: "In \(selectedLabelID == nil ? view : "the \(view) label")" + (request.query.map { " matching “\($0)”" } ?? ""))
+    case .query:
+      let query = request.query ?? ""
+      guard liveSearch, !isSample else {
+        let sorted = mails.filter { $0.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"]) }.sorted { $0.date > $1.date }
+        return AssistantBulkPlan.make(request, candidates: local(sorted), scope: "Downloaded mail matching “\(query)”")
+      }
+      let token: String
+      if let gmailTokenProvider { token = try await gmailTokenProvider() } else { token = try await auth.token() }
+      let found = try await gmail.countMatches(query: query, token: token, cap: AssistantBulkPlan.cap)
+      try Task.checkCancellation()
+      guard generation == mailboxGeneration, account == accountEmail else { throw CancellationError() }
+      let stored = Dictionary(mails.map { ($0.id, $0) }) { first, _ in first }
+      let missing = found.ids.filter { stored[$0] == nil }
+      let fetched = try await gmail.bulkTargets(ids: missing, token: token)
+      try Task.checkCancellation()
+      guard generation == mailboxGeneration, account == accountEmail else { throw CancellationError() }
+      let remote = Dictionary(fetched.map { ($0.id, $0) }) { first, _ in first }
+      let candidates = found.ids.compactMap { id -> AssistantBulkTarget? in
+        if let mail = stored[id] { return skipped.contains(id) ? nil : AssistantBulkTarget(mail) }
+        return remote[id]
+      }
+      return AssistantBulkPlan.make(request, candidates: candidates, moreAvailable: found.capped,
+        scope: "Gmail search “\(query)”")
+    }
+  }
+
+  /// Applies one label change to exactly `targets`, one email at a time with Gmail pacing and backoff,
+  /// and reports each email's outcome. Undo calls this again with `add` and `remove` swapped.
+  func applyBulk(_ targets: [AssistantBulkTarget], add: [String], remove: [String], label: String,
+                 waitTimeout: TimeInterval = 45, progress: (Int) -> Void = { _ in }) async -> AssistantBulkResult {
+    let generation = mailboxGeneration
+    var result = AssistantBulkResult()
+    guard entered, !targets.isEmpty, !(add.isEmpty && remove.isEmpty) else { return result }
+    // Wait for sync or another change to finish, then hold the mutation slot for the whole batch.
+    let started = Date()
+    while busy {
+      try? await Task.sleep(for: .milliseconds(50))
+      if Date().timeIntervalSince(started) >= waitTimeout || generation != mailboxGeneration {
+        result.failed = targets.map { .init(id: $0.id, subject: $0.subject,
+          message: "Cove was busy with another update. Nothing was changed; try again.") }
+        return result
+      }
+    }
+    busy = true
+    defer { busy = false }
+    for (index, target) in targets.enumerated() {
+      status = "\(label) \(index + 1) of \(targets.count)…"
+      if let task = pendingReadTasks[target.id] { await task.value }
+      do {
+        guard generation == mailboxGeneration else { throw CancellationError() }
+        try await applyLabelChange(id: target.id, add: add, remove: remove, generation: generation, paced: true)
+        result.succeeded.append(target.id)
+      } catch {
+        let message = error is CancellationError ? "The mailbox changed before this email was updated." : error.localizedDescription
+        result.failed.append(.init(id: target.id, subject: target.subject, message: message))
+      }
+      progress(index + 1)
+    }
+    reconcileSelection()
+    status = result.failed.isEmpty ? (isSample ? "Sample mailbox · changes stay on this Mac" : "Up to date")
+      : "\(result.failed.count) email\(result.failed.count == 1 ? "" : "s") couldn’t be updated"
+    return result
   }
 }
