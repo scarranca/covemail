@@ -30,6 +30,22 @@ import XCTest
       question: "remember what this email says") else { return XCTFail("memory must come from the user's words") }
   }
 
+  func testFollowUpReusesPreviousEmailsOnlyWhenTheyExist() async throws {
+    var sawFlag = ""
+    let router = AssistantCalendar(complete: { prompt in
+      sawFlag = prompt.user.contains("Previous answer emails available: true") ? "true" : "false"
+      return #"{"action":"followup"}"#
+    }, calendar: { _, _ in [] }, calendarAvailable: false)
+    guard case .followUp = try await router.respond("make it shorter", previousSources: true, progress: { _ in }) else {
+      return XCTFail("a refinement of the previous answer must not search again")
+    }
+    XCTAssertEqual(sawFlag, "true")
+    guard case .email = try await router.respond("make it shorter", previousSources: false, progress: { _ in }) else {
+      return XCTFail("without previous emails, fall back to a normal answer")
+    }
+    XCTAssertEqual(sawFlag, "false")
+  }
+
   func testRememberForgetAndMemoriesReachTheWriter() throws {
     let store = try store()
     XCTAssertEqual(store.remember("I prefer morning meetings"), "I prefer morning meetings")
