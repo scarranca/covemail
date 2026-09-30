@@ -76,6 +76,17 @@ import Observation
     if available.contains(provider) { return provider }
     return available.contains(.chatGPT) ? .chatGPT : available.first
   }
+  /// A saved, tested subscription default counts as set up while the CLI's sign-in check is still running,
+  /// so setup doesn't flash "not connected" at launch. A finished check that finds no sign-in ends that.
+  var hasWorkingDefault: Bool {
+    if writingProvider() != nil { return true }
+    guard !model(provider).isEmpty else { return false }
+    switch provider {
+    case .chatGPT: return !ChatGPTConnection.shared.checked
+    case .claudeSubscription: return !claude.checked
+    default: return false
+    }
+  }
   func restoreWritingConnection() async {
     if !model(.claudeSubscription).isEmpty, !claude.connected { try? await claude.refresh() }
     guard !model(.chatGPT).isEmpty, !ChatGPTConnection.shared.connected else { return }
@@ -118,6 +129,8 @@ import Observation
   }
   func complete(_ prompt: AIPrompt, provider: AIProvider? = nil, model: String? = nil,
                 onPartial: (@MainActor (String) -> Void)? = nil) async throws -> String {
+    // Asked while the subscription's sign-in check is still starting up: finish that check first.
+    if provider == nil, writingProvider() == nil, hasWorkingDefault { await restoreWritingConnection() }
     guard let selected = provider ?? writingProvider() else {
       throw CoveError.message("Connect a writing provider and save a model in Integrations first.")
     }

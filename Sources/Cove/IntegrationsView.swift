@@ -104,7 +104,7 @@ struct IntegrationsView: View {
           (.chatGPT, "ChatGPT · subscription"), (.claudeSubscription, "Claude · subscription"),
           (.openAI, "OpenAI · API key"), (.anthropic, "Anthropic · API key"), (.openRouter, "OpenRouter · API key")
         ]).disabled(busy)
-        Text(ready
+        Text(checking ? "Checking your sign-in…" : ready
           ? (selectedProvider.isSubscription ? "Connected. Your plan’s limits apply." : "Key saved. Billed separately by the provider.")
           : (selectedProvider.isSubscription ? "Use the plan you already pay for." : "Billed separately by the provider."))
           .font(.coveSecondary).foregroundStyle(Palette.body)
@@ -191,7 +191,15 @@ struct IntegrationsView: View {
       }
     }
   }
-  private var ready: Bool { selectedProvider == .chatGPT ? connection.connected : selectedProvider == .claudeSubscription ? claude.connected : settings.hasKey(selectedProvider) }
+  /// The subscription's sign-in check is still running for a provider that was already set up.
+  private var checking: Bool {
+    guard !settings.model(selectedProvider).isEmpty else { return false }
+    return selectedProvider == .chatGPT ? !connection.checked && !connection.connected
+      : selectedProvider == .claudeSubscription ? !claude.checked && !claude.connected : false
+  }
+  private var ready: Bool {
+    checking || (selectedProvider == .chatGPT ? connection.connected : selectedProvider == .claudeSubscription ? claude.connected : settings.hasKey(selectedProvider))
+  }
   private var canSave: Bool { ready && !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && key.isEmpty }
   private var configurationID: String { selectedProvider.rawValue + ":" + model }
   private var isSavedConfiguration: Bool {

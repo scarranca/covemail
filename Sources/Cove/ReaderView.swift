@@ -437,7 +437,7 @@ struct ReaderView: View {
             Spacer(minLength: 0)
           }
         }
-        if AIProviderSettings.shared.writingProvider() != nil {
+        if AIProviderSettings.shared.hasWorkingDefault {
           // Stays mounted while collapsed so a running request or pending suggestion isn't lost.
           AIWritingPanel(draft: Binding(get: { reply }, set: { updateReply($0) }), selection: replySelection, context: [replySource],
             availableContext: store.mails, voice: store.preferences.voice, instructions: store.preferences.instructions,

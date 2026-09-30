@@ -244,7 +244,7 @@ struct CustomAgentEditor: View {
   private var isDescribing: Bool {
     describing ?? !(agent.rules?.contains { !$0.condition.trimmingCharacters(in: .whitespaces).isEmpty } ?? !agent.labelName.isEmpty)
   }
-  private var hasModel: Bool { AIProviderSettings.shared.writingProvider() != nil }
+  private var hasModel: Bool { AIProviderSettings.shared.hasWorkingDefault }
   @ViewBuilder private var form: some View {
     if isDescribing { describeForm } else { planForm }
   }

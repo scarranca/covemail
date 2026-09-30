@@ -17,6 +17,8 @@ import Security
   }
   var status = "Not connected"
   var connected = false
+  /// True once a sign-in check has finished (either way) this launch.
+  private(set) var checked = false
   /// A successful account check is reused for a few minutes while the helper keeps running.
   private var lastAccountCheck: Date?
   /// Receives the answer as it is written (item/agentMessage/delta), for progressive display.
@@ -151,6 +153,7 @@ import Security
     try send(["method": "initialized", "params": [:]])
   }
   func refresh() async throws {
+    defer { if !Task.isCancelled { checked = true } }
     try await start()
     try Task.checkCancellation()
     let result = try await rpc("account/read", ["refreshToken": false])

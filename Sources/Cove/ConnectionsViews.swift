@@ -50,7 +50,7 @@ enum SetupStep: String, CaseIterable, Identifiable {
   static func isDone(_ step: SetupStep, store: AppStore) -> Bool {
     switch step {
     case .gmail: store.entered && !store.isSample
-    case .ai: AIProviderSettings.shared.writingProvider() != nil
+    case .ai: AIProviderSettings.shared.hasWorkingDefault
     case .jev: jevKeySaved
     case .calendar: store.calendarConnected
     case .tasks: store.tasksConnected

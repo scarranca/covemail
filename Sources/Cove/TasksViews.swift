@@ -122,7 +122,7 @@ struct TaskSuggestionsView: View {
   private func load() async {
     working = true
     defer { working = false }
-    guard AIProviderSettings.shared.writingProvider() != nil else {
+    guard AIProviderSettings.shared.hasWorkingDefault else {
       message = "Connect a writing model in Integrations to turn emails into tasks."
       return
     }
@@ -237,7 +237,7 @@ struct TasksView: View {
       }
       Spacer()
       if store.tasksConnected && !store.isSample {
-        if AIProviderSettings.shared.writingProvider() != nil {
+        if AIProviderSettings.shared.hasWorkingDefault {
           Button { runPlan() } label: { Label("Plan my day", systemImage: "sparkles") }
             .buttonStyle(SecondaryButton(compact: true)).disabled(planning || topLevel.allSatisfy(\.isCompleted))
             .help("Cove picks what to do today and finds time for it")
@@ -447,7 +447,7 @@ struct TaskDetailView: View {
   @State private var aiNote: String?
   @FocusState private var titleFocused: Bool
   private var source: Mail? { store.sourceMail(for: task) }
-  private var hasModel: Bool { AIProviderSettings.shared.writingProvider() != nil }
+  private var hasModel: Bool { AIProviderSettings.shared.hasWorkingDefault }
   private var changed: Bool { title != task.title || notes != TaskDetailText.userNotes(task.notes) || due != task.dueDay }
 
   var body: some View {

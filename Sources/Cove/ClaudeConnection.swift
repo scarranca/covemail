@@ -15,6 +15,8 @@ import Security
   private let runner: Runner?
   private let defaults: UserDefaults
   private(set) var connected = false
+  /// True once a sign-in check has finished (either way) this launch.
+  private(set) var checked = false
   private(set) var status = "Not connected"
   private var working = false
   private(set) var modelOptions: [ClaudeModelOption] = []
@@ -46,6 +48,7 @@ import Security
   func refresh() async throws {
     // A catalog refresh during generation must not invalidate the signed-in provider.
     guard !working else { throw CoveError.message("Claude is handling another request. Check again when it finishes.") }
+    defer { if !Task.isCancelled { checked = true } }
     let result: ClaudeProcess.Result
     do { result = try await execute(["auth", "status", "--json"], timeout: .seconds(30)) }
     catch {
