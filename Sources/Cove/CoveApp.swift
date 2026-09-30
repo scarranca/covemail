@@ -182,33 +182,37 @@ struct RootView: View {
     }
   }
 }
+/// One navigation model on every screen: the same five destinations, then the current
+/// destination's own sub-navigation, then Integrations and Settings at the bottom.
 struct Sidebar: View {
   @Bindable var store: AppStore
   let folders: [(String, String)] = [
     ("Inbox", "tray"), ("Flagged", "flag"), ("Snoozed", "clock"), ("Sent", "paperplane"),
     ("Drafts", "doc.badge.ellipsis"), ("Archive", "archivebox"),
   ]
+  private var inMail: Bool { store.screen == "mail" || store.screen == "categories" }
+  private var inAgents: Bool { store.screen == "agents" || store.screen == "agent" }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: store.screen == "calendar" ? 12 : 22) {
-      Logo().padding(.top, store.screen == "calendar" ? 24 : 35)
+    VStack(alignment: .leading, spacing: 18) {
+      Logo().padding(.top, 30)
       Button {
         store.showConnections = true
       } label: {
         HStack(spacing: 10) {
           CoveAvatar(
             initials: store.isSample ? "AL" : String(store.accountEmail.prefix(2)).uppercased(),
-            size: 34)
-          VStack(alignment: .leading, spacing: 3) {
-            Text(store.isSample ? "Alex Lee" : store.accountEmail).font(
-              .coveLabel
-            ).lineLimit(1)
-            Text(store.isSample ? "Sample mailbox" : "Personal · Gmail").font(.coveMetadata)
-              .foregroundStyle(Palette.body)
+            size: 30)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(store.isSample ? "Alex Lee" : store.accountEmail).font(.coveLabel).lineLimit(1)
+            if store.isSample { Text("Sample mailbox").font(.coveMetadata).foregroundStyle(Palette.body) }
           }
           Spacer(minLength: 0)
           Image(systemName: "chevron.up.chevron.down").font(.cove(size: 10))
         }
       }.buttonStyle(.plain)
+        .help(store.isSample ? "Sample mailbox · account settings" : "Gmail account settings")
+        .accessibilityLabel("Account: \(store.isSample ? "Alex Lee, sample mailbox" : store.accountEmail)")
       Button {
         store.startNewItem()
       } label: {
@@ -220,31 +224,18 @@ struct Sidebar: View {
         }.frame(maxWidth: .infinity)
       }.buttonStyle(PrimaryButton())
       ScrollView {
-        VStack(spacing: 3) {
-          if store.screen == "home" {
-            nav("Agent Hub", icon: "sparkles", selected: true) {}
-            nav("Mail", icon: "tray", selected: false) { store.chooseFolder("Inbox") }
-            nav("Calendar", icon: "calendar", selected: false) { store.screen = "calendar" }
-            nav("Contacts", icon: "person.crop.rectangle", selected: false) { store.screen = "contacts" }
-            nav("Agents", icon: "sparkles", selected: false) { store.screen = "agents" }
-          } else if store.screen == "calendar" {
-            nav("Home", icon: "house", selected: false) { store.screen = "home" }
-            nav("Mail", icon: "tray", selected: false) { store.chooseFolder("Inbox") }
-            nav("Calendar", icon: "calendar", selected: true) {}
-            nav("Contacts", icon: "person.crop.rectangle", selected: false) { store.screen = "contacts" }
-            CalendarNavigation(store: store).padding(.top, 12)
-          } else if store.screen == "contacts" {
-            nav("Mail", icon: "tray", selected: false) { store.chooseFolder("Inbox") }
-            nav("Calendar", icon: "calendar", selected: false) { store.screen = "calendar" }
-            nav("Contacts", icon: "person.crop.rectangle", selected: true) {}
-            nav("Agents", icon: "sparkles", selected: false) { store.screen = "agents" }
-            contactNavigation
-          } else {
-            nav("Home", icon: "house", selected: store.screen == "home") {
-              store.screen = "home"
-            }
+        VStack(spacing: 2) {
+          nav("Home", icon: "house", selected: store.screen == "home", shortcut: "⌘0") { store.screen = "home" }
+          nav("Mail", icon: "tray", selected: inMail, shortcut: "⌘1",
+              badge: inMail ? nil : store.inboxCount) { store.chooseFolder("Inbox") }
+          nav("Calendar", icon: "calendar", selected: store.screen == "calendar", shortcut: "⌘2") { store.screen = "calendar" }
+          nav("Agents", icon: "sparkles", selected: inAgents, shortcut: "⌘3") { store.screen = "agents" }
+          nav("Contacts", icon: "person.crop.rectangle", selected: store.screen == "contacts", shortcut: "⌘4") { store.screen = "contacts" }
+          if inMail {
+            section("Mail")
             ForEach(folders, id: \.0) { name, icon in
-              nav(name, icon: icon, selected: store.screen == "mail" && store.folder == name) {
+              nav(name, icon: icon, selected: store.screen == "mail" && store.folder == name,
+                  badge: name == "Inbox" ? store.inboxCount : nil) {
                 store.chooseFolder(name)
               }
             }
@@ -252,84 +243,59 @@ struct Sidebar: View {
               store.screen = "categories"
             }
             JevFlagsNavigation(store: store)
-            Divider().padding(.vertical, 12)
-            nav("Calendar", icon: "calendar", selected: store.screen == "calendar") {
-              store.screen = "calendar"
-            }
-            nav("Contacts", icon: "person.crop.rectangle", selected: store.screen == "contacts") {
-              store.screen = "contacts"
-            }
-            nav("Agents", icon: "sparkles", selected: store.screen == "agents") {
-              store.screen = "agents"
+          } else if store.screen == "calendar" {
+            CalendarNavigation(store: store).padding(.top, 18)
+          } else if store.screen == "contacts" {
+            section("Groups")
+            ForEach(["All contacts", "Favorites"] + store.contactGroups, id: \.self) { group in
+              nav(group, icon: group == "Favorites" ? "star" : "person.2",
+                  selected: store.contactGroup == group) { store.contactGroup = group }
             }
           }
         }
       }
       Spacer(minLength: 0)
-      if store.screen == "calendar" {
-        Button { store.screen = "agents" } label: {
-          Label("Your agents", systemImage: "sparkles").font(.coveSecondary)
-        }.buttonStyle(.plain)
-      } else {
-      Button {
-        store.screen = "agents"
-      } label: {
-        VStack(alignment: .leading, spacing: 8) {
-          Label("Your agents", systemImage: "sparkles").font(.coveLabel)
-          Text(
-            store.busy
-              ? store.status : "\(store.customAgents.agents.filter { $0.status == .active }.count) active · \(store.customAgents.agents.count) custom agents"
-          ).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(2)
-          if store.screen == "home", let lastSync = store.lastSync {
-            Text("Last checked \(lastSync.formatted(.relative(presentation: .named)))")
-              .font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
-          }
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(
-          RoundedRectangle(cornerRadius: 9).stroke(Palette.line))
-      }.buttonStyle(.plain)
+      if store.busy {
+        HStack(spacing: 8) {
+          ProgressView().controlSize(.small)
+          Text(store.status).lineLimit(2)
+        }.font(.coveMetadata).foregroundStyle(Palette.body)
+      } else if let lastSync = store.lastSync {
+        Text("Checked \(lastSync.formatted(.relative(presentation: .named)))")
+          .font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
       }
-      if store.screen != "home" {
-      Button {
-        store.screen = "integrations"
-      } label: {
-        Label("Integrations", systemImage: "square.stack.3d.up")
-          .font(.coveLabel)
-      }.buttonStyle(.plain).foregroundStyle(store.screen == "integrations" ? Palette.ink : Palette.body)
-      Button {
-        store.showConnections = true
-      } label: {
-        Label("Settings", systemImage: "gearshape").font(.coveLabel)
-      }.buttonStyle(.plain).foregroundStyle(Palette.body)
+      VStack(spacing: 2) {
+        nav("Integrations", icon: "square.stack.3d.up", selected: store.screen == "integrations") {
+          store.screen = "integrations"
+        }
+        nav("Settings", icon: "gearshape", selected: false, shortcut: "⌘,") { store.showConnections = true }
       }
-    }.padding(.horizontal, 18).padding(.bottom, 20).background(Palette.sidebar)
+    }.padding(.horizontal, 18).padding(.bottom, 16).background(Palette.sidebar)
   }
-  private var contactNavigation: some View {
-    VStack(spacing: 3) {
-      Text("Your groups").font(.coveMetadata).foregroundStyle(Palette.body)
-        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.top, 16)
-      ForEach(["All contacts", "Favorites"] + store.contactGroups, id: \.self) { group in
-        nav(
-          group, icon: group == "Favorites" ? "star" : "person.2",
-          selected: store.contactGroup == group
-        ) { store.contactGroup = group }
-      }
-    }
+
+  private func section(_ title: String) -> some View {
+    Text(title).font(.coveMetadata).foregroundStyle(Palette.body)
+      .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10)
+      .padding(.top, 16).padding(.bottom, 4).accessibilityAddTraits(.isHeader)
   }
-  func nav(_ name: String, icon: String, selected: Bool, action: @escaping () -> Void) -> some View
-  {
+
+  func nav(_ name: String, icon: String, selected: Bool, shortcut: String? = nil, badge: Int? = nil,
+           action: @escaping () -> Void) -> some View {
     Button(action: action) {
       HStack(spacing: 11) {
         Image(systemName: icon).frame(width: 18)
         Text(name)
         Spacer()
-        if name == "Inbox" {
-          Text("\(store.inboxCount)").font(.coveSecondary).foregroundStyle(Palette.body)
+        if let badge, badge > 0 {
+          Text("\(badge)").font(.coveSecondary).foregroundStyle(Palette.body)
         }
       }.font(.coveLabel).padding(.horizontal, 10)
-        .padding(.vertical, 10).background(
+        .padding(.vertical, 9).background(
           selected ? Palette.selection : .clear, in: RoundedRectangle(cornerRadius: 7)
         ).contentShape(Rectangle())
     }.buttonStyle(.plain)
+      .help(shortcut.map { "\(name) (\($0))" } ?? name)
+      .accessibilityAddTraits(selected ? .isSelected : [])
   }
 }
 

@@ -45,8 +45,6 @@ struct SettingsSidebar: View {
           }
         }
       }
-      Text("Cove for Mac · Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development")")
-        .font(.coveMetadata).foregroundStyle(Palette.body)
     }.padding(.horizontal, 18).padding(.bottom, 22).background(Palette.sidebar)
   }
 }

@@ -84,7 +84,10 @@ struct ContactsView: View {
   private var toolbar: some View {
     HStack(spacing: 14) {
       Text("Contacts").font(.coveTitle)
-      Text("\(contacts.count) contacts").font(.coveSecondary).foregroundStyle(Palette.muted)
+      Text("\(contacts.count)").font(.coveSecondary).foregroundStyle(Palette.muted)
+        .help(store.isSample ? "Sample contacts · changes stay in the sample mailbox"
+          : "Saved on this Mac, with people from downloaded mail")
+        .accessibilityLabel("\(contacts.count) contacts")
       Spacer(minLength: 8)
       HStack(spacing: 8) {
         Image(systemName: "magnifyingglass").foregroundStyle(Palette.muted)
@@ -143,13 +146,6 @@ struct ContactsView: View {
             .accessibilityLabel("Contact directory")
         }
       }.frame(maxHeight: .infinity)
-      Text(
-        store.isSample
-          ? "Sample contacts · changes stay in the sample mailbox."
-          : "Saved on this Mac, with contacts from downloaded mail."
-      )
-      .font(.coveMetadata).foregroundStyle(Palette.muted).fixedSize(
-        horizontal: false, vertical: true)
     }.padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 20)
   }
 
@@ -158,10 +154,10 @@ struct ContactsView: View {
       HStack {
         Text("Most messaged").font(.coveLabel)
         Spacer()
-        Text("Last 30 days · downloaded mail").font(.coveMetadata)
+        Text("Last 30 days").font(.coveMetadata).help("Messages in downloaded mail from the last 30 days")
       }.foregroundStyle(.white)
       if frequent.isEmpty {
-        Text("Your recent connections will appear as mail arrives.")
+        Text("No recent messages yet.")
           .font(.coveSecondary).foregroundStyle(.white.opacity(0.9)).padding(.vertical, 10)
       } else {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -239,16 +235,12 @@ struct ContactsView: View {
     VStack(spacing: 12) {
       Image(systemName: "person.crop.rectangle").font(.cove(size: 28)).foregroundStyle(
         Palette.muted)
-      Text(query.isEmpty ? "Room for your people" : "No matching contacts")
+      Text(query.isEmpty ? (store.contactGroup == "Favorites" ? "No favorites yet" : "No contacts yet") : "No matching contacts")
         .font(.coveSection)
-      Text(
-        query.isEmpty
-          ? (store.contactGroup == "Favorites"
-            ? "Star a contact to keep them close by."
-            : "Add a contact, or find people here as mail is downloaded.")
-          : "Try a name, email address, or company."
-      )
-      .font(.coveSecondary).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
+      if query.isEmpty && store.contactGroup == "Favorites" {
+        Text("Star a contact to add it here.")
+          .font(.coveSecondary).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
+      }
       if query.isEmpty && contacts.isEmpty && !store.isSample {
         Button("Sync Gmail") { Task { await store.sync() } }
           .buttonStyle(PrimaryButton()).disabled(store.busy)
@@ -300,6 +292,7 @@ struct ContactsView: View {
                 Label("Calendar", systemImage: "calendar")
               }
               .buttonStyle(SecondaryButton()).help("Open your calendar to plan a meeting")
+              .accessibilityLabel("Open calendar")
             }
           }
           Divider()
@@ -312,27 +305,21 @@ struct ContactsView: View {
             info("Source", contact.record == nil ? "Downloaded mail" : "Saved on this Mac")
           }
           VStack(alignment: .leading, spacing: 10) {
-            Label("A little context", systemImage: "sparkles").font(
-              .coveControl)
+            Text("Notes").font(.coveLabel)
             if let notes = contact.record?.notes, !notes.isEmpty {
               Text(notes).font(.coveBody).lineSpacing(CoveTypography.bodyLineSpacing).foregroundStyle(Palette.body)
-              Text("Your notes · stored locally").font(.coveMetadata).foregroundStyle(Palette.muted)
+                .help("Your notes · stored on this Mac")
             } else {
-              Text(
-                contact.messages.isEmpty
-                  ? "No downloaded conversations with this contact yet. Add a note to remember what matters."
-                  : "\(contact.messages.count) \(contact.messages.count == 1 ? "message" : "messages") in your downloaded mail. Open a conversation below to catch up."
-              )
-              .font(.coveText).lineSpacing(5).foregroundStyle(Palette.body)
-              Button("Add a note") { editing = editable(contact) }.buttonStyle(.plain).font(
-                .coveMetadata)
+              Button("Add a note") { editing = editable(contact) }.buttonStyle(.plain).font(.coveSecondary)
+                .foregroundStyle(Palette.body).help("Notes are stored on this Mac")
             }
           }
           Divider()
           VStack(alignment: .leading, spacing: 16) {
             Text("Recent conversations").font(.coveLabel)
+              .help("\(contact.messages.count) \(contact.messages.count == 1 ? "message" : "messages") in downloaded mail")
             if contact.recentConversations.isEmpty {
-              Text("Conversations will appear after mail is downloaded.")
+              Text("None in downloaded mail.")
                 .font(.coveSecondary).foregroundStyle(Palette.muted)
             }
             ForEach(Array(contact.recentConversations.prefix(showAllConversations ? Int.max : 3))) {
@@ -351,7 +338,7 @@ struct ContactsView: View {
             if contact.recentConversations.count > 3 {
               Button(
                 showAllConversations
-                  ? "Show recent conversations ↑" : "View all downloaded conversations →"
+                  ? "Show fewer" : "Show all \(contact.recentConversations.count)"
               ) {
                 showAllConversations.toggle()
               }.buttonStyle(.plain).font(.coveMetadata)
@@ -362,13 +349,8 @@ struct ContactsView: View {
     } else {
       VStack(spacing: 14) {
         Image(systemName: "person.crop.circle").font(.cove(size: 42)).foregroundStyle(Palette.muted)
-        Text("Your people, close by").font(.coveSection)
-        Text(
-          "Select a contact to see their details, catch up on a conversation, or write an email."
-        )
-        .font(.coveText).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
-        .lineSpacing(4)
-      }.padding(28).frame(maxHeight: .infinity).background(Palette.surface)
+        Text("Select a contact").font(.coveSection).foregroundStyle(Palette.body)
+      }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity).background(Palette.surface)
     }
   }
   private func info(_ label: String, _ value: String) -> some View {
@@ -409,8 +391,7 @@ struct ContactEditor: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
       Text(isExisting ? "Edit contact" : "Save a contact").font(.coveTitle)
-      Text("Contact details and notes stay in this account on your Mac.")
-        .font(.coveSecondary).foregroundStyle(Palette.muted)
+      Text("Saved on this Mac.").font(.coveSecondary).foregroundStyle(Palette.muted)
       VStack(spacing: 14) {
         field("Name", text: $record.name)
         field("Email", text: $record.email)

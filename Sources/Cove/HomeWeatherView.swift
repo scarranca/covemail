@@ -42,7 +42,6 @@ struct HomeWeatherView: View {
           Link("CC BY 4.0", destination: URL(string: "https://creativecommons.org/licenses/by/4.0/")!)
         }.font(HomeType.metadata).foregroundStyle(Palette.muted)
       } else if !weather.working {
-        Text("Your local forecast, at a glance.").font(HomeType.compactBody).foregroundStyle(Palette.body)
         HStack(spacing: 12) {
           Button("Use my location") { Task { await weather.refresh(useLocation: true) } }
             .buttonStyle(SecondaryButton(compact: true))
@@ -72,7 +71,7 @@ struct HomeWeatherView: View {
         }
       }
       if weather.cache == nil {
-        Text("City searches use Apple. Forecasts use rounded coordinates with MET Norway.")
+        Text("City search by Apple · forecasts by MET Norway (rounded location)")
           .font(HomeType.metadata).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
       }
     }
