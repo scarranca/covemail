@@ -49,6 +49,9 @@ struct AIWritingPanel: View {
   var envelopeIdentity: String? = nil
   var activity: WritingActivity? = nil
   var reviewOnCanvas = false
+  /// One "ask" line with a tools menu, living inside the editor it writes for. The suggestion is
+  /// previewed on that editor's canvas (via `activity`), never in a separate panel.
+  var inline = false
   var providerSettings: AIProviderSettings? = nil
   let onApply: (String) -> Void
   var onConfigure: (() -> Void)? = nil
@@ -92,6 +95,136 @@ struct AIWritingPanel: View {
   }
 
   var body: some View {
+    Group {
+      if inline { inlineBar } else { fullPanel }
+    }
+      .onAppear { if instruction.isEmpty { instruction = initialInstruction } }
+      .task { await activeSettings.restoreWritingConnection() }
+      .onDisappear { task?.cancel(); activity?.reset() }
+      .onChange(of: envelopeIdentity ?? envelope) { _, _ in
+        task?.cancel(); suggestion = nil; activity?.reset(); lookupActivity = []; writingSession = WritingSession(); error = nil; failedAttempt = nil
+      }
+      .onChange(of: store?.accountEmail) { _, _ in
+        task?.cancel(); suggestion = nil; activity?.reset(); lookupActivity = []; writingSession = WritingSession(); error = nil; failedAttempt = nil
+      }
+      .onChange(of: activity?.applyRequest) { _, _ in
+        guard task == nil else { return }
+        apply()
+      }
+      .onChange(of: activity?.discardRequest) { _, _ in discardSuggestion() }
+      .onChange(of: activity?.rewriteRequest) { _, _ in
+        generate(refining: suggestion != nil,
+          request: "Rewrite the selected passage in my voice for clarity and flow. Preserve its meaning, facts, and commitments.",
+          requireSelection: true)
+      }
+      .onChange(of: suggestion?.text) { _, text in activity?.preview = text }
+      .onChange(of: activity?.preview) { _, text in
+        if let text, suggestion != nil, suggestion?.text != text { suggestion?.text = text }
+      }
+      .popover(isPresented: $contextPicker) { contextSelection }
+      .popover(isPresented: $translate) {
+        VStack(alignment: .leading, spacing: 14) {
+          Text("Translate into").font(.coveSection)
+          TextField("Language", text: $language).textFieldStyle(CoveFieldStyle())
+          Button("Use instruction") {
+            instruction = "Translate this draft into \(language). Preserve the meaning and tone."
+            translate = false
+          }.buttonStyle(PrimaryButton()).disabled(language.trimmingCharacters(in: .whitespaces).isEmpty)
+        }.padding(20).frame(width: 300)
+      }
+  }
+
+  private static let disclosure = "Your draft, recipients, writing preferences and chosen context go to your writing provider. Lookups can include relevant mail and calendar events. Nothing sends automatically."
+
+  private func discardSuggestion() {
+    task?.cancel()
+    suggestion = nil; error = nil; activity?.preview = nil; writingSession = WritingSession(); lookupActivity = []
+  }
+
+  private var inlineBar: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if let error {
+        HStack(spacing: 8) {
+          Image(systemName: "exclamationmark.circle").foregroundStyle(Palette.danger)
+          Text(error).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 8)
+          if failedAttempt != nil { Button("Retry", action: retryFailedAttempt).buttonStyle(.plain).font(.coveControl) }
+          if let onConfigure { Button("Settings", action: onConfigure).buttonStyle(.plain).font(.coveControl) }
+        }.font(.coveMetadata).foregroundStyle(Palette.body)
+      }
+      if writingProvider == nil {
+        HStack(spacing: 10) {
+          Image(systemName: "sparkles").foregroundStyle(Palette.body)
+          Text("Connect a writing model to write with AI.").font(.coveSecondary).foregroundStyle(Palette.body)
+          Spacer(minLength: 0)
+          if let onConfigure { Button("Connect", action: onConfigure).buttonStyle(.plain).font(.coveControl) }
+        }.frame(minHeight: 40)
+      } else {
+        HStack(alignment: .center, spacing: 10) {
+          Image(systemName: "sparkles").font(.cove(size: 14)).foregroundStyle(Palette.body)
+            .help(Self.disclosure).accessibilityLabel("About AI writing").accessibilityValue(Self.disclosure)
+          TextField(suggestion != nil ? "Ask for a change…" : hasSelection ? "Ask Cove to change the selected text…" : "Ask Cove to write or change this…",
+                    text: $instruction, axis: .vertical)
+            .lineLimit(1...4).textFieldStyle(.plain).font(.coveBody)
+            .onSubmit { if canGenerate { generate(refining: suggestion != nil) } }
+            .disabled(task != nil).accessibilityLabel("Writing instructions")
+          toolsMenu
+          if task != nil {
+            Button { task?.cancel() } label: {
+              Image(systemName: "stop.fill").font(.cove(size: 10)).frame(width: 28, height: 28)
+                .background(Palette.ink, in: Circle()).foregroundStyle(.white)
+            }.buttonStyle(.plain).help("Stop writing").accessibilityLabel("Stop writing")
+          } else {
+            Button { generate(refining: suggestion != nil) } label: {
+              Image(systemName: "arrow.up").font(.cove(size: 12, weight: .semibold)).frame(width: 28, height: 28)
+                .background(canGenerate ? Palette.ink : Palette.disabled, in: Circle())
+                .foregroundStyle(canGenerate ? Color.white : Palette.disabledText)
+            }.buttonStyle(.plain).disabled(!canGenerate).help("Write (Return)").accessibilityLabel("Write with AI")
+          }
+        }
+        .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6).frame(minHeight: 40)
+        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(task != nil ? Palette.inputBorder : Palette.line))
+      }
+    }
+  }
+
+  private var toolsMenu: some View {
+    Menu {
+      let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && suggestion == nil
+      Group {
+        Button("Polish", systemImage: "sparkles") { runTool("Polish this draft for clarity and flow. Preserve its meaning.") }
+        Button("Shorten", systemImage: "text.alignleft") { runTool("Make this draft shorter. Keep all questions, facts, dates, and commitments.") }
+        Button("Match my voice", systemImage: "waveform") { runTool("Rewrite this draft using my saved writing voice and preferences.") }
+        Menu("Change tone") {
+          ForEach(["Warm", "Professional", "Direct"], id: \.self) { tone in
+            Button(tone) { runTool("Rewrite this draft in a \(tone.lowercased()) tone. Preserve the meaning.") }
+          }
+        }
+        Menu("Translate") {
+          ForEach(["English", "Spanish", "Portuguese", "French", "German"], id: \.self) { language in
+            Button(language) { runTool("Translate this draft into \(language). Preserve the meaning and tone.") }
+          }
+          Button("Other language…") { translate = true }
+        }
+        Button("Check before send", systemImage: "checkmark.shield") {
+          runTool("Correct grammar and ambiguous wording. Preserve facts and commitments; leave uncertain details as questions instead of inventing them.")
+        }
+      }.disabled(empty)
+      Divider()
+      if store != nil { Toggle("Look up mail and dates", isOn: $lookupEnabled) }
+      if !context.isEmpty { Toggle("Use this conversation", isOn: $useRecipientContext) }
+      if !availableContext.isEmpty {
+        Button("Add an email as context…", systemImage: "plus") { contextPicker = true }.disabled(selectedMails.count >= 20)
+      }
+    } label: {
+      Image(systemName: "slider.horizontal.3").font(.cove(size: 13)).foregroundStyle(Palette.body)
+        .frame(width: 28, height: 28).contentShape(Rectangle())
+    }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+      .disabled(task != nil).help("Writing tools and context").accessibilityLabel("Writing tools")
+  }
+
+  private var fullPanel: some View {
     VStack(spacing: 0) {
       if let error {
         WritingFailureNotice(message: error, model: attemptedModel,
@@ -135,39 +268,6 @@ struct AIWritingPanel: View {
       }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
       }
     }.background(Palette.surface)
-      .onAppear { if instruction.isEmpty { instruction = initialInstruction } }
-      .task { await activeSettings.restoreWritingConnection() }
-      .onDisappear { task?.cancel(); activity?.reset() }
-      .onChange(of: envelopeIdentity ?? envelope) { _, _ in
-        task?.cancel(); suggestion = nil; activity?.reset(); lookupActivity = []; writingSession = WritingSession(); error = nil; failedAttempt = nil
-      }
-      .onChange(of: store?.accountEmail) { _, _ in
-        task?.cancel(); suggestion = nil; activity?.reset(); lookupActivity = []; writingSession = WritingSession(); error = nil; failedAttempt = nil
-      }
-      .onChange(of: activity?.applyRequest) { _, _ in
-        guard task == nil else { return }
-        apply()
-      }
-      .onChange(of: activity?.rewriteRequest) { _, _ in
-        generate(refining: suggestion != nil,
-          request: "Rewrite the selected passage in my voice for clarity and flow. Preserve its meaning, facts, and commitments.",
-          requireSelection: true)
-      }
-      .onChange(of: suggestion?.text) { _, text in activity?.preview = text }
-      .onChange(of: activity?.preview) { _, text in
-        if let text, suggestion != nil, suggestion?.text != text { suggestion?.text = text }
-      }
-      .popover(isPresented: $contextPicker) { contextSelection }
-      .popover(isPresented: $translate) {
-        VStack(alignment: .leading, spacing: 14) {
-          Text("Translate into").font(.coveSection)
-          TextField("Language", text: $language).textFieldStyle(CoveFieldStyle())
-          Button("Use instruction") {
-            instruction = "Translate this draft into \(language). Preserve the meaning and tone."
-            translate = false
-          }.buttonStyle(PrimaryButton()).disabled(language.trimmingCharacters(in: .whitespaces).isEmpty)
-        }.padding(20).frame(width: 300)
-      }
   }
 
   private var voiceSummary: some View {

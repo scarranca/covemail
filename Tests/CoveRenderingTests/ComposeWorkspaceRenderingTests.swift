@@ -27,9 +27,10 @@ import XCTest
     XCTAssertEqual(store.mails.first { $0.id == id }?.senderEmail, "studio@example.com")
     activity.working = true; activity.stage = "Looking up conversations"
     for _ in 0..<4 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(40)) }
-    let waitingFrame = try capture(host, name: "compose-waiting-static")
+    let waitingFrame = try capture(host, name: "compose-waiting")
     for _ in 0..<5 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(40)) }
-    XCTAssertEqual(waitingFrame, try capture(host, name: "compose-waiting-static-later"), "Waiting must be visually still; animate only returned text")
+    // The user asked for a soft dot wave while AI thinks (Reduce Motion keeps it still; see below).
+    XCTAssertNotEqual(waitingFrame, try capture(host, name: "compose-waiting-later"), "The thinking wave moves while waiting")
     activity.working = false
     activity.preview = "Hi Maya,\n\nI’ve looked over the launch notes. Could we confirm a time to review the remaining changes?\n\nThanks,\nAlex"
     for _ in 0..<36 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(40)) }
@@ -39,6 +40,18 @@ import XCTest
     XCTAssertFalse(finishedInk.motionRunning, "Real-time animation stops when its last letter lands")
     XCTAssertEqual(store.mails.first { $0.id == id }?.body, "Original draft", "Preview never applies or sends")
     XCTAssertEqual(try database.loadMail().first { $0.id == id }?.body, "Original draft")
+  }
+
+  func testThinkingWaveIsStillWithReduceMotion() async throws {
+    _ = NSApplication.shared
+    let host = NSHostingView(rootView: WritingThinkingBar(stage: "Looking up conversations", stillOverride: true).frame(width: 480))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 34), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    defer { window.close() }
+    for _ in 0..<4 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let first = try capture(host, name: "thinking-reduced")
+    for _ in 0..<5 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(40)) }
+    XCTAssertEqual(first, try capture(host, name: "thinking-reduced-later"), "Reduce Motion: waiting is visually still")
   }
 
   func testDisabledMotionPreviewRendersWithoutTypingDelay() async throws {

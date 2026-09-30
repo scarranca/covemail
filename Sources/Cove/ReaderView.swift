@@ -9,7 +9,8 @@ struct ReaderView: View {
   @State private var replyTarget: Mail?
   @State private var showReply = false
   @State private var replyAll = false
-  @State private var showAIWriting = false
+  @State private var writingActivity = WritingActivity()
+  @State private var replyBeforeSuggestion: String?
   @State private var assessmentHidden = false
   @State private var showEvidence = false
   @FocusState private var replyFocused: Bool
@@ -90,11 +91,6 @@ struct ReaderView: View {
       Task { await store.markViewed(opened) }
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
-    .sheet(isPresented: $showAIWriting) {
-      AIWritingSheet(context: [replySource], initialText: reply, onInsert: { value in
-        updateReply(value); showReply = true
-      }, onConfigure: { store.screen = "integrations" }, store: store)
-    }
   }
 
   private func toolbar(compact: Bool) -> some View {
@@ -322,16 +318,65 @@ struct ReaderView: View {
               .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).fixedSize()
           }
         }
-        TextEditor(text: Binding(get: { reply }, set: { updateReply($0) })).focused($replyFocused).font(.coveBody).lineSpacing(6).scrollContentBackground(
-          .hidden
-        ).accessibilityLabel("Reply body").frame(
-          minHeight: 118
-        )
+        // Like the composer: the suggestion is previewed in place of the reply and applied on click;
+        // the reply itself is untouched until then.
+        ZStack(alignment: .topLeading) {
+          TextEditor(text: Binding(get: { reply }, set: { updateReply($0) })).focused($replyFocused).font(.coveBody).lineSpacing(6)
+            .scrollContentBackground(.hidden).accessibilityLabel("Reply body")
+            .opacity(writingActivity.preview == nil && !streamingReply ? 1 : 0)
+            .allowsHitTesting(writingActivity.preview == nil && !streamingReply)
+            .accessibilityHidden(writingActivity.preview != nil || streamingReply)
+          if let preview = writingActivity.preview {
+            WritingInkCanvas(text: preview, animated: true,
+              onEdit: writingActivity.working ? nil : { writingActivity.preview = $0 },
+              onSelection: { writingActivity.previewSelection = $0 }, selectedRange: writingActivity.previewSelection)
+              .id(writingActivity.revision).accessibilityLabel("Suggested reply")
+          } else if streamingReply, let streaming = writingActivity.streaming {
+            ScrollView {
+              Text(streaming).font(.coveBody).lineSpacing(6).foregroundStyle(Palette.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }.accessibilityLabel("Reply being written")
+          }
+        }
+        .frame(minHeight: 118)
+        .overlay(alignment: .bottom) {
+          if writingActivity.working { WritingThinkingBar(stage: writingActivity.stage).transition(.opacity) }
+        }
+        .animation(.easeOut(duration: 0.2), value: writingActivity.working)
+        if writingActivity.preview != nil {
+          HStack(spacing: 12) {
+            Button("Apply", systemImage: "checkmark") { writingActivity.applyRequest += 1 }
+              .buttonStyle(PrimaryButton(compact: true)).disabled(writingActivity.working)
+            Button("Discard") { writingActivity.discardRequest += 1 }
+              .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+            Spacer(minLength: 0)
+            Text("Suggestion · not applied").font(.coveMetadata).foregroundStyle(Palette.muted)
+          }
+        } else if let before = replyBeforeSuggestion {
+          HStack(spacing: 12) {
+            Label("Suggestion applied", systemImage: "checkmark").font(.coveMetadata).foregroundStyle(Palette.body)
+            Button("Undo") { updateReply(before); replyBeforeSuggestion = nil }
+              .buttonStyle(.plain).font(.coveControl)
+            Spacer(minLength: 0)
+          }
+        }
+        if AIProviderSettings.shared.writingProvider() != nil {
+          AIWritingPanel(draft: Binding(get: { reply }, set: { updateReply($0) }), context: [replySource],
+            availableContext: store.mails, voice: store.preferences.voice, instructions: store.preferences.instructions,
+            voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt, store: store,
+            envelope: "Reply to: \(replyRecipient)\nSubject: \(replySource.subject)", envelopeIdentity: replySource.id,
+            activity: writingActivity, reviewOnCanvas: true, inline: true,
+            onApply: { value in
+              replyBeforeSuggestion = reply
+              updateReply(value)
+              showReply = true
+            }, onConfigure: { store.screen = "integrations" })
+        }
         ViewThatFits(in: .horizontal) {
-          HStack(alignment: .center, spacing: 10) { sendButton; templateMenu; aiButton; Spacer(minLength: 8); discardButton }
+          HStack(alignment: .center, spacing: 10) { sendButton; templateMenu; Spacer(minLength: 8); discardButton }
           VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) { sendButton; Spacer(minLength: 8); discardButton }
-            HStack(alignment: .center, spacing: 10) { templateMenu; aiButton }
+            HStack(alignment: .center, spacing: 10) { templateMenu }
           }
         }
       }.padding(.horizontal, 18).padding(.vertical, 16)
@@ -359,7 +404,8 @@ extension ReaderView {
     } label: {
       Label(store.isSample ? "Save sample reply" : "Send reply", systemImage: "paperplane")
     }.buttonStyle(PrimaryButton()).fixedSize().disabled(
-      reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyRecipient.isEmpty || store.busy)
+      reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyRecipient.isEmpty || store.busy
+        || writingActivity.working || writingActivity.preview != nil)
   }
   private var templateMenu: some View {
     Menu {
@@ -380,11 +426,8 @@ extension ReaderView {
       .overlay(RoundedRectangle(cornerRadius: 6).stroke(Palette.inputBorder))
       .help("Start with a reply template in your preferred voice")
   }
-  @ViewBuilder private var aiButton: some View {
-    if AIProviderSettings.shared.writingProvider() != nil {
-      Button("Write with AI", systemImage: "sparkles") { showAIWriting = true }
-        .buttonStyle(SecondaryButton()).fixedSize().disabled(store.busy)
-    }
+  private var streamingReply: Bool {
+    writingActivity.working && !(writingActivity.streaming ?? "").isEmpty
   }
   private var discardButton: some View {
     Button {

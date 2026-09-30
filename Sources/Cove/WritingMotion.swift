@@ -12,6 +12,7 @@ import CoreText
   var revision = 0
   var previewSelection = NSRange(location: 0, length: 0)
   var applyRequest = 0
+  var discardRequest = 0
   var rewriteRequest = 0
   func reset() { working = false; stage = ""; preview = nil; streaming = nil; previewSelection = NSRange(location: 0, length: 0) }
 }
@@ -308,5 +309,40 @@ struct WritingCanvasLoading: View {
       Spacer(minLength: 0)
     }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .allowsHitTesting(false)
+  }
+}
+
+
+/// The AI is working: a slow wave of soft dots along the bottom of the editor, with the truthful
+/// stage beside it. Reduce Motion shows the dots still.
+struct WritingThinkingBar: View {
+  let stage: String
+  /// Tests force the Reduce Motion rendering; the app uses the system setting.
+  var stillOverride: Bool? = nil
+  @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+  private var reduceMotion: Bool { stillOverride ?? systemReduceMotion }
+  private static let tints: [Color] = [
+    Color(red: 0.62, green: 0.66, blue: 0.96), Color(red: 0.56, green: 0.80, blue: 0.86),
+    Color(red: 0.70, green: 0.84, blue: 0.70), Color(red: 0.96, green: 0.78, blue: 0.62),
+    Color(red: 0.93, green: 0.66, blue: 0.78),
+  ]
+  var body: some View {
+    HStack(spacing: 12) {
+      TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
+        let time = context.date.timeIntervalSinceReferenceDate
+        HStack(spacing: 6) {
+          ForEach(0..<Self.tints.count, id: \.self) { index in
+            let wave = reduceMotion ? 0 : sin(time / 1.8 * 2 * .pi - Double(index) * 0.75)
+            Circle().fill(Self.tints[index]).frame(width: 7, height: 7)
+              .offset(y: -3.5 * wave).opacity(0.55 + 0.35 * (wave + 1) / 2)
+          }
+        }.frame(height: 18)
+      }.accessibilityHidden(true)
+      Text(stage.isEmpty ? "Writing…" : stage).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 16).frame(height: 34)
+    .background(LinearGradient(colors: [Palette.canvas.opacity(0), Palette.canvas.opacity(0.96)], startPoint: .top, endPoint: .center))
+    .accessibilityElement(children: .combine).accessibilityLabel(stage.isEmpty ? "Writing" : stage)
   }
 }

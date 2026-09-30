@@ -94,8 +94,6 @@ struct ComposerView: View {
   @State private var writingActivity: WritingActivity
   @FocusState private var recipientFocused: Bool
   @State private var loaded = false
-  @State private var showAssistant = true
-  @State private var compactTab = "Message"
   @State private var confirmSend = false
   @State private var confirmDiscard = false
   @State private var undoSuggestion: String?
@@ -120,25 +118,7 @@ struct ComposerView: View {
     VStack(spacing: 0) {
       header
       Divider()
-      if compact && showAssistant {
-        Picker("Compose workspace", selection: $compactTab) {
-          Text("Message").tag("Message")
-          Text("AI writing").tag("AI writing")
-        }.pickerStyle(.segmented).padding(12)
-        Divider()
-      }
-      HStack(spacing: 0) {
-        let hideEditor = compact && showAssistant && compactTab == "AI writing"
-        let hideAssistant = !showAssistant || (compact && compactTab == "Message")
-        editor.frame(maxWidth: hideEditor ? 0 : .infinity)
-          .clipped().opacity(hideEditor ? 0 : 1)
-          .accessibilityHidden(hideEditor).allowsHitTesting(!hideEditor)
-        if !compact && showAssistant { Divider() }
-        // Keep both panes mounted so switching tabs never discards a pending suggestion.
-        assistant.frame(width: hideAssistant ? 0 : compact ? sheetWidth : min(390, sheetWidth * 0.36))
-          .clipped().opacity(hideAssistant ? 0 : 1)
-          .accessibilityHidden(hideAssistant).allowsHitTesting(!hideAssistant)
-      }
+      editor.frame(maxWidth: .infinity)
     }
       .frame(width: sheetWidth, height: sheetHeight)
       .background(Palette.canvas).foregroundStyle(Palette.ink)
@@ -180,12 +160,6 @@ struct ComposerView: View {
       Text("New message").font(.coveSection)
       Text("Draft saved on this Mac").font(.coveMetadata).foregroundStyle(Palette.body)
       Spacer()
-      Button {
-        showAssistant.toggle()
-        compactTab = "Message"
-      } label: { Image(systemName: "sparkles").padding(8).contentShape(Rectangle()) }
-        .buttonStyle(.plain).accessibilityLabel(showAssistant ? "Hide AI writing" : "Show AI writing")
-        .help(showAssistant ? "Hide AI writing" : "Show AI writing")
       Button { save(); dismiss() } label: {
         Image(systemName: "xmark").padding(8).contentShape(Rectangle())
       }.buttonStyle(.plain).accessibilityLabel("Save and close draft").help("Save and close draft")
@@ -249,20 +223,22 @@ struct ComposerView: View {
             Text(streaming).font(.coveBody).lineSpacing(6).foregroundStyle(Palette.ink)
               .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.vertical, 18)
           }.background(Palette.canvas).accessibilityLabel("Draft being written")
-        } else if writingActivity.working && text.isEmpty {
-          WritingCanvasLoading(stage: writingActivity.stage)
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+          if writingActivity.working { WritingThinkingBar(stage: writingActivity.stage).transition(.opacity) }
+        }
+        .animation(.easeOut(duration: 0.2), value: writingActivity.working)
       HStack(spacing: 10) {
         if let preview = writingActivity.preview {
           Button("Apply draft", systemImage: "checkmark") { writingActivity.applyRequest += 1 }
             .buttonStyle(PrimaryButton(compact: true))
             .disabled(writingActivity.working || preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          Button("Discard") { writingActivity.discardRequest += 1 }
+            .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).disabled(writingActivity.working)
         }
         if (writingActivity.preview == nil ? selection : writingActivity.previewSelection).length > 0 {
           Button("Rewrite selection", systemImage: "sparkles") {
-            showAssistant = true
-            if compact { compactTab = "AI writing" }
             writingActivity.rewriteRequest += 1
           }.buttonStyle(.plain).font(.coveMetadata).disabled(writingActivity.working)
         } else if writingActivity.preview == nil {
@@ -283,6 +259,7 @@ struct ComposerView: View {
           }.buttonStyle(.plain).font(.coveControl)
         }.padding(.horizontal, 24).padding(.vertical, 10).background(Palette.summary)
       }
+      assistant.padding(.horizontal, 20).padding(.bottom, 12)
       Divider()
       HStack(spacing: 12) {
         Button(store.isSample ? "Save sample" : "Send", systemImage: "paperplane") {
@@ -374,14 +351,13 @@ struct ComposerView: View {
     AIWritingPanel(draft: $text, selection: selection, context: WritingContext.recentMail(to: to, mails: store.mails), availableContext: store.mails,
       voice: store.preferences.voice, instructions: store.preferences.instructions,
       voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt,
-      store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: !compact,
+      store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: true, inline: true,
       onApply: { value in
         undoSuggestion = text
         text = value
         selection = NSRange(location: 0, length: 0)
         appliedSuggestion = value
         save()
-        if compact { compactTab = "Message" }
       }, onConfigure: {
         save()
         store.showComposer = false

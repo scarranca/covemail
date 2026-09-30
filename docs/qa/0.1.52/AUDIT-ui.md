@@ -55,3 +55,17 @@ Hidden-window renders, inspected by eye. Copies are in the worktree's ignored `.
 - **Calendar event detail:** it stacks up to five full-width secondary buttons (View email, Join Meet, Open in Google Calendar, Edit, Delete). Keep Join/Edit visible and move the rest into a ⋯ menu.
 - **Docs:** AGENTS.md and DESIGN.md still call the home route "Agent Hub", but the UI now says "Home". These were not edited, because this pass was limited to new documentation files.
 - **Agents (`CustomAgentViews.swift`), chat (`AgentChatView.swift`):** apply the same one-primary rule (owned by other agents).
+
+## Inline AI writing (September 30, after live QA)
+
+- **User feedback:** the Write with AI pop-up and the composer side panel were "too much"; the user "only wants to ask something".
+- **Change:**
+  - `AIWritingPanel(inline: true)` is a single ask line: sparkle, field, tools menu, send/stop. The tools menu holds Polish, Shorten, Match my voice, Change tone, Translate, Check before send, the lookup and conversation toggles, and Add context.
+  - Enter submits. The provider disclosure is the sparkle's tooltip.
+  - The reply editor and composer preview the suggestion on their canvas with Apply/Discard. Applying offers Undo, and Send is disabled while a suggestion is pending.
+  - The generation engine (planning, lookups, streaming, selection rewrite, retry) is unchanged.
+- **Thinking indicator:** `WritingThinkingBar`, a soft pastel dot wave with the stage text, sits at the bottom of the editor.
+  - `ComposeWorkspaceRenderingTests` now asserts that the waiting frames change, and `testThinkingWaveIsStillWithReduceMotion` asserts stillness under Reduce Motion.
+  - Renders inspected: `/tmp/compose-waiting.png`, `/tmp/compose-canvas-preview.png`, `/tmp/cove-inline-writing.png`.
+- **Also:** the bulk card has "Show all N", which fetches the remaining rows' metadata on demand into a scrollable list (`bulkTargetDetails`, tested).
+- **Not verified:** a live reply generation in the reader with a real model; the QA build is ready for the user.
