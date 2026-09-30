@@ -177,6 +177,11 @@ import SwiftUI
   /// Emails whose task check is running, so each is sent to Jev at most once at a time.
   var taskChecksRunning: Set<String> = []
   var tasksClient = GoogleTasksClient()
+  var unsubscribeClient = UnsubscribeClient()
+  /// Senders the user unsubscribed from, by address; kept encrypted with the mailbox.
+  var unsubscribedSenders: [String: Date] = [:]
+  /// Emails whose unsubscribe headers were already looked up this session.
+  var unsubscribeChecked = Set<String>()
   @ObservationIgnored private var contactsCache: (revision: Int, records: [ContactRecord], account: String, value: [MailContact])?
   /// The email whose task suggestions are open.
   var taskSuggestionMail: Mail?
@@ -498,6 +503,8 @@ import SwiftUI
     cloudStatus = cloudMirror.enabled ? "Ready to sync" : "Cloud sync is off"
     database = snapshot.database
     cloudSnoozes = snapshot.cloudSnoozes
+    unsubscribedSenders = (try? snapshot.database.load([String: Date].self, key: "unsubscribedSenders")) ?? [:]
+    unsubscribeChecked = []
     mails = snapshot.mails.map { cloudSnoozes.applying(to: $0) }
     preferences = snapshot.preferences
     customAgents = snapshot.customAgents
@@ -3534,5 +3541,56 @@ extension AppStore {
     guard let id = composeID else { return }
     saveComposition(id: id, to: person.name == person.email ? person.email : "\(person.name) <\(person.email)>",
                     subject: task.title, body: "")
+  }
+}
+
+extension AppStore {
+  enum UnsubscribeOutcome { case done, composed, openedPage }
+
+  /// The unsubscribe route for this email, if its sender offers one. Spam never gets one:
+  /// answering spam confirms the address is read.
+  func unsubscribeRoute(for mail: Mail) -> MailUnsubscribe? {
+    guard !mail.labels.contains("SPAM"), !mail.labels.contains("SENT"), !mail.labels.contains("DRAFT") else { return nil }
+    return mails.first { $0.id == mail.id }?.unsubscribe ?? mail.unsubscribe
+  }
+  func hasUnsubscribed(from mail: Mail) -> Bool { unsubscribedSenders[mail.senderEmail.lowercased()] != nil }
+
+  /// Emails stored before Cove kept these headers: read just the two headers, once per session.
+  func loadUnsubscribeIfNeeded(for mail: Mail) async {
+    guard entered, !isSample, !mail.id.hasPrefix("local-"), mail.unsubscribe == nil, mail.isBulkOrAutomated != false,
+          !mail.labels.contains("SPAM"), unsubscribeChecked.insert(mail.id).inserted else { return }
+    let generation = mailboxGeneration
+    do {
+      let token: String
+      if let provider = gmailTokenProvider { token = try await provider() } else { token = try await auth.token() }
+      guard let found = try await gmail.unsubscribe(id: mail.id, token: token), generation == mailboxGeneration,
+            let index = mails.firstIndex(where: { $0.id == mail.id }) else { return }
+      mails[index].unsubscribe = found
+      try? database?.saveMessage(mails[index])
+    } catch {}
+  }
+
+  /// One-click is sent right away (after the user confirmed); email opens an unsent draft; web opens the page.
+  @discardableResult
+  func unsubscribe(from mail: Mail) async throws -> UnsubscribeOutcome {
+    guard let route = unsubscribeRoute(for: mail) else { throw CoveError.message("This sender doesn’t offer an unsubscribe option.") }
+    let sender = mail.senderEmail.lowercased()
+    switch route.kind {
+    case .oneClick:
+      guard let url = route.oneClick else { throw CoveError.message("This sender doesn’t offer an unsubscribe option.") }
+      if !isSample { try await unsubscribeClient.oneClick(url) }
+      unsubscribedSenders[sender] = syncClock()
+      try? database?.save(unsubscribedSenders, key: "unsubscribedSenders")
+      return .done
+    case .email:
+      guard let address = route.mailto else { throw CoveError.message("This sender doesn’t offer an unsubscribe option.") }
+      newDraft()
+      if let id = composeID { saveComposition(id: id, to: address, subject: route.mailSubject, body: route.mailBody) }
+      return .composed
+    case .web:
+      guard let url = route.web else { throw CoveError.message("This sender doesn’t offer an unsubscribe option.") }
+      NSWorkspace.shared.open(url)
+      return .openedPage
+    }
   }
 }

@@ -6,6 +6,9 @@ struct ReaderView: View {
   @Bindable var store: AppStore
   let mail: Mail
   @State private var reply = ""
+  @State private var confirmUnsubscribe = false
+  @State private var unsubscribing = false
+  @State private var unsubscribeNote: (text: String, failed: Bool)?
   @State private var replyTarget: Mail?
   @State private var showReply = false
   @State private var replyAll = false
@@ -42,6 +45,20 @@ struct ReaderView: View {
         toolbar(compact: true)
       }.padding(.horizontal, 24).frame(height: 64)
       Divider()
+      if let note = unsubscribeNote {
+        HStack(spacing: 10) {
+          Image(systemName: note.failed ? "exclamationmark.circle" : "checkmark.circle")
+          Text(note.text).font(.coveSecondary).fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 8)
+          if !note.failed && current.labels.contains("INBOX") {
+            Button("Archive") { Task { await store.archive(current) } }.buttonStyle(SecondaryButton(compact: true))
+          }
+          Button { unsubscribeNote = nil } label: { Image(systemName: "xmark").font(.cove(size: 11)) }
+            .buttonStyle(.plain).accessibilityLabel("Dismiss")
+        }.foregroundStyle(note.failed ? Palette.danger : Palette.ink)
+          .padding(.horizontal, 24).padding(.vertical, 10).background(Palette.surface)
+        Divider()
+      }
       ScrollViewReader { proxy in
         ScrollView {
           VStack(alignment: .leading, spacing: 22) {
@@ -95,6 +112,7 @@ struct ReaderView: View {
       Task { await store.checkForTasks(opened) }
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
+    .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
   }
 
   private func toolbar(compact: Bool) -> some View {
@@ -114,6 +132,23 @@ struct ReaderView: View {
       } label: {
         actionLabel(current.isUnread ? "Mark read" : "Mark unread", icon: current.isUnread ? "envelope.open" : "envelope", compact: compact)
       }.disabled(store.busy)
+      if let route = store.unsubscribeRoute(for: current) {
+        if store.hasUnsubscribed(from: current) {
+          actionLabel("Unsubscribed", icon: "bell.slash.fill", compact: compact).foregroundStyle(Palette.muted)
+            .help("You unsubscribed from this sender")
+        } else {
+          Button { confirmUnsubscribe = true } label: {
+            if unsubscribing { ProgressView().controlSize(.small).frame(minWidth: 32, minHeight: 40) }
+            else { actionLabel("Unsubscribe", icon: "bell.slash", compact: compact) }
+          }.disabled(unsubscribing).help(Self.unsubscribeHelp(route))
+            .confirmationDialog("Unsubscribe from \(current.sender)?", isPresented: $confirmUnsubscribe, titleVisibility: .visible) {
+              Button(route.kind == .oneClick ? "Unsubscribe" : route.kind == .email ? "Write the unsubscribe email" : "Open their unsubscribe page") {
+                runUnsubscribe()
+              }
+              Button("Cancel", role: .cancel) {}
+            } message: { Text(Self.unsubscribeHelp(route)) }
+        }
+      }
       moreMenu(compact: compact)
       if current.taskCheck?.found == true && current.taskCheck?.createdTaskIDs == nil {
         Button { store.taskSuggestionMail = current } label: {
@@ -131,6 +166,27 @@ struct ReaderView: View {
     }.buttonStyle(ReaderActionStyle()).foregroundStyle(Palette.body)
   }
 
+  static func unsubscribeHelp(_ route: MailUnsubscribe) -> String {
+    switch route.kind {
+    case .oneClick: "Cove tells \(route.oneClick?.host ?? "the sender") to stop sending you these emails. Nothing else is shared. It can take a few days."
+    case .email: "Cove opens an email to \(route.mailto ?? "the sender") for you to send."
+    case .web: "Opens \(route.web?.host ?? "their page") in your browser to finish there."
+    }
+  }
+  private func runUnsubscribe() {
+    let mail = current
+    unsubscribing = true
+    Task { @MainActor in
+      defer { unsubscribing = false }
+      do {
+        switch try await store.unsubscribe(from: mail) {
+        case .done: unsubscribeNote = ("Unsubscribed from \(mail.sender). Emails already on their way may still arrive.", false)
+        case .composed: unsubscribeNote = ("The unsubscribe email is open. Send it to finish.", false)
+        case .openedPage: unsubscribeNote = nil
+        }
+      } catch { unsubscribeNote = (error.localizedDescription, true) }
+    }
+  }
   private func actionLabel(_ title: String, icon: String, compact: Bool) -> some View {
     HStack(spacing: 7) {
       Image(systemName: icon).font(.system(size: 16)).accessibilityHidden(true)

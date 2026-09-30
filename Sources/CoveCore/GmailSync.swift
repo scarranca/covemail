@@ -153,6 +153,23 @@ extension GmailClient {
       ).mail()
     } catch let error as HTTPFailure where error.statusCode == 404 { return nil }
   }
+  /// Reads only the unsubscribe headers, for emails stored before Cove kept them.
+  public func unsubscribe(id: String, token: String) async throws -> MailUnsubscribe? {
+    struct Metadata: Decodable {
+      struct Payload: Decodable { let headers: [GmailMessage.Header]? }
+      let payload: Payload?
+    }
+    let metadata = try JSONDecoder().decode(Metadata.self, from: await request(
+      "messages/\(id)", token: token, query: [
+        URLQueryItem(name: "format", value: "metadata"),
+        URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe"),
+        URLQueryItem(name: "metadataHeaders", value: "List-Unsubscribe-Post"),
+      ]))
+    func header(_ name: String) -> String {
+      metadata.payload?.headers?.first { $0.name.lowercased() == name.lowercased() }?.value ?? ""
+    }
+    return MailUnsubscribe.parse(header: header("List-Unsubscribe"), post: header("List-Unsubscribe-Post"))
+  }
   enum MessageUpdate: Sendable {
     case full(Mail)
     case labels(String, Set<String>)

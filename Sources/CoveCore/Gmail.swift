@@ -147,7 +147,7 @@ public struct GmailMessage: Decodable {
     } else {
       readable = plain
     }
-    return Mail(
+    var mail = Mail(
       id: id, threadID: threadId, sender: name.isEmpty ? address : name, senderEmail: address,
       to: header("To"), subject: header("Subject").isEmpty ? "(No subject)" : header("Subject"),
       body: readable ?? fallback ?? Self.decodeEntities(snippet ?? ""),
@@ -159,6 +159,8 @@ public struct GmailMessage: Decodable {
         listID: header("List-ID"), listUnsubscribe: header("List-Unsubscribe"),
         autoSubmitted: header("Auto-Submitted"), precedence: header("Precedence")),
       cc: header("Cc"))
+    mail.unsubscribe = MailUnsubscribe.parse(header: header("List-Unsubscribe"), post: header("List-Unsubscribe-Post"))
+    return mail
   }
   /// A few senders leak presentation markup into text/plain. Only recognize paired,
   /// attributed HTML fragments that also occur literally in the HTML alternative.

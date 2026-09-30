@@ -78,6 +78,23 @@ import XCTest
     try await render(ReaderView(store: store, mail: message).defaultAppStorage(defaults), width: 824, name: "plain")
     try await render(MailboxView(store: store).defaultAppStorage(defaults), width: 1050, name: "mailbox")
   }
+  func testNewsletterOffersUnsubscribeButSpamNeverDoes() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let store = try fixture()
+    var newsletter = message
+    newsletter.id = "newsletter"; newsletter.sender = "Acme News"; newsletter.senderEmail = "news@acme.example"
+    newsletter.isBulkOrAutomated = true
+    newsletter.unsubscribe = MailUnsubscribe.parse(header: "<https://acme.example/u?id=1>", post: "List-Unsubscribe=One-Click")
+    var spam = newsletter; spam.id = "spam"; spam.labels = ["SPAM"]
+    store.mails = [newsletter, spam]; store.selectedID = newsletter.id
+    XCTAssertEqual(store.unsubscribeRoute(for: newsletter)?.kind, .oneClick)
+    XCTAssertNil(store.unsubscribeRoute(for: spam), "answering spam confirms the address")
+    try await render(ReaderView(store: store, mail: newsletter), width: 824, name: "unsubscribe")
+    // The sample mailbox never contacts the sender; it only records the choice.
+    let outcome = try await store.unsubscribe(from: newsletter)
+    XCTAssertEqual(outcome, .done)
+    XCTAssertTrue(store.hasUnsubscribed(from: newsletter))
+  }
   private func render<V: View>(_ view: V, width: CGFloat, name: String) async throws {
     let host = NSHostingView(rootView: view.font(.coveBody).foregroundStyle(Palette.ink).background(Palette.canvas))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 960), styleMask: [.borderless], backing: .buffered, defer: false)

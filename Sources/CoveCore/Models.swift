@@ -51,6 +51,8 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable {
   public var availableAttachments: [MailAttachment] { attachments ?? [] }
   // Header-derived bulk/automation signal. Nil means an older snapshot needs a content refresh.
   public var isBulkOrAutomated: Bool?
+  // How to leave this mailing list, from its List-Unsubscribe headers. Nil when there is none or not read yet.
+  public var unsubscribe: MailUnsubscribe?
   // The user's Important/Other vote for this email; local state kept across Gmail syncs.
   public var inboxVote: InboxSplit?
   // Whether Jev found a commitment or request in this email; checked once, kept across syncs.
