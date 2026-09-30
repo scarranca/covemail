@@ -1,29 +1,60 @@
 import CoveCore
 import SwiftUI
 
-/// A face drawn only with dots, lit like a relief: the agents' portrait on the Agents screen.
-/// The shape is a height field (head, brow, eyes, nose, lips, chin) shaded by one light.
+/// A face painted only by its shadows: dots gather where the head turns from the light and along its outline,
+/// and the lit side stays open, like a charcoal study. The shape is a height field (tapered head, brow, eye
+/// sockets, nose, lips, chin) lit from the upper left.
 enum AgentFaceGeometry {
-  struct Dot { let x: Double; let y: Double; let lit: Double; let accent: Double; let edge: Double }
+  /// `ink` is how much shadow a dot carries (0 is lit, 1 is deepest).
+  struct Dot { let x: Double; let y: Double; let ink: Double; let accent: Double }
   private static func gauss(_ x: Double, _ y: Double, _ sx: Double, _ sy: Double) -> Double {
     exp(-(x * x) / (2 * sx * sx) - (y * y) / (2 * sy * sy))
   }
-  // Features sit slightly right of center, so the head reads as turned three-quarters.
-  private static let turn = 0.13
+  // Features sit right of center, so the head reads as turned three-quarters.
+  private static let turn = 0.12
+  /// The head narrows from the cheekbones into the jaw and chin.
+  private static func extent(_ x: Double, _ y: Double) -> Double {
+    let taper = y > 0.1 ? 0.62 - 0.2 * pow(min(1, (y - 0.1) / 0.8), 1.8) : 0.62
+    return (x / taper) * (x / taper) + ((y - 0.02) / 0.9) * ((y - 0.02) / 0.9)
+  }
   private static func height(_ x: Double, _ y: Double) -> Double {
-    let e = (x / 0.66) * (x / 0.66) + ((y - 0.02) / 0.9) * ((y - 0.02) / 0.9)
+    let e = extent(x, y)
     guard e < 1 else { return 0 }
     let fx = x - turn
-    var h = sqrt(1 - e)
-    h += 0.08 * gauss(fx, y + 0.27, 0.38, 0.06)                       // brow
-    h -= 0.12 * (gauss(fx - 0.25, y + 0.13, 0.10, 0.05) + gauss(fx + 0.23, y + 0.13, 0.09, 0.05)) // eyes
-    h += 0.22 * gauss(fx + 0.01, y - 0.06, 0.06, 0.17)                // nose bridge
-    h += 0.18 * gauss(fx + 0.02, y - 0.22, 0.08, 0.06)                 // nose tip
-    h += 0.07 * (gauss(fx - 0.36, y - 0.08, 0.11, 0.12) + gauss(fx + 0.33, y - 0.08, 0.10, 0.12)) // cheeks
-    h += 0.09 * gauss(fx, y - 0.43, 0.17, 0.045)                       // lips
-    h -= 0.07 * gauss(fx, y - 0.44, 0.15, 0.012)                       // mouth line
-    h += 0.08 * gauss(fx - 0.01, y - 0.70, 0.17, 0.09)                 // chin
+    var h = 0.7 * sqrt(1 - e)
+    h += 0.07 * gauss(fx, y + 0.26, 0.36, 0.05)                                           // brow
+    h -= 0.10 * (gauss(fx - 0.23, y + 0.12, 0.09, 0.045) + gauss(fx + 0.21, y + 0.12, 0.08, 0.045)) // eye sockets
+    h += 0.20 * gauss(fx + 0.01, y - 0.05, 0.05, 0.16)                                    // nose bridge
+    h += 0.14 * gauss(fx + 0.02, y - 0.2, 0.07, 0.05)                                     // nose tip
+    h += 0.06 * (gauss(fx - 0.34, y - 0.06, 0.1, 0.11) + gauss(fx + 0.3, y - 0.06, 0.09, 0.11)) // cheekbones
+    h += 0.06 * gauss(fx, y - 0.4, 0.15, 0.04)                                            // lips
+    h += 0.06 * gauss(fx - 0.01, y - 0.66, 0.15, 0.08)                                    // chin
     return h
+  }
+  /// Soft shadow the light alone can't make: under the brow, beside the nose, under the lip and the jaw.
+  private static func occlusion(_ x: Double, _ y: Double) -> Double {
+    let fx = x - turn
+    return 0.55 * (gauss(fx - 0.23, y + 0.1, 0.08, 0.03) + gauss(fx + 0.21, y + 0.1, 0.07, 0.03))
+      + 0.45 * gauss(fx - 0.07, y - 0.12, 0.035, 0.12)
+      + 0.4 * gauss(fx + 0.01, y - 0.27, 0.07, 0.02)
+      + 0.35 * gauss(fx, y - 0.405, 0.12, 0.012)
+      + 0.3 * gauss(fx, y - 0.52, 0.09, 0.025)
+  }
+  /// Strokes a painter adds on top of the shading: brows, lids, irises, nostrils and the mouth line.
+  private static func strokes(_ x: Double, _ y: Double) -> Double {
+    let fx = x - turn
+    func arc(_ cx: Double, _ cy: Double, _ half: Double, _ bend: Double, _ thick: Double) -> Double {
+      let t = (fx - cx) / half
+      guard abs(t) < 1.15 else { return 0 }
+      let curve = cy - bend * (1 - t * t)
+      return exp(-pow((y - curve) / thick, 2)) * (1 - 0.5 * t * t)
+    }
+    let brows = 0.75 * (arc(-0.24, -0.25, 0.15, 0.04, 0.03) + arc(0.21, -0.25, 0.12, 0.035, 0.028))
+    let lids = 0.6 * (arc(-0.23, -0.115, 0.085, 0.03, 0.02) + arc(0.21, -0.115, 0.07, 0.026, 0.02))
+    let irises = 0.35 * (gauss(fx - 0.225, y + 0.1, 0.03, 0.028) + gauss(fx + 0.205, y + 0.1, 0.027, 0.028))
+    let nostrils = 0.55 * (gauss(fx - 0.05, y - 0.235, 0.03, 0.02) + gauss(fx + 0.065, y - 0.235, 0.026, 0.02))
+    let mouth = 0.8 * arc(0.0, 0.405, 0.14, -0.015, 0.02)
+    return brows + lids + irises + nostrils + mouth
   }
   /// Dots for a canvas of this size; the face fills its height, centered at `centerX` (0–1).
   static func dots(width: Double, height canvasHeight: Double, spacing: Double = 5, centerX: Double = 0.5) -> [Dot] {
@@ -31,7 +62,7 @@ enum AgentFaceGeometry {
     let scale = canvasHeight * 0.56
     let cx = width * centerX, cy = canvasHeight * 0.52
     let light = { () -> (Double, Double, Double) in
-      let v = (-0.3, -0.4, 0.87); let n = sqrt(v.0 * v.0 + v.1 * v.1 + v.2 * v.2); return (v.0 / n, v.1 / n, v.2 / n)
+      let v = (-0.6, -0.22, 0.77); let n = sqrt(v.0 * v.0 + v.1 * v.1 + v.2 * v.2); return (v.0 / n, v.1 / n, v.2 / n)
     }()
     var result: [Dot] = []
     var row = 0
@@ -40,21 +71,21 @@ enum AgentFaceGeometry {
       var px = spacing / 2 + (row.isMultiple(of: 2) ? 0 : spacing / 2)
       while px < width {
         let x = (px - cx) / scale, y = (py - cy) / scale
-        let e = (x / 0.66) * (x / 0.66) + ((y - 0.02) / 0.9) * ((y - 0.02) / 0.9)
+        let e = extent(x, y)
         if e < 1.0 {
           let d = 0.012
-          let gx = 0.42 * (Self.height(x + d, y) - Self.height(x - d, y)) / (2 * d)
-          let gy = 0.42 * (Self.height(x, y + d) - Self.height(x, y - d)) / (2 * d)
+          let gx = 0.9 * (height(x + d, y) - height(x - d, y)) / (2 * d)
+          let gy = 0.9 * (height(x, y + d) - height(x, y - d)) / (2 * d)
           let n = sqrt(gx * gx + gy * gy + 1)
           let lambert = max(0, (-gx * light.0 - gy * light.1 + light.2) / n)
-          let shade = max(0.22, min(1, 0.2 + (lambert - 0.5) / 0.55)) * (1 - 0.6 * max(0, (e - 0.78) / 0.22))
-          let fx = x - turn
-          let accent = max(gauss(fx - 0.25, y + 0.12, 0.05, 0.03), gauss(fx + 0.23, y + 0.12, 0.045, 0.03), gauss(fx, y - 0.43, 0.12, 0.028))
-          let edge = max(0, min(1, (e - 0.72) / 0.28))
-          result.append(Dot(x: px, y: py, lit: shade, accent: accent, edge: edge))
-        } else if e < 1.9, (row + Int(px / spacing)) % 3 == 0 {
-          // A faint halo around the head keeps the silhouette soft, like the reference.
-          result.append(Dot(x: px, y: py, lit: 0.12 * (1.9 - e), accent: 0, edge: 1))
+          let shadow = 0.7 * pow(max(0, min(1, (0.97 - lambert) / 0.8)), 1.3)
+          // The outline: a thin line on the lit side, a wider falloff on the shadow side.
+          let rim = pow(max(0, (e - 0.82) / 0.18), 2) * (x < 0 ? 0.4 : 0.35)
+          let ink = min(1, shadow + 0.8 * occlusion(x, y) + strokes(x, y) + rim)
+          if ink > 0.08 {
+            let fx = x - turn
+            result.append(Dot(x: px, y: py, ink: ink, accent: gauss(fx, y - 0.4, 0.12, 0.03)))
+          }
         }
         px += spacing
       }
@@ -85,18 +116,18 @@ struct AgentFaceView: View {
         var tones = Array(repeating: Path(), count: 8)
         var warm = Path()
         for dot in dots {
-          let near = exp(-pow((dot.y - scan) / 14, 2))
-          let breathe = 0.05 * sin(time * 0.7 + dot.x * 0.02)
-          let lit = min(1, max(0, dot.lit + near * 0.3 * (1 - dot.edge * 0.7) + breathe * (1 - dot.edge)))
-          let radius = 0.5 + 1.05 * lit
+          let near = exp(-pow((dot.y - scan) / 16, 2))
+          let breathe = 0.04 * sin(time * 0.7 + dot.x * 0.02)
+          let ink = min(1, max(0, dot.ink + near * 0.18 + breathe))
+          let radius = 0.3 + 1.1 * ink
           let rect = CGRect(x: dot.x - radius, y: dot.y - radius, width: radius * 2, height: radius * 2)
           if dot.accent > 0.5 { warm.addEllipse(in: rect) }
-          else { tones[min(7, Int(lit * 8))].addEllipse(in: rect) }
+          else { tones[min(7, Int(ink * 8))].addEllipse(in: rect) }
         }
         for (index, path) in tones.enumerated() {
-          context.fill(path, with: .color(Color(white: 0.72 + 0.03 * Double(index)).opacity(0.18 + 0.1 * Double(index))))
+          context.fill(path, with: .color(Color(white: 0.7 + 0.035 * Double(index)).opacity(0.1 + 0.085 * Double(index))))
         }
-        context.fill(warm, with: .color(Self.accent.opacity(0.9)))
+        context.fill(warm, with: .color(Self.accent.opacity(0.55)))
       }
     }
     .background(GeometryReader { geometry in

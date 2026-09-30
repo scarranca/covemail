@@ -47,8 +47,8 @@ import XCTest
 
   func testAgentFacePortrait() async throws {
     _ = NSApplication.shared
-    try await render(AgentFaceView(previewTime: 0).frame(width: 520, height: 460)
-      .background(Color(red: 0.114, green: 0.125, blue: 0.165)), size: CGSize(width: 520, height: 460), name: "agent-face")
+    try await render(AgentFaceView(previewTime: 0).frame(width: 320, height: 250)
+      .background(Color(red: 0.114, green: 0.125, blue: 0.165)), size: CGSize(width: 320, height: 250), name: "agent-face")
   }
 
   private func render<V: View>(_ view: V, size: CGSize, name: String) async throws {
