@@ -61,6 +61,39 @@ public struct GmailSyncResult {
     }
     return values.values.sorted { $0.date > $1.date }
   }
+
+  /// Applies this result to the live mailbox without damaging stored emails that aren't loaded.
+  /// Their Jev decision, draft and snooze are kept; results `keepsLoaded` rejects are written back
+  /// as archive (untracked), and remote deletions remove their local copies.
+  public func merging(
+    into live: [Mail], store: Database?, keepsLoaded: (Mail) -> Bool = { _ in true }
+  ) throws -> [Mail] {
+    guard let store else { return applying(to: live) }
+    let liveIDs = Set(live.map(\.id))
+    let touched = Set(messages.map(\.id)).union(labels.keys).union(deletedIDs).subtracting(liveIDs)
+    let archived = touched.isEmpty ? [] : try store.loadMessages(ids: touched)
+    guard !archived.isEmpty else { return applying(to: live) }
+    let archivedIDs = Set(archived.map(\.id))
+    var loaded: [Mail] = []
+    var stays: [Mail] = []
+    for mail in applying(to: live + archived) {
+      if archivedIDs.contains(mail.id), !keepsLoaded(mail) { stays.append(mail) } else { loaded.append(mail) }
+    }
+    try store.storeArchived(stays)
+    try store.deleteMessages(ids: archivedIDs.intersection(deletedIDs))
+    return loaded
+  }
+}
+
+extension Database {
+  /// Emails to add to the live mailbox for results the user asked for (search, cited sources):
+  /// the stored copy when one exists, since it carries local state, otherwise the result itself.
+  public func adopting(_ found: [Mail], live: Set<String>) throws -> [Mail] {
+    var seen = live
+    let candidates = found.filter { !$0.id.hasPrefix("local-") && seen.insert($0.id).inserted }
+    let stored = Dictionary(uniqueKeysWithValues: try loadMessages(ids: candidates.map(\.id)).map { ($0.id, $0) })
+    return candidates.map { stored[$0.id] ?? $0 }
+  }
 }
 
 extension GmailClient {
@@ -164,11 +197,14 @@ extension GmailClient {
     return result
   }
   public func synchronize(
-    token: String, cached: [Mail], historyID: String?, refreshContent: Bool = false
+    token: String, cached: [Mail], historyID: String?, refreshContent: Bool = false,
+    storedIDs: Set<String> = []
   ) async throws
     -> GmailSyncResult
   {
     let cachedIDs = Set(cached.filter { !$0.id.hasPrefix("local-") }.map(\.id))
+    // Stored but unloaded emails need only labels too; a full resync verifies loaded ones only.
+    let storedIDs = cachedIDs.union(storedIDs.filter { !$0.hasPrefix("local-") })
     if let historyID, !refreshContent {
       let delta: HistoryDelta?
       do { delta = try await history(token: token, after: historyID) } catch let error
@@ -176,7 +212,7 @@ extension GmailClient {
       { delta = nil }
       if let delta {
         return try await fetchUpdates(
-          ids: delta.changed, cachedIDs: cachedIDs, token: token,
+          ids: delta.changed, cachedIDs: storedIDs, token: token,
           into: GmailSyncResult(deletedIDs: delta.deleted, historyID: delta.cursor))
       }
     }
@@ -185,7 +221,7 @@ extension GmailClient {
     let baseline = try JSONDecoder().decode(
       Profile.self, from: await request("profile", token: token))
     // Stored messages only need their labels; refreshContent is the one reason to reload bodies.
-    let knownIDs = refreshContent ? [] : cachedIDs
+    let knownIDs = refreshContent ? [] : storedIDs
     let page = try await page(token: token, cachedIDs: knownIDs)
     let fetchedIDs = Set(page.messages.map(\.id)).union(page.labels.keys).union(page.deletedIDs)
     let result = GmailSyncResult(

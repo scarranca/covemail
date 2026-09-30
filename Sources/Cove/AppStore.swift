@@ -181,7 +181,16 @@ import SwiftUI
   /// Messages already saved in the encrypted local store. Page loads refresh only their labels,
   /// unless a decoder upgrade still requires their content to be downloaded again.
   private var storedRemoteMailIDs: Set<String> {
-    needsContentRefresh ? [] : Set(mails.filter { !$0.id.hasPrefix("local-") }.map(\.id))
+    guard !needsContentRefresh else { return [] }
+    let stored = (try? database?.storedMessageIDs()) ?? []
+    return stored.union(mails.map(\.id)).filter { !$0.hasPrefix("local-") }
+  }
+  /// Oldest date kept in memory; older mail stays in the encrypted store unless it is starred,
+  /// drafted, in the Inbox or snoozed (the same rule as `Database.loadMail(since:)`).
+  var mailWindowStart = Date.distantPast
+  private func keepsLoaded(_ mail: Mail) -> Bool {
+    mail.date >= mailWindowStart || mail.isStarred || !mail.draft.isEmpty
+      || mail.labels.contains("DRAFT") || mail.labels.contains("INBOX") || mail.snoozedUntil != nil
   }
   var needsContentRefresh: Bool {
     entered && !isSample && mailDecodingVersion < GmailMessage.decodingVersion
@@ -924,7 +933,8 @@ import SwiftUI
         result = try await self.gmail.synchronize(
           token: token, cached: self.mails,
           historyID: self.gmailHistoryID,
-          refreshContent: self.mailDecodingVersion < GmailMessage.decodingVersion)
+          refreshContent: self.mailDecodingVersion < GmailMessage.decodingVersion,
+          storedIDs: (try? self.database?.storedMessageIDs()) ?? [])
       }
       try Task.checkCancellation()
       guard generation == self.mailboxGeneration, !self.isSample else { throw CancellationError() }
@@ -932,7 +942,10 @@ import SwiftUI
       snoozes.cancelDeleted(result.deletedIDs)
       try self.database?.save(snoozes, key: "cloudSnoozes")
       self.cloudSnoozes = snoozes
-      var merged = result.applying(to: self.mails).map { self.cloudSnoozes.applying(to: $0) }
+      // Older pages were asked for, so they stay loaded; background changes follow the window.
+      var merged = try result.merging(
+        into: self.mails, store: self.database, keepsLoaded: older ? { _ in true } : self.keepsLoaded
+      ).map { self.cloudSnoozes.applying(to: $0) }
       // A history/page request started before the reader update can still contain UNREAD.
       // Keep changes made during this request, and any update still awaiting Gmail.
       for index in merged.indices {
@@ -1016,14 +1029,15 @@ import SwiftUI
     // Existing cache records may have newer local edits or labels than this request.
     // Only insert newly discovered mail; normal history sync refreshes existing records.
     let known = Dictionary(uniqueKeysWithValues: mails.map { ($0.id, $0) })
-    let additions = found.filter { known[$0.id] == nil }
+    let additions = try database.adopting(found, live: Set(known.keys))
     if !additions.isEmpty {
       let merged = (mails + additions).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
       try database.saveMailSnapshot(merged)
       mails = merged
     }
+    let adopted = Dictionary(uniqueKeysWithValues: additions.map { ($0.id, $0) })
     return found.compactMap { result in
-      let current = known[result.id] ?? result
+      let current = known[result.id] ?? adopted[result.id] ?? result
       return current.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"]) ? current : nil
     }
   }
@@ -1048,11 +1062,12 @@ import SwiftUI
   /// Saves newly found emails that an answer cites, so their source links open in the reader.
   func keepResearchSources(_ sources: [Mail]) {
     guard entered, !isSample, let database else { return }
-    let known = Set(mails.map(\.id))
-    let additions = sources.filter { !known.contains($0.id) && !$0.id.hasPrefix("local-") }
-    guard !additions.isEmpty else { return }
-    let merged = (mails + additions).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
-    do { try database.saveMailSnapshot(merged); mails = merged } catch { self.error = error.localizedDescription }
+    do {
+      let additions = try database.adopting(sources, live: Set(mails.map(\.id)))
+      guard !additions.isEmpty else { return }
+      let merged = (mails + additions).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
+      try database.saveMailSnapshot(merged); mails = merged
+    } catch { self.error = error.localizedDescription }
   }
 
   /// Called when a reader is presented, including source links and keyboard navigation.
@@ -1512,7 +1527,8 @@ import SwiftUI
         try Task.checkCancellation()
         guard generation == mailboxGeneration, let database else { throw CancellationError() }
         if let fetched {
-          let merged = GmailSyncResult(messages: fetched, historyID: "").applying(to: mails).map { cloudSnoozes.applying(to: $0) }
+          let merged = try GmailSyncResult(messages: fetched, historyID: "").merging(into: mails, store: database)
+            .map { cloudSnoozes.applying(to: $0) }
           try database.saveMailSnapshot(merged)
           mails = merged
           let ids = Set(fetched.map(\.id))
@@ -2309,9 +2325,9 @@ extension AppStore {
         try database?.save(snoozes, key: "cloudSnoozes")
         cloudSnoozes = snoozes
       }
-      var merged = GmailSyncResult(
+      var merged = try GmailSyncResult(
         messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs, historyID: ""
-      ).applying(to: mails).map { cloudSnoozes.applying(to: $0) }
+      ).merging(into: mails, store: database).map { cloudSnoozes.applying(to: $0) }
       for index in merged.indices {
         if let change = readChanges[merged[index].id], change.revision > readRevisionAtStart || pendingAtStart.contains(merged[index].id) || pendingReadTasks[merged[index].id] != nil {
           if change.unread { merged[index].labels.insert("UNREAD") } else { merged[index].labels.remove("UNREAD") }
@@ -2660,7 +2676,7 @@ extension AppStore {
     let fetched = try await gmail.thread(id: anchor.threadID, token: token)
     try ensureCurrent()
     guard let database else { throw CancellationError() }
-    var merged = GmailSyncResult(messages: fetched, historyID: "").applying(to: mails)
+    var merged = try GmailSyncResult(messages: fetched, historyID: "").merging(into: mails, store: database)
       .map { cloudSnoozes.applying(to: $0) }
     let latest = Dictionary(uniqueKeysWithValues: mails.map { ($0.id, $0) })
     for index in merged.indices {
