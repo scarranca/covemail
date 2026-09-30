@@ -219,7 +219,21 @@ public struct GmailClient {
       request.httpBody = try JSONSerialization.data(withJSONObject: body)
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
-    return try await checked(request, transport: transport)
+    // Back off when Gmail says to slow down. Rate-limited requests were not performed, so retrying
+    // them is safe for any method; server errors are retried only for reads, so a send or label
+    // change can never be applied twice. Bulk fetches are also paced (`pacedBulk`).
+    let live = transport is LiveHTTP
+    var attempt = 0
+    while true {
+      do { return try await checked(request, transport: transport) } catch let failure as HTTPFailure {
+        let retryable = failure.isRateLimited || (method == "GET" && [500, 502, 503, 504].contains(failure.statusCode))
+        guard retryable, attempt < 5 else { throw failure }
+        let seconds = live ? min(32, pow(2, Double(attempt))) + Double.random(in: 0..<1) : 0
+        if live, failure.isRateLimited { await GmailPacer.shared.slowDown(for: seconds) }
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        attempt += 1
+      }
+    }
   }
   public func profile(token: String) async throws -> String {
     struct Profile: Decodable { var emailAddress: String }
@@ -260,6 +274,7 @@ public struct GmailClient {
       let updates = try await withThrowingTaskGroup(of: MessageUpdate?.self) { group in
         for entry in batch {
           group.addTask {
+            try await pacedBulk()
             if cachedIDs.contains(entry.id) {
               return try await update(id: entry.id, token: token, cached: true)
             }
@@ -366,5 +381,30 @@ public struct GmailClient {
     return try JSONDecoder().decode(
       Sent.self, from: await request("messages/send", token: token, method: "POST", body: payload)
     ).id
+  }
+}
+
+extension GmailClient {
+  /// Waits for a slot before one request of a bulk fetch; interactive requests are never queued.
+  func pacedBulk() async throws {
+    if transport is LiveHTTP { try await GmailPacer.shared.wait() }
+  }
+}
+
+/// Spaces bulk Gmail requests from this Mac (about 20 per second, well under Gmail's per-user quota of
+/// 250 units per second, where one message read costs 5), and pauses everyone after a rate limit.
+actor GmailPacer {
+  static let shared = GmailPacer()
+  private var next = Date.distantPast
+  private let interval: TimeInterval = 0.05
+  func wait() async throws {
+    let now = Date()
+    let slot = max(now, next)
+    next = slot.addingTimeInterval(interval)
+    let delay = slot.timeIntervalSince(now)
+    if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+  }
+  func slowDown(for seconds: TimeInterval) {
+    next = max(next, Date().addingTimeInterval(seconds))
   }
 }

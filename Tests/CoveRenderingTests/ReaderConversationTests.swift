@@ -70,9 +70,12 @@ import XCTest
     let (store, db, mail) = try fixture(http)
     do { try await store.refreshReaderThread(mail); XCTFail("Expected network failure") } catch { }
     XCTAssertEqual(try db.loadMail(), [mail]); XCTAssertEqual(store.selectedID, mail.id)
+    // Reads are retried after server errors; the sample mailbox never contacts Gmail at all.
+    let afterRetries = http.requests
+    XCTAssertEqual(afterRetries, 6)
     store.isSample = true
     try await store.refreshReaderThread(mail)
-    XCTAssertEqual(http.requests, 1)
+    XCTAssertEqual(http.requests, afterRetries)
   }
   func testEmptyThreadIDsNeverGroupUnrelatedMailAndDraftsStayOutOfConversation() {
     var anchor = Mail(id: "one", sender: "One", senderEmail: "one@example.com", subject: "Same subject", body: "Body")

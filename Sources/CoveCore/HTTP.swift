@@ -3,7 +3,34 @@ import Foundation
 public struct HTTPFailure: LocalizedError {
   public let statusCode: Int
   public let message: String
+  /// The provider's machine-readable reason (for example Gmail's `rateLimitExceeded`), never its text.
+  public var reason: String? = nil
   public var errorDescription: String? { message }
+
+  /// Google reports per-user quota and concurrency limits as 403 with these reasons, or as 429.
+  public var isRateLimited: Bool {
+    statusCode == 429
+      || (statusCode == 403 && ["rateLimitExceeded", "userRateLimitExceeded", "RESOURCE_EXHAUSTED"].contains(reason ?? ""))
+  }
+  public var isMissingPermission: Bool {
+    statusCode == 403 && ["insufficientPermissions", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"].contains(reason ?? "")
+  }
+}
+
+/// Reads Google's error reason: `error.errors[0].reason`, `error.details[].reason` or `error.status`.
+/// Only short identifier tokens are kept, so no server-echoed text can reach messages or logs.
+func providerReason(_ data: Data) -> String? {
+  guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    let error = root["error"] as? [String: Any]
+  else { return nil }
+  let candidates = [
+    (error["errors"] as? [[String: Any]])?.first?["reason"] as? String,
+    (error["details"] as? [[String: Any]])?.compactMap { $0["reason"] as? String }.first,
+    error["status"] as? String,
+  ]
+  return candidates.compactMap { $0 }.first {
+    $0.count <= 48 && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+  }
 }
 
 public protocol HTTPTransport {
@@ -54,16 +81,27 @@ public func checked(_ request: URLRequest, transport: HTTPTransport) async throw
   let (data, response) = try await transport.data(for: request)
   guard (200..<300).contains(response.statusCode) else {
     // Avoid leaking server-echoed email bodies or credentials into diagnostics.
-    let advice: String
-    switch response.statusCode {
-    case 401: advice = "Reconnect your account or check the API key."
-    case 403: advice = "Check API access and granted permissions."
-    case 429: advice = "The service is busy. Please retry in a moment."
-    default: advice = "Please try again."
+    let reason = providerReason(data)
+    var failure = HTTPFailure(statusCode: response.statusCode, message: "", reason: reason)
+    let host = request.url?.host ?? "Service"
+    let message: String
+    if failure.isRateLimited {
+      message = host == "gmail.googleapis.com"
+        ? "Gmail is limiting how fast Cove can read mail right now. Wait a minute and try again."
+        : "\(host) is busy. Please retry in a moment."
+    } else if failure.isMissingPermission {
+      message = "\(host) needs access you haven’t granted. Reconnect your Google account in Settings."
+    } else {
+      let advice: String
+      switch response.statusCode {
+      case 401: advice = "Reconnect your account or check the API key."
+      case 403: advice = "Check API access and granted permissions."
+      default: advice = "Please try again."
+      }
+      message = "\(host) returned \(response.statusCode)\(reason.map { " (\($0))" } ?? ""). \(advice)"
     }
-    throw HTTPFailure(
-      statusCode: response.statusCode,
-      message: "\(request.url?.host ?? "Service") returned \(response.statusCode). \(advice)")
+    failure = HTTPFailure(statusCode: response.statusCode, message: message, reason: reason)
+    throw failure
   }
   return data
 }

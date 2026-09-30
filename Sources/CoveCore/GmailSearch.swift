@@ -73,7 +73,7 @@ extension GmailClient {
       try Task.checkCancellation()
       let batch = Array(missing[start..<min(start + 5, missing.count)])
       let fetched = try await withThrowingTaskGroup(of: Mail?.self) { group in
-        for id in batch { group.addTask { try await message(id: id, token: token) } }
+        for id in batch { group.addTask { try await pacedBulk(); return try await message(id: id, token: token) } }
         var values: [Mail] = []
         for try await mail in group { if let mail { values.append(mail) } }
         return values
