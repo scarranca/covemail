@@ -39,3 +39,19 @@ Problem: a new user could open Agents and turn on Jev without an AI account or T
 - Actions: the reader toolbar shows Not spam instead of Archive for spam (it adds INBOX and removes SPAM). The reader's More menu and the list's context menu have Report spam (adds SPAM, removes INBOX and STARRED) or Not spam. Both are reversible; nothing is deleted.
 - Spam never loads remote images, even with automatic images on, and the body shows "In Spam · images stay off and links may be unsafe". Ask Cove can open it ("open spam", "junk").
 - Tests: `GmailSyncTests.testSpamIsListedOnlyWhenItsFolderAsksForIt`. Full `swift test`: CoveCoreTests 252, CoveRenderingTests 339, 0 failures. Not verified live against a real Spam folder.
+
+## Unsubscribe
+
+- `MailUnsubscribe.parse` reads `List-Unsubscribe` and `List-Unsubscribe-Post`, keeping only HTTPS links and single mailto addresses. It is one-click only when both headers say so (RFC 8058). New and refreshed emails keep it on `Mail.unsubscribe`. Older stored bulk emails get just those two headers (`format=metadata`) when opened, once per session.
+- The reader shows Unsubscribe only when the sender offers it and the email isn't spam, sent or a draft. A confirmation says what will happen:
+  - One-click: `UnsubscribeClient` POSTs `List-Unsubscribe=One-Click` over `LiveHTTP` (ephemeral, no cookies, credentials or redirects; 2xx/3xx is success). The sender is recorded in encrypted `unsubscribedSenders`, and the toolbar shows "Unsubscribed".
+  - Email: opens an unsent draft to the mailto address.
+  - Web: opens the HTTPS page in the browser.
+- After one-click, a note offers Archive. Spam never offers it, because answering spam confirms the address is read. The sample mailbox records the choice without contacting anyone.
+- Tests: `UnsubscribeTests` (parsing, unsafe entries, the exact one-click request, error status), `ReaderDesignTests.testNewsletterOffersUnsubscribeButSpamNeverDoes` (render `/tmp/cove-reader-unsubscribe-824.png` inspected). Not verified live against a real sender.
+
+## Event editor (user screenshot of "Make a little space")
+
+- The title field is the headline ("Add a title"; Return saves). One clock row holds a day chip (graphical date popover), start and end time chips and the length with the time zone name. Time chips open a 15-minute list scrolled to the current time; end times show their length ("5:00 PM · 45 min"); changing the start keeps the length. One "Save to" chip opens Google Calendar or a calendar on this Mac. Cancel is quiet; Add event is the default action.
+- Behavior change: a new event (not an assistant proposal) defaults to Google Calendar when Calendar is connected; it can still be switched to this Mac. The save path, account and past-time guards are unchanged.
+- Tests: `EventTimesTests`; render `/tmp/cove-type-event-editor-440.png` inspected. Full `swift test`: CoveCoreTests 255, CoveRenderingTests 341, 0 failures.

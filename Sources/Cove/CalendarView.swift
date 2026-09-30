@@ -954,84 +954,213 @@ struct CalendarEventEditor: View {
   @State private var account: String?
   @Environment(\.dismiss) private var dismiss
 
+  @State private var pickingDay = false
+  @State private var pickingCalendar = false
+  private var canSave: Bool {
+    !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.end > draft.start
+  }
+  private var googleAvailable: Bool { store.calendarConnected && !store.isSample && draft.editing == nil }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      Text(reviewingProposal ? "Review your event" : draft.editing == nil ? "Make a little space" : "Edit event")
-        .font(.coveTitle)
-      TextField(
-        "Event title", text: $draft.title,
-        prompt: Text("Event title").foregroundStyle(Palette.muted)
-      ).textFieldStyle(CoveFieldStyle())
-      DatePicker("Starts", selection: $draft.start)
-      DatePicker("Ends", selection: $draft.end)
-      Text(TimeZone.current.identifier).font(.coveMetadata).foregroundStyle(Palette.muted)
-      if reviewingProposal {
-        Text("Review the date, time, and destination. Changing the time doesn’t recheck availability. No guests will be invited.")
-          .font(.coveMetadata).foregroundStyle(Palette.body)
+    VStack(alignment: .leading, spacing: 22) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(reviewingProposal ? "Review your event" : draft.editing == nil ? "New event" : "Edit event")
+          .font(.coveMetadata).foregroundStyle(Palette.muted)
+        Spacer()
+        Button { dismiss() } label: { Image(systemName: "xmark").font(.cove(size: 12)) }
+          .buttonStyle(.plain).foregroundStyle(Palette.body).keyboardShortcut(.cancelAction).accessibilityLabel("Close")
       }
-      if store.calendarConnected && !store.isSample && draft.editing == nil {
-        Toggle("Save to Google Calendar", isOn: $draft.onGoogle).toggleStyle(CoveToggleStyle())
-      }
-      if !draft.onGoogle {
-        HStack {
-          Text("Calendar").font(.coveBody)
-          Spacer()
-          CoveMenuPicker(
-            "Calendar", selection: $draft.localCalendar,
-            options: LocalCalendar.allCases.map { ($0, $0.title) })
+      TextField("Event title", text: $draft.title, prompt: Text("Add a title").foregroundStyle(Palette.muted))
+        .textFieldStyle(.plain).font(.coveTitle).accessibilityLabel("Event title")
+        .onSubmit { if canSave { save() } }
+      VStack(alignment: .leading, spacing: 14) {
+        row("clock") {
+          VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+              chip(draft.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())) { pickingDay = true }
+                .popover(isPresented: $pickingDay, arrowEdge: .bottom) {
+                  DatePicker("Day", selection: Binding(get: { draft.start }, set: { moveDay(to: $0) }), displayedComponents: .date)
+                    .datePickerStyle(.graphical).labelsHidden().padding(12)
+                }
+              EventTimeChip(title: draft.start.formatted(date: .omitted, time: .shortened),
+                            choices: EventTimes.starts(on: draft.start), selected: draft.start) { setStart($0) }
+              Text("–").foregroundStyle(Palette.muted)
+              EventTimeChip(title: draft.end.formatted(date: .omitted, time: .shortened),
+                            choices: EventTimes.ends(after: draft.start), selected: draft.end) { draft.end = $0 }
+            }
+            Text("\(EventTimes.duration(from: draft.start, to: draft.end)) · \(TimeZone.current.localizedName(for: .generic, locale: .current) ?? TimeZone.current.identifier)")
+              .font(.coveMetadata).foregroundStyle(Palette.muted)
+          }
+        }
+        row("calendar") {
+          Button { pickingCalendar = true } label: {
+            HStack(spacing: 6) {
+              Text(draft.onGoogle ? "Google Calendar" : "\(draft.localCalendar.title) · on this Mac").font(.coveControl)
+              Image(systemName: "chevron.down").font(.cove(size: 9))
+            }.foregroundStyle(Palette.ink).padding(.horizontal, 10).frame(height: 30)
+              .background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
+          }.buttonStyle(.plain).accessibilityLabel("Save to").accessibilityValue(draft.onGoogle ? "Google Calendar" : draft.localCalendar.title)
+            .popover(isPresented: $pickingCalendar, arrowEdge: .bottom) {
+              VStack(alignment: .leading, spacing: 2) {
+                if googleAvailable || draft.onGoogle {
+                  destination("Google Calendar", icon: "globe", selected: draft.onGoogle) { draft.onGoogle = true }
+                    .disabled(!googleAvailable && !draft.onGoogle)
+                  Divider().padding(.vertical, 4)
+                }
+                Text("On this Mac").font(.coveMetadata).foregroundStyle(Palette.muted).padding(.horizontal, 10).padding(.bottom, 2)
+                ForEach(LocalCalendar.allCases, id: \.self) { calendar in
+                  destination(calendar.title, icon: "laptopcomputer", selected: !draft.onGoogle && draft.localCalendar == calendar) {
+                    draft.onGoogle = false; draft.localCalendar = calendar
+                  }.disabled(draft.editing?.googleID != nil)
+                }
+              }.padding(8).frame(width: 220)
+            }
         }
       }
-      Text(
-        draft.onGoogle
-          ? (draft.editing == nil
-            ? "Creates an event in your primary Google Calendar."
-            : "Updates this event in your Google Calendar.")
-          : "Saved to \(draft.localCalendar.title) on this Mac."
-      ).font(.coveSecondary).foregroundStyle(Palette.muted)
+      if reviewingProposal {
+        Label("Changing the time doesn’t recheck your availability. No guests are invited.", systemImage: "info.circle")
+          .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      }
       if let saveError {
         Text(saveError).font(.coveMetadata).foregroundStyle(Palette.danger)
           .fixedSize(horizontal: false, vertical: true)
       }
-      HStack {
-        Button("Cancel") { dismiss() }.buttonStyle(SecondaryButton()).keyboardShortcut(
-          .cancelAction)
+      HStack(spacing: 16) {
         Spacer()
-        Button(draft.editing == nil ? "Add event" : "Save changes") {
-          guard !saving else { return }
-          let submitted = draft
-          saveError = nil
-          guard store.entered, account == store.accountEmail else {
-            saveError = "Your account changed. Close this review and ask again."
-            return
-          }
-          guard !reviewingProposal || submitted.start > Date().addingTimeInterval(-120) else {
-            saveError = "That start time has passed. Choose a new time before adding the event."
-            return
-          }
-          guard !submitted.onGoogle || store.calendarConnected else {
-            saveError = "Reconnect Google Calendar or choose to save on this Mac."
-            return
-          }
-          saving = true
-          Task {
-            defer { saving = false }
-            if await store.createEvent(
-              title: submitted.title, start: submitted.start, end: submitted.end,
-              onGoogle: submitted.onGoogle, editing: submitted.editing,
-              localCalendar: submitted.localCalendar)
-            {
-              onSaved?(submitted)
-              dismiss()
-            } else {
-              saveError = store.error ?? "Couldn’t save this event. Please try again."
-            }
-          }
-        }.buttonStyle(PrimaryButton()).disabled(
-          draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || draft.end <= draft.start)
+        Button("Cancel") { dismiss() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+        Button(draft.editing == nil ? "Add event" : "Save changes") { save() }
+          .buttonStyle(PrimaryButton()).keyboardShortcut(.defaultAction).disabled(!canSave)
       }
     }.padding(30).frame(width: 440).disabled(saving || store.busy || store.calendarSyncing)
       .interactiveDismissDisabled(saving || store.busy)
-      .onAppear { account = store.accountEmail }
+      .onAppear {
+        account = store.accountEmail
+        // New events go to Google when it's connected; the menu can still choose this Mac.
+        if draft.editing == nil && googleAvailable && !reviewingProposal { draft.onGoogle = true }
+      }
+  }
+  private func row<Content: View>(_ icon: String, @ViewBuilder content: () -> Content) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 12) {
+      Image(systemName: icon).font(.cove(size: 13)).foregroundStyle(Palette.body).frame(width: 18).accessibilityHidden(true)
+      content()
+    }
+  }
+  private func destination(_ title: String, icon: String, selected: Bool, choose: @escaping () -> Void) -> some View {
+    Button { choose(); pickingCalendar = false } label: {
+      HStack(spacing: 8) {
+        Image(systemName: icon).font(.cove(size: 12)).foregroundStyle(Palette.body).frame(width: 16)
+        Text(title).font(.coveSecondary).foregroundStyle(Palette.ink)
+        Spacer()
+        if selected { Image(systemName: "checkmark").font(.cove(size: 11)) }
+      }.padding(.horizontal, 10).frame(height: 30)
+        .background(selected ? Palette.mailSelection : .clear, in: RoundedRectangle(cornerRadius: 5)).contentShape(Rectangle())
+    }.buttonStyle(.plain)
+  }
+  private func chip(_ title: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Text(title).font(.coveControl).foregroundStyle(Palette.ink).padding(.horizontal, 10).frame(height: 30)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
+    }.buttonStyle(.plain)
+  }
+  /// A new start keeps the event's length, like moving it.
+  private func setStart(_ start: Date) {
+    let length = max(900, draft.end.timeIntervalSince(draft.start))
+    draft.start = start; draft.end = start.addingTimeInterval(length)
+  }
+  private func moveDay(to day: Date) {
+    let calendar = Calendar.current
+    let time = calendar.dateComponents([.hour, .minute], from: draft.start)
+    guard let start = calendar.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: day) else { return }
+    setStart(start); pickingDay = false
+  }
+  private func save() {
+    guard !saving, canSave else { return }
+    let submitted = draft
+    saveError = nil
+    guard store.entered, account == store.accountEmail else {
+      saveError = "Your account changed. Close this review and ask again."
+      return
+    }
+    guard !reviewingProposal || submitted.start > Date().addingTimeInterval(-120) else {
+      saveError = "That start time has passed. Choose a new time before adding the event."
+      return
+    }
+    guard !submitted.onGoogle || store.calendarConnected else {
+      saveError = "Reconnect Google Calendar or choose to save on this Mac."
+      return
+    }
+    saving = true
+    Task {
+      defer { saving = false }
+      if await store.createEvent(
+        title: submitted.title, start: submitted.start, end: submitted.end,
+        onGoogle: submitted.onGoogle, editing: submitted.editing,
+        localCalendar: submitted.localCalendar)
+      {
+        onSaved?(submitted)
+        dismiss()
+      } else {
+        saveError = store.error ?? "Couldn’t save this event. Please try again."
+      }
+    }
+  }
+}
+
+/// Times offered in the event editor: every 15 minutes, and end times labeled with the length.
+enum EventTimes {
+  struct Choice: Hashable { let date: Date; let label: String }
+  static func starts(on day: Date, calendar: Calendar = .current) -> [Choice] {
+    let midnight = calendar.startOfDay(for: day)
+    return (0..<96).compactMap { step in
+      calendar.date(byAdding: .minute, value: step * 15, to: midnight).map { Choice(date: $0, label: $0.formatted(date: .omitted, time: .shortened)) }
+    }
+  }
+  static func ends(after start: Date) -> [Choice] {
+    (1...48).map { step in
+      let end = start.addingTimeInterval(Double(step) * 900)
+      return Choice(date: end, label: "\(end.formatted(date: .omitted, time: .shortened))  ·  \(duration(from: start, to: end))")
+    }
+  }
+  static func duration(from start: Date, to end: Date) -> String {
+    let minutes = max(0, Int(end.timeIntervalSince(start) / 60))
+    if minutes < 60 { return "\(minutes) min" }
+    let hours = Double(minutes) / 60
+    return hours == hours.rounded() ? "\(Int(hours)) hr" : String(format: "%.1f hr", hours).replacingOccurrences(of: ".0", with: "")
+  }
+}
+
+/// A time as a chip; the list opens scrolled to the current choice.
+struct EventTimeChip: View {
+  let title: String
+  let choices: [EventTimes.Choice]
+  let selected: Date
+  let pick: (Date) -> Void
+  @State private var open = false
+  var body: some View {
+    Button { open = true } label: {
+      Text(title).font(.coveControl).foregroundStyle(Palette.ink).padding(.horizontal, 10).frame(height: 30)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
+    }.buttonStyle(.plain).accessibilityHint("Choose a time")
+      .popover(isPresented: $open, arrowEdge: .bottom) {
+        ScrollViewReader { proxy in
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+              ForEach(choices, id: \.self) { choice in
+                let current = abs(choice.date.timeIntervalSince(selected)) < 60
+                Button { pick(choice.date); open = false } label: {
+                  Text(choice.label).font(.coveSecondary).foregroundStyle(Palette.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).frame(height: 30)
+                    .background(current ? Palette.mailSelection : .clear, in: RoundedRectangle(cornerRadius: 5))
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain).id(choice.date)
+              }
+            }.padding(6)
+          }.frame(width: 200, height: 260)
+            .onAppear {
+              let target = choices.min { abs($0.date.timeIntervalSince(selected)) < abs($1.date.timeIntervalSince(selected)) }
+              if let target { proxy.scrollTo(target.date, anchor: .center) }
+            }
+        }
+      }
   }
 }
