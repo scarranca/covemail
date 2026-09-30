@@ -63,3 +63,20 @@ import XCTest
     try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-\(name).png"))
   }
 }
+
+@MainActor final class AgentPortraitHalftoneTests: XCTestCase {
+  /// Dark areas of the portrait become dots in the same place; white areas stay empty.
+  func testDotsFollowTheDarkPartOfThePortraitUpright() throws {
+    let size = 40
+    let context = try XCTUnwrap(CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size,
+      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+    context.setFillColor(gray: 1, alpha: 1); context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+    // CoreGraphics' origin is bottom-left: this darkens the image's top half.
+    context.setFillColor(gray: 0, alpha: 1); context.fill(CGRect(x: 0, y: size / 2, width: size, height: size / 2))
+    let image = try XCTUnwrap(context.makeImage())
+    let dots = AgentPortrait.dots(image, width: 100, height: 100, spacing: 4)
+    XCTAssertFalse(dots.isEmpty)
+    XCTAssertTrue(dots.allSatisfy { $0.y < 55 }, "dots belong to the dark top half")
+    XCTAssertTrue(dots.contains { $0.y < 10 })
+  }
+}

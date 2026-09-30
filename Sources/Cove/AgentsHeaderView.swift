@@ -1,4 +1,5 @@
 import CoveCore
+import ImageIO
 import SwiftUI
 
 /// A face painted only by its shadows: dots gather where the head turns from the light and along its outline,
@@ -96,6 +97,54 @@ enum AgentFaceGeometry {
   }
 }
 
+/// Halftones a real portrait: each dot's size follows how dark the photo is under it, so a light-background
+/// portrait with strong side light becomes a face painted by its shadows.
+enum AgentPortrait {
+  static let image: CGImage? = {
+    guard let url = Bundle.module.url(forResource: "agent-portrait", withExtension: "jpg") ?? Bundle.module.url(forResource: "agent-portrait", withExtension: "png"),
+          let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    return CGImageSourceCreateImageAtIndex(source, 0, nil)
+  }()
+  /// The portrait fills the canvas height, centered at `centerX`; light areas give no dots.
+  static func dots(_ image: CGImage, width: Double, height: Double, spacing: Double, centerX: Double = 0.5) -> [AgentFaceGeometry.Dot] {
+    let columns = max(1, Int(width.rounded())), rows = max(1, Int(height.rounded()))
+    guard let context = CGContext(data: nil, width: columns, height: rows, bitsPerComponent: 8, bytesPerRow: columns,
+                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return [] }
+    context.setFillColor(gray: 1, alpha: 1)
+    context.fill(CGRect(x: 0, y: 0, width: columns, height: rows))
+    let drawnHeight = Double(rows)
+    let drawnWidth = drawnHeight * Double(image.width) / Double(max(image.height, 1))
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: width * centerX - drawnWidth / 2, y: 0, width: drawnWidth, height: drawnHeight))
+    guard let data = context.data?.assumingMemoryBound(to: UInt8.self) else { return [] }
+    var result: [AgentFaceGeometry.Dot] = []
+    var row = 0
+    var py = spacing / 2
+    while py < height {
+      var px = spacing / 2 + (row.isMultiple(of: 2) ? 0 : spacing / 2)
+      while px < width {
+        // Average a small patch so dots follow tone, not film grain.
+        var total = 0.0, count = 0.0
+        let radius = max(1, Int(spacing / 2))
+        for dy in -radius...radius {
+          for dx in -radius...radius {
+            let sx = Int(px) + dx, sy = Int(py) + dy
+            guard sx >= 0, sx < columns, sy >= 0, sy < rows else { continue }
+            total += Double(data[sy * columns + sx]) / 255; count += 1
+          }
+        }
+        let luminance = count > 0 ? total / count : 1
+        let ink = max(0, min(1, (0.93 - luminance) / 0.78))
+        if ink > 0.07 { result.append(AgentFaceGeometry.Dot(x: px, y: py, ink: ink, accent: 0)) }
+        px += spacing
+      }
+      py += spacing * 0.9
+      row += 1
+    }
+    return result
+  }
+}
+
 /// Draws the dot face with a slow reading line passing over it; Reduce Motion keeps it still.
 struct AgentFaceView: View {
   var previewTime: Double?
@@ -109,7 +158,7 @@ struct AgentFaceView: View {
     TimelineView(.animation(minimumInterval: 1.0 / 15, paused: !animated)) { timeline in
       let time = previewTime ?? (animated ? timeline.date.timeIntervalSinceReferenceDate : 0)
       Canvas { context, size in
-        let dots = cache.size == size ? cache.dots : AgentFaceGeometry.dots(width: size.width, height: size.height, spacing: max(3.4, size.height / 72), centerX: 0.5)
+        let dots = cache.size == size ? cache.dots : Self.makeDots(size)
         // The reading line travels down the face every 9 seconds.
         let scan = (time.truncatingRemainder(dividingBy: 9) / 9) * (size.height * 1.4) - size.height * 0.2
         // Eight tones, drawn as one path each, keep the shading smooth without per-dot fills.
@@ -135,9 +184,16 @@ struct AgentFaceView: View {
     })
     .accessibilityHidden(true)
   }
+  private static func makeDots(_ size: CGSize) -> [AgentFaceGeometry.Dot] {
+    let spacing = max(3.4, size.height / 72)
+    if let image = AgentPortrait.image {
+      return AgentPortrait.dots(image, width: size.width, height: size.height, spacing: spacing)
+    }
+    return AgentFaceGeometry.dots(width: size.width, height: size.height, spacing: spacing, centerX: 0.5)
+  }
   private func refresh(_ size: CGSize) {
     guard size != cache.size else { return }
-    cache = (size, AgentFaceGeometry.dots(width: size.width, height: size.height, spacing: max(3.4, size.height / 72), centerX: 0.5))
+    cache = (size, Self.makeDots(size))
   }
 }
 
