@@ -27,10 +27,8 @@ import XCTest
     XCTAssertEqual(store.mails.first { $0.id == id }?.senderEmail, "studio@example.com")
     activity.working = true; activity.stage = "Looking up conversations"
     for _ in 0..<4 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(40)) }
-    let waitingFrame = try capture(host, name: "compose-waiting")
-    for _ in 0..<5 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(40)) }
-    // The user asked for a soft dot wave while AI thinks (Reduce Motion keeps it still; see below).
-    XCTAssertNotEqual(waitingFrame, try capture(host, name: "compose-waiting-later"), "The thinking wave moves while waiting")
+    // The thinking wave lives in the ask line (see `testThinkingWaveMovesAndHoldsStillWithReduceMotion`).
+    try capture(host, name: "compose-waiting")
     activity.working = false
     activity.preview = "Hi Maya,\n\nI’ve looked over the launch notes. Could we confirm a time to review the remaining changes?\n\nThanks,\nAlex"
     for _ in 0..<36 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(40)) }
@@ -40,6 +38,18 @@ import XCTest
     XCTAssertFalse(finishedInk.motionRunning, "Real-time animation stops when its last letter lands")
     XCTAssertEqual(store.mails.first { $0.id == id }?.body, "Original draft", "Preview never applies or sends")
     XCTAssertEqual(try database.loadMail().first { $0.id == id }?.body, "Original draft")
+  }
+
+  func testThinkingWaveMovesAndHoldsStillWithReduceMotion() async throws {
+    _ = NSApplication.shared
+    let moving = NSHostingView(rootView: WritingThinkingBar(stage: "Writing your draft").frame(width: 480))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 30), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = moving
+    defer { window.close() }
+    for _ in 0..<4 { moving.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let first = try capture(moving, name: "thinking-wave")
+    for _ in 0..<6 { moving.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(50)) }
+    XCTAssertNotEqual(first, try capture(moving, name: "thinking-wave-later"), "The wave moves while AI works")
   }
 
   func testThinkingWaveIsStillWithReduceMotion() async throws {

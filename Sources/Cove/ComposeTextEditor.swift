@@ -7,6 +7,9 @@ struct ComposeTextEditor: NSViewRepresentable {
   @Binding var selection: NSRange
   var accessibilityName = "Message body"
   var isEditable = true
+  /// Increment to move keyboard focus into the editor.
+  var focusRequest = 0
+  var inset = NSSize(width: 22, height: 18)
 
   func makeNSView(context: Context) -> NSScrollView {
     let scroll = NSScrollView()
@@ -33,7 +36,7 @@ struct ComposeTextEditor: NSViewRepresentable {
     editor.typingAttributes = [.font: CoveTypography.nativeBody, .paragraphStyle: paragraph]
     editor.textColor = NSColor(Palette.ink)
     editor.backgroundColor = NSColor(Palette.canvas)
-    editor.textContainerInset = NSSize(width: 22, height: 18)
+    editor.textContainerInset = inset
     editor.setAccessibilityLabel(accessibilityName)
     scroll.documentView = editor
     editor.string = text
@@ -53,6 +56,10 @@ struct ComposeTextEditor: NSViewRepresentable {
     if editor.string != text {
       editor.string = text
     }
+    if focusRequest != context.coordinator.focusRequest {
+      context.coordinator.focusRequest = focusRequest
+      DispatchQueue.main.async { editor.window?.makeFirstResponder(editor) }
+    }
     let safeRange = Range(selection, in: text) != nil ? selection : NSRange(location: 0, length: 0)
     if editor.selectedRange() != safeRange { editor.setSelectedRange(safeRange) }
   }
@@ -61,7 +68,8 @@ struct ComposeTextEditor: NSViewRepresentable {
   final class Coordinator: NSObject, NSTextViewDelegate {
     var parent: ComposeTextEditor
     var updating = false
-    init(_ parent: ComposeTextEditor) { self.parent = parent }
+    var focusRequest: Int
+    init(_ parent: ComposeTextEditor) { self.parent = parent; focusRequest = parent.focusRequest }
     func textDidChange(_ notification: Notification) {
       guard !updating, let editor = notification.object as? NSTextView else { return }
       parent.text = editor.string

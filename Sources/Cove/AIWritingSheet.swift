@@ -52,6 +52,9 @@ struct AIWritingPanel: View {
   /// One "ask" line with a tools menu, living inside the editor it writes for. The suggestion is
   /// previewed on that editor's canvas (via `activity`), never in a separate panel.
   var inline = false
+  /// Inline only: closes the ask line (Esc or ✕) when nothing is pending.
+  var onClose: (() -> Void)? = nil
+  @FocusState private var askFocused: Bool
   var providerSettings: AIProviderSettings? = nil
   let onApply: (String) -> Void
   var onConfigure: (() -> Void)? = nil
@@ -112,6 +115,8 @@ struct AIWritingPanel: View {
         apply()
       }
       .onChange(of: activity?.discardRequest) { _, _ in discardSuggestion() }
+      .onChange(of: activity?.focusRequest) { _, _ in askFocused = true }
+      .onChange(of: error) { _, value in activity?.needsAttention = value != nil }
       .onChange(of: activity?.rewriteRequest) { _, _ in
         generate(refining: suggestion != nil,
           request: "Rewrite the selected passage in my voice for clarity and flow. Preserve its meaning, facts, and commitments.",
@@ -160,6 +165,7 @@ struct AIWritingPanel: View {
           if let onConfigure { Button("Connect", action: onConfigure).buttonStyle(.plain).font(.coveControl) }
         }.frame(minHeight: 40)
       } else {
+        if task != nil { WritingThinkingBar(stage: workingStage).transition(.opacity) }
         HStack(alignment: .center, spacing: 10) {
           Image(systemName: "sparkles").font(.cove(size: 14)).foregroundStyle(Palette.body)
             .help(Self.disclosure).accessibilityLabel("About AI writing").accessibilityValue(Self.disclosure)
@@ -167,6 +173,7 @@ struct AIWritingPanel: View {
                     text: $instruction, axis: .vertical)
             .lineLimit(1...4).textFieldStyle(.plain).font(.coveBody)
             .onSubmit { if canGenerate { generate(refining: suggestion != nil) } }
+            .focused($askFocused).onExitCommand { if task == nil && suggestion == nil { onClose?() } }
             .disabled(task != nil).accessibilityLabel("Writing instructions")
           toolsMenu
           if task != nil {
@@ -180,6 +187,11 @@ struct AIWritingPanel: View {
                 .background(canGenerate ? Palette.ink : Palette.disabled, in: Circle())
                 .foregroundStyle(canGenerate ? Color.white : Palette.disabledText)
             }.buttonStyle(.plain).disabled(!canGenerate).help("Write (Return)").accessibilityLabel("Write with AI")
+            if let onClose, suggestion == nil {
+              Button(action: onClose) {
+                Image(systemName: "xmark").font(.cove(size: 11)).foregroundStyle(Palette.muted).frame(width: 22, height: 28)
+              }.buttonStyle(.plain).help("Close (Esc)").accessibilityLabel("Close AI writing")
+            }
           }
         }
         .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6).frame(minHeight: 40)
@@ -192,7 +204,10 @@ struct AIWritingPanel: View {
   private var toolsMenu: some View {
     Menu {
       let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && suggestion == nil
+      Text(hasSelection ? "Selected text" : "Whole draft")
       Group {
+        Button("Rewrite", systemImage: "arrow.triangle.2.circlepath") { runTool("Rewrite this in my voice for clarity and flow. Preserve its meaning, facts, and commitments.") }
+        Button("Fix grammar", systemImage: "textformat.abc") { runTool("Correct grammar, punctuation, and spelling only. Preserve the voice and meaning.") }
         Button("Polish", systemImage: "sparkles") { runTool("Polish this draft for clarity and flow. Preserve its meaning.") }
         Button("Shorten", systemImage: "text.alignleft") { runTool("Make this draft shorter. Keep all questions, facts, dates, and commitments.") }
         Button("Match my voice", systemImage: "waveform") { runTool("Rewrite this draft using my saved writing voice and preferences.") }
@@ -500,6 +515,7 @@ struct AIWritingPanel: View {
     let excluded = excludedIDs
     lookupActivity = []
     activity?.working = true
+    activity?.streamed = false
     if !refining { activity?.preview = nil }
     workingStage = "Preparing your draft"
     activity?.stage = workingStage
@@ -518,6 +534,7 @@ struct AIWritingPanel: View {
         let showPartial: @MainActor (String) -> Void = { text in
           streamingText = text
           activity?.streaming = text
+          if !text.isEmpty { activity?.streamed = true }
         }
         let agent = WritingAgent(
           complete: { prompt in

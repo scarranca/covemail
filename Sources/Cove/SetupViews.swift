@@ -92,6 +92,10 @@ struct ComposerView: View {
   @State private var text = ""
   @State private var selection = NSRange(location: 0, length: 0)
   @State private var writingActivity: WritingActivity
+  @State private var aiOpen = false
+  private var showAskLine: Bool {
+    aiOpen || writingActivity.working || writingActivity.preview != nil || writingActivity.needsAttention
+  }
   @FocusState private var recipientFocused: Bool
   @State private var loaded = false
   @State private var confirmSend = false
@@ -214,7 +218,7 @@ struct ComposerView: View {
           .accessibilityHidden(writingActivity.preview != nil)
           .allowsHitTesting(writingActivity.preview == nil)
         if let preview = writingActivity.preview {
-          WritingCanvasPreview(text: preview, onEdit: writingActivity.working ? nil : { writingActivity.preview = $0 },
+          WritingCanvasPreview(text: preview, animated: !writingActivity.streamed, onEdit: writingActivity.working ? nil : { writingActivity.preview = $0 },
             onSelection: { writingActivity.previewSelection = $0 }, selectedRange: writingActivity.previewSelection)
             .id(writingActivity.revision)
         } else if writingActivity.working, let streaming = writingActivity.streaming, !streaming.isEmpty {
@@ -225,10 +229,6 @@ struct ComposerView: View {
           }.background(Palette.canvas).accessibilityLabel("Draft being written")
         }
       }.frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .bottom) {
-          if writingActivity.working { WritingThinkingBar(stage: writingActivity.stage).transition(.opacity) }
-        }
-        .animation(.easeOut(duration: 0.2), value: writingActivity.working)
       HStack(spacing: 10) {
         if let preview = writingActivity.preview {
           Button("Apply draft", systemImage: "checkmark") { writingActivity.applyRequest += 1 }
@@ -259,15 +259,24 @@ struct ComposerView: View {
           }.buttonStyle(.plain).font(.coveControl)
         }.padding(.horizontal, 24).padding(.vertical, 10).background(Palette.summary)
       }
-      assistant.padding(.horizontal, 20).padding(.bottom, 12)
+      // Collapsed to the ✦ button in the footer until asked for; stays mounted so work isn't lost.
+      assistant.padding(.horizontal, 20).padding(.bottom, showAskLine ? 12 : 0)
+        .frame(height: showAskLine ? nil : 0).opacity(showAskLine ? 1 : 0).clipped()
+        .allowsHitTesting(showAskLine).accessibilityHidden(!showAskLine)
       Divider()
       HStack(spacing: 12) {
         Button(store.isSample ? "Save sample" : "Send", systemImage: "paperplane") {
           save(); confirmSend = true
         }.buttonStyle(PrimaryButton()).disabled(sendDisabled)
           .keyboardShortcut(.return, modifiers: .command)
-        Text("You’re always the one who sends.").font(.coveMetadata).foregroundStyle(Palette.body)
-          .lineLimit(2)
+        Button {
+          aiOpen.toggle()
+          if aiOpen { writingActivity.focusRequest += 1 }
+        } label: {
+          Image(systemName: "sparkles").padding(8).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(writingActivity.working)
+          .help(selection.length > 0 ? "Ask Cove to change the selected text" : "Ask Cove to write or change this email")
+          .accessibilityLabel("Write with AI").accessibilityValue(showAskLine ? "Open" : "Closed")
         Spacer(minLength: 0)
         Button { confirmDiscard = true } label: {
           Image(systemName: "trash").padding(8).contentShape(Rectangle())
@@ -351,12 +360,13 @@ struct ComposerView: View {
     AIWritingPanel(draft: $text, selection: selection, context: WritingContext.recentMail(to: to, mails: store.mails), availableContext: store.mails,
       voice: store.preferences.voice, instructions: store.preferences.instructions,
       voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt,
-      store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: true, inline: true,
+      store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: true, inline: true, onClose: { aiOpen = false },
       onApply: { value in
         undoSuggestion = text
         text = value
         selection = NSRange(location: 0, length: 0)
         appliedSuggestion = value
+        aiOpen = false
         save()
       }, onConfigure: {
         save()

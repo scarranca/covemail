@@ -11,10 +11,15 @@ import CoreText
   var streaming: String?
   var revision = 0
   var previewSelection = NSRange(location: 0, length: 0)
+  /// The draft streamed in live, so the finished suggestion appears without replaying an animation.
+  var streamed = false
+  /// The inline ask line has something to show (a failure) even while collapsed.
+  var needsAttention = false
+  var focusRequest = 0
   var applyRequest = 0
   var discardRequest = 0
   var rewriteRequest = 0
-  func reset() { working = false; stage = ""; preview = nil; streaming = nil; previewSelection = NSRange(location: 0, length: 0) }
+  func reset() { working = false; stage = ""; preview = nil; streaming = nil; streamed = false; previewSelection = NSRange(location: 0, length: 0) }
 }
 
 struct WritingCanvasPreview: View {
@@ -313,36 +318,54 @@ struct WritingCanvasLoading: View {
 }
 
 
-/// The AI is working: a slow wave of soft dots along the bottom of the editor, with the truthful
-/// stage beside it. Reduce Motion shows the dots still.
+/// The AI is working: the Home chart's point cloud as a slow travelling wave above the ask line,
+/// with the truthful stage beside it. Reduce Motion holds the wave still.
 struct WritingThinkingBar: View {
   let stage: String
   /// Tests force the Reduce Motion rendering; the app uses the system setting.
   var stillOverride: Bool? = nil
   @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
   private var reduceMotion: Bool { stillOverride ?? systemReduceMotion }
-  private static let tints: [Color] = [
-    Color(red: 0.62, green: 0.66, blue: 0.96), Color(red: 0.56, green: 0.80, blue: 0.86),
-    Color(red: 0.70, green: 0.84, blue: 0.70), Color(red: 0.96, green: 0.78, blue: 0.62),
-    Color(red: 0.93, green: 0.66, blue: 0.78),
+  private static let colors: [Color] = [
+    Color(red: 0.47, green: 0.85, blue: 0.79), Color(red: 0.54, green: 0.73, blue: 0.94),
+    Color(red: 0.73, green: 0.63, blue: 0.93), Color(red: 0.90, green: 0.66, blue: 0.79),
+    Color(red: 0.95, green: 0.74, blue: 0.55),
   ]
+  static func dots(width: Double, height: Double, time: Double) -> [[MailTideGeometry.Dot]] {
+    guard width > 0, height > 0 else { return [] }
+    let columns = max(2, Int(width / 4.2))
+    return (0..<8).map { layer in
+      let depth = Double(layer) / 7
+      return (0..<columns).map { column in
+        let x = Double(column) / Double(columns - 1)
+        // Two slow travelling waves, like the tide chart's ridge, drifting left to right.
+        let wave = 0.6 * sin(x * .pi * 3.2 - time * 1.6) + 0.4 * sin(x * .pi * 7.1 - time * 2.3 + 1.2)
+        let ridge = height * (0.46 - 0.30 * wave)
+        let y = ridge + depth * (height * 0.95 - ridge) * 0.7
+        return .init(x: 2 + x * max(0, width - 4), y: y, radius: layer == 0 ? 0.95 : 0.75,
+                     opacity: layer == 0 ? 0.95 : max(0.12, 0.62 * pow(1 - depth, 1.3)))
+      }
+    }
+  }
   var body: some View {
     HStack(spacing: 12) {
-      TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
-        let time = context.date.timeIntervalSinceReferenceDate
-        HStack(spacing: 6) {
-          ForEach(0..<Self.tints.count, id: \.self) { index in
-            let wave = reduceMotion ? 0 : sin(time / 1.8 * 2 * .pi - Double(index) * 0.75)
-            Circle().fill(Self.tints[index]).frame(width: 7, height: 7)
-              .offset(y: -3.5 * wave).opacity(0.55 + 0.35 * (wave + 1) / 2)
+      Text(stage.isEmpty ? "Writing…" : stage).font(.coveMetadata).foregroundStyle(Palette.body)
+        .lineLimit(1).fixedSize()
+      TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+        let time = reduceMotion ? 0.8 : timeline.date.timeIntervalSinceReferenceDate
+        Canvas { context, size in
+          for layer in Self.dots(width: size.width, height: size.height, time: time) {
+            var path = Path()
+            for dot in layer {
+              path.addEllipse(in: CGRect(x: dot.x - dot.radius, y: dot.y - dot.radius, width: dot.radius * 2, height: dot.radius * 2))
+            }
+            context.opacity = layer.first?.opacity ?? 1
+            context.fill(path, with: .linearGradient(Gradient(colors: Self.colors), startPoint: .zero, endPoint: CGPoint(x: size.width, y: 0)))
           }
-        }.frame(height: 18)
-      }.accessibilityHidden(true)
-      Text(stage.isEmpty ? "Writing…" : stage).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
-      Spacer(minLength: 0)
+        }
+      }.frame(height: 26).accessibilityHidden(true)
     }
-    .padding(.horizontal, 16).frame(height: 34)
-    .background(LinearGradient(colors: [Palette.canvas.opacity(0), Palette.canvas.opacity(0.96)], startPoint: .top, endPoint: .center))
+    .padding(.horizontal, 4).frame(height: 30)
     .accessibilityElement(children: .combine).accessibilityLabel(stage.isEmpty ? "Writing" : stage)
   }
 }
