@@ -979,8 +979,7 @@ struct CalendarEventEditor: View {
             HStack(spacing: 6) {
               chip(draft.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())) { pickingDay = true }
                 .popover(isPresented: $pickingDay, arrowEdge: .bottom) {
-                  DatePicker("Day", selection: Binding(get: { draft.start }, set: { moveDay(to: $0) }), displayedComponents: .date)
-                    .datePickerStyle(.graphical).labelsHidden().padding(12)
+                  CoveDayPicker(selection: draft.start) { moveDay(to: $0); pickingDay = false }
                 }
               EventTimeChip(title: draft.start.formatted(date: .omitted, time: .shortened),
                             choices: EventTimes.starts(on: draft.start), selected: draft.start) { setStart($0) }

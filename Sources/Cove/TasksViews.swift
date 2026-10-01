@@ -665,9 +665,7 @@ struct TaskDetailView: View {
       chip(custom ? due!.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) : "Pick date", selected: custom,
            icon: custom ? nil : "chevron.down") { pickingDate = true }
         .popover(isPresented: $pickingDate) {
-          DatePicker("Due date", selection: Binding(get: { due ?? tomorrow }, set: { due = calendar.startOfDay(for: $0); pickingDate = false }),
-                     displayedComponents: .date)
-            .datePickerStyle(.graphical).labelsHidden().padding(12)
+          CoveDayPicker(selection: due, calendar: calendar) { due = $0; pickingDate = false }
         }
       if due != nil {
         Button { due = nil } label: { Image(systemName: "xmark").font(.cove(size: 10)) }
