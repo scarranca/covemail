@@ -14,6 +14,8 @@ struct ReaderView: View {
   @State private var savedReply = ""
   @State private var confirmUnsubscribe = false
   @AppStorage("askPanelHeight") private var askPanelHeight: Double = 0
+  /// A From chosen for this reply; nil follows the address the email was sent to, or the default.
+  @State private var replyFrom: String?
   @State private var askDrag: CGFloat = 0
   @State var askingCove = false
   @State private var unsubscribing = false
@@ -144,8 +146,9 @@ struct ReaderView: View {
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
     .task { await store.loadTasksIfNeeded() }
+    .task { await store.loadSendingAliasesIfNeeded() }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
-    .onChange(of: current.id) { _, _ in askingCove = false; flushReply() }
+    .onChange(of: current.id) { _, _ in askingCove = false; replyFrom = nil; flushReply() }
     .onDisappear { flushReply() }
     // Ask Cove can write the reply while this email is open. Typing keeps both in step, so a difference
     // means the draft was written elsewhere: show it instead of an empty editor.
@@ -507,6 +510,19 @@ struct ReaderView: View {
         Label("A reply, ready for your review", systemImage: "square.and.pencil").font(
           .coveLabel)
         Spacer()
+        if store.sendingAliases.count > 1 {
+          // Several Gmail addresses: show which one this reply comes from, and let the user change it.
+          let from = replyFrom ?? store.replySender(for: replySource)
+          Menu {
+            ForEach(store.sendingAliases, id: \.self) { alias in
+              Button { replyFrom = alias } label: {
+                if alias.caseInsensitiveCompare(from) == .orderedSame { Label(alias, systemImage: "checkmark") } else { Text(alias) }
+              }
+            }
+          } label: { Text("From \(from)").font(.coveMetadata) }
+            .menuStyle(.borderlessButton).fixedSize().foregroundStyle(Palette.body)
+            .help("Reply from this address").accessibilityLabel("Reply from \(from)")
+        }
         Text("Not sent").font(.coveMetadata).foregroundStyle(Palette.muted)
       }.padding(.horizontal, 17).padding(.vertical, 13).background(Palette.sidebar)
       Divider()
@@ -605,7 +621,7 @@ extension ReaderView {
       cancelReplySave()
       savedReply = ""
       store.saveReply(id: source.id, text: "")
-      store.queueSend(to: recipient, subject: subject, body: sentText, reply: source, cc: cc)
+      store.queueSend(to: recipient, subject: subject, body: sentText, reply: source, from: replyFrom ?? store.replySender(for: source), cc: cc)
       reply = ""
       showReply = false
     } label: {

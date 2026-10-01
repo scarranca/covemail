@@ -372,6 +372,34 @@ import SwiftUI
     if let selected, inboxSplit(of: selected) != tab { selectedID = nil }
     reconcileSelection()
   }
+  /// The account's verified Gmail send-as addresses (primary first), loaded once per session.
+  var sendingAliases: [String] = []
+  func loadSendingAliasesIfNeeded() async {
+    guard entered, sendingAliases.count <= 1 else { return }
+    if let addresses = try? await sendingAddresses() { sendingAliases = addresses }
+  }
+  /// From for new emails: the saved default while it's still a verified alias, otherwise the account.
+  var defaultSender: String {
+    guard let saved = preferences.defaultSender,
+      sendingAliases.isEmpty || sendingAliases.contains(where: { $0.caseInsensitiveCompare(saved) == .orderedSame })
+    else { return accountEmail }
+    return saved
+  }
+  func setDefaultSender(_ address: String) {
+    preferences.defaultSender = address.caseInsensitiveCompare(accountEmail) == .orderedSame ? nil : address
+    persistPreferences()
+  }
+  /// From for a reply: the alias the email was sent to (in To or Cc), so the reply comes from the same
+  /// address; otherwise the default. Several matches keep the default when it's one of them.
+  func replySender(for mail: Mail) -> String {
+    let received = Set((ContactDirectory.addresses(mail.to) + ContactDirectory.addresses(mail.cc ?? ""))
+      .map { $0.email.lowercased() })
+    let matches = sendingAliases.filter { received.contains($0.lowercased()) }
+    if matches.contains(where: { $0.caseInsensitiveCompare(defaultSender) == .orderedSame }) || matches.isEmpty {
+      return defaultSender
+    }
+    return matches[0]
+  }
   func setSplitInbox(_ enabled: Bool) {
     preferences.splitInbox = enabled
     persistPreferences()

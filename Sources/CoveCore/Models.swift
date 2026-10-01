@@ -147,6 +147,8 @@ public struct Preferences: Codable, Sendable {
   public var splitInbox: Bool?
   // Lowercased sender address → the tab the user always wants for that sender.
   public var inboxSenderRules: [String: InboxSplit]?
+  /// The From address for new emails when Gmail has more than one (send-as aliases). nil = the account's.
+  public var defaultSender: String?
   public var splitsInbox: Bool { splitInbox ?? true }
   public init() {}
 }

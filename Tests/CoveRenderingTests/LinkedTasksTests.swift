@@ -97,3 +97,28 @@ private struct OfflineHTTP: HTTPTransport {
     XCTAssertEqual(asked, [event.id], "it asks, through the same confirmation as the trash button")
   }
 }
+
+@MainActor final class DefaultSenderTests: XCTestCase {
+  func testDefaultFromAndRepliesFromTheAddressTheEmailWasSentTo() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveSender-" + UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    let store = try AppStore(database: Database(url: root.appendingPathComponent("mail.sqlite")), accountEmail: "me@example.com",
+      gmail: GmailClient(transport: OfflineHTTP()), gmailTokenProvider: { "fixture" }, syncClock: Date.init)
+    store.entered = true
+    store.sendingAliases = ["me@example.com", "santiago@gigstack.io", "hola@cove.ai"]
+    XCTAssertEqual(store.defaultSender, "me@example.com")
+    store.setDefaultSender("santiago@gigstack.io")
+    XCTAssertEqual(store.defaultSender, "santiago@gigstack.io")
+    var toAlias = Mail(id: "a", sender: "Ana", senderEmail: "ana@example.com", subject: "Hi", body: "x")
+    toAlias.to = "Cove <hola@cove.ai>"
+    XCTAssertEqual(store.replySender(for: toAlias), "hola@cove.ai", "reply from the address it was sent to")
+    var toBoth = toAlias; toBoth.to = "hola@cove.ai"; toBoth.cc = "Santiago <santiago@gigstack.io>"
+    XCTAssertEqual(store.replySender(for: toBoth), "santiago@gigstack.io", "several matches: the default wins")
+    var elsewhere = toAlias; elsewhere.to = "team@list.example.com"
+    XCTAssertEqual(store.replySender(for: elsewhere), "santiago@gigstack.io", "a list address falls back to the default")
+    store.sendingAliases = ["me@example.com"]
+    XCTAssertEqual(store.defaultSender, "me@example.com", "a removed alias is never used")
+    store.setDefaultSender("me@example.com")
+    XCTAssertNil(store.preferences.defaultSender)
+  }
+}

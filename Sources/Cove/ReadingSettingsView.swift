@@ -20,6 +20,18 @@ struct ReadingSettingsView: View {
         }.toggleStyle(CoveToggleStyle())
           .accessibilityLabel("Split inbox")
       }
+      if let store, store.sendingAliases.count > 1 {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+          VStack(alignment: .leading, spacing: 5) {
+            Text("Default From address").font(.coveLabel)
+            Text("New emails come from this address. Replies come from the address the email was sent to.")
+              .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          }
+          Spacer()
+          CoveMenuPicker("Default From address", selection: Binding(get: { store.defaultSender }, set: { store.setDefaultSender($0) }),
+                         options: store.sendingAliases.map { ($0, $0) })
+        }
+      }
       Toggle(isOn: $textOnly) {
         VStack(alignment: .leading, spacing: 5) {
           Text("Text-only reading").font(.coveLabel)
@@ -39,5 +51,6 @@ struct ReadingSettingsView: View {
       }.toggleStyle(CoveToggleStyle())
         .accessibilityLabel("Load external images automatically")
     }
+    .task { if let store, !store.isSample { await store.loadSendingAliasesIfNeeded() } }
   }
 }

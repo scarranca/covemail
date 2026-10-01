@@ -128,11 +128,11 @@ struct ComposerView: View {
       .background(Palette.canvas).foregroundStyle(Palette.ink)
       .onAppear {
         guard !loaded else { return }
-        sender = store.accountEmail
-        senderAddresses = [store.accountEmail]
+        sender = store.defaultSender
+        senderAddresses = store.sendingAliases.isEmpty ? [store.accountEmail] : store.sendingAliases
         if let mail = store.mails.first(where: { $0.id == store.composeID }) {
           to = mail.to; subject = mail.subject; text = mail.body
-          sender = mail.senderEmail.isEmpty ? store.accountEmail : mail.senderEmail
+          sender = mail.senderEmail.isEmpty ? store.defaultSender : mail.senderEmail
         }
         loaded = true
       }
@@ -372,6 +372,7 @@ struct ComposerView: View {
       let addresses = try await store.sendingAddresses()
       try Task.checkCancellation()
       senderAddresses = addresses
+      store.sendingAliases = addresses
       if let canonical = addresses.first(where: { $0.caseInsensitiveCompare(sender) == .orderedSame }) {
         sender = canonical
       }
