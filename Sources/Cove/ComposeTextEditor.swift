@@ -53,6 +53,13 @@ struct ComposeTextEditor: NSViewRepresentable {
     if !isEditable, editor.window?.firstResponder === editor {
       editor.window?.makeFirstResponder(nil)
     }
+    // While an accent or other composed character is pending (´ waiting for its vowel, or an input
+    // method's candidate), the text holds a temporary mark. Re-setting the string here would drop it
+    // and send the cursor to the start, so leave the editor alone until the character is committed.
+    if editor.hasMarkedText() {
+      if focusRequest != context.coordinator.focusRequest { context.coordinator.focusRequest = focusRequest }
+      return
+    }
     if editor.string != text {
       editor.string = text
     }
@@ -60,7 +67,9 @@ struct ComposeTextEditor: NSViewRepresentable {
       context.coordinator.focusRequest = focusRequest
       DispatchQueue.main.async { editor.window?.makeFirstResponder(editor) }
     }
-    let safeRange = Range(selection, in: text) != nil ? selection : NSRange(location: 0, length: 0)
+    // An out-of-date selection lands at the end of the text, never the start.
+    let end = NSRange(location: (text as NSString).length, length: 0)
+    let safeRange = Range(selection, in: text) != nil ? selection : end
     if editor.selectedRange() != safeRange { editor.setSelectedRange(safeRange) }
   }
 
@@ -71,12 +80,13 @@ struct ComposeTextEditor: NSViewRepresentable {
     var focusRequest: Int
     init(_ parent: ComposeTextEditor) { self.parent = parent; focusRequest = parent.focusRequest }
     func textDidChange(_ notification: Notification) {
-      guard !updating, let editor = notification.object as? NSTextView else { return }
+      // A pending accent isn't text yet; it's reported once the character is committed.
+      guard !updating, let editor = notification.object as? NSTextView, !editor.hasMarkedText() else { return }
       parent.text = editor.string
       if parent.selection != editor.selectedRange() { parent.selection = editor.selectedRange() }
     }
     func textViewDidChangeSelection(_ notification: Notification) {
-      guard !updating, let editor = notification.object as? NSTextView else { return }
+      guard !updating, let editor = notification.object as? NSTextView, !editor.hasMarkedText() else { return }
       if parent.selection != editor.selectedRange() { parent.selection = editor.selectedRange() }
     }
   }

@@ -43,3 +43,14 @@
   - Star and archive are queued on one email and Gmail refuses the star: the star is undone, the archive stays, and only the archive is ever re-applied.
 - Full `swift test`: CoveCoreTests 264, CoveRenderingTests 349, 0 failures.
 - Not yet verified live: archiving and starring during a long real catch-up.
+
+## Accent typing bug (user report during QA)
+
+- **Report:** typing an accent (´ then a vowel) in the email editor sent the cursor to the start.
+- **Cause:** dead keys and input methods insert temporary "marked text". `ComposeTextEditor` pushed that intermediate text and selection into SwiftUI, and the next `updateNSView` re-set the string, which dropped the mark. The stale selection was out of range, so it fell back to location 0.
+- **Fix:**
+  - While `hasMarkedText()`, `updateNSView` leaves the editor untouched, and the delegate doesn't report text or selection until the character is committed.
+  - An out-of-range selection now lands at the end of the text instead of the start.
+  - This covers the composer, the reply editor and every other `ComposeTextEditor`.
+- **Test:** `ComposeAccentTests` types "Hola ", sets the marked "´", forces a re-render, commits "é", then types "xito". Expected: "Hola éxito" with the cursor after é. On the old code the same test fails with the cursor at 0 and "xitoHola é".
+- **Full `swift test`:** CoveCoreTests 264, CoveRenderingTests 350, 0 failures.
