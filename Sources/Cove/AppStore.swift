@@ -3288,8 +3288,13 @@ extension AppStore {
     tasksLoading = true
     defer { if generation == mailboxGeneration { tasksLoading = false } }
     do {
-      let tasks = try await tasksClient.list(token: tasksToken())
+      let token = try await tasksToken()
+      let open = try await tasksClient.list(token: token)
+      // The last 30 days of finished tasks, so Done can show them; older ones stay in Google Tasks.
+      let done = (try? await tasksClient.completed(token: token, since: syncClock().addingTimeInterval(-30 * 86_400))) ?? []
       guard generation == mailboxGeneration else { return }
+      var seen = Set<String>()
+      let tasks = (open + done).filter { seen.insert($0.id).inserted }
       googleTasks = tasks.sorted { ($0.dueDay ?? .distantFuture) < ($1.dueDay ?? .distantFuture) }
     } catch { self.error = error.localizedDescription }
   }

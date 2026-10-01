@@ -11,6 +11,9 @@ public struct GoogleTask: Codable, Identifiable, Equatable, Sendable {
   /// The parent task for a subtask (steps Cove adds under a task).
   public var parent: String?
   public var position: String?
+  /// When it was completed (RFC 3339), if it is.
+  public var completed: String?
+  public var completedAt: Date? { completed.flatMap { ISO8601DateFormatter.withFractions.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } }
   public init(id: String, title: String, notes: String? = nil, due: String? = nil, status: String? = nil,
               webViewLink: String? = nil, parent: String? = nil, position: String? = nil) {
     self.id = id; self.title = title; self.notes = notes; self.due = due; self.status = status; self.webViewLink = webViewLink
@@ -89,6 +92,19 @@ public struct GoogleTasksClient {
     return try JSONDecoder().decode(Page.self, from: data).items ?? []
   }
 
+  /// Tasks completed since `since`, including ones Google hides after they're cleared, newest first (up to 100).
+  public func completed(token: String, since: Date) async throws -> [GoogleTask] {
+    struct Page: Decodable { let items: [GoogleTask]? }
+    let formatter = ISO8601DateFormatter()
+    let data = try await request("lists/@default/tasks", token: token, query: [
+      URLQueryItem(name: "maxResults", value: "100"),
+      URLQueryItem(name: "showCompleted", value: "true"),
+      URLQueryItem(name: "showHidden", value: "true"),
+      URLQueryItem(name: "completedMin", value: formatter.string(from: since)),
+    ])
+    return (try JSONDecoder().decode(Page.self, from: data).items ?? []).filter(\.isCompleted)
+  }
+
   /// Changes a task's title, notes and due day (nil removes the due date).
   public func update(_ task: GoogleTask, title: String, notes: String, due: Date?, token: String,
                      calendar: Calendar = .current) async throws -> GoogleTask {
@@ -116,4 +132,12 @@ public struct GoogleTasksClient {
     return try JSONDecoder().decode(GoogleTask.self,
       from: await request("lists/@default/tasks/\(task.id)", token: token, method: "PATCH", body: body))
   }
+}
+
+extension ISO8601DateFormatter {
+  static let withFractions: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
 }

@@ -203,9 +203,9 @@ struct TasksView: View {
                   }
                 }
               }
-              let done = topLevel.filter(\.isCompleted)
+              let done = topLevel.filter(\.isCompleted).sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
               if !done.isEmpty {
-                DisclosureGroup("Done · \(done.count)", isExpanded: $showDone) {
+                DisclosureGroup("Done · \(done.count) in the last 30 days", isExpanded: $showDone) {
                   VStack(spacing: 2) { ForEach(done) { row($0) } }.padding(.top, 6)
                 }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle()).padding(.horizontal, 12)
               }
