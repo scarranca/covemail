@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.52</title>
+            <pubDate>Wed, 30 Sep 2026 17:50:43 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>54</sparkle:version>
+            <sparkle:shortVersionString>0.1.52</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.52</title></head><body><h1>Agents that work, tasks you keep</h1><ul><li>Create an agent by describing the job in a sentence. Cove turns it into steps you can read and edit, then try it on recent mail before turning it on. Start from ideas like Finance, Client requests or Meeting requests.</li><li>Tasks from your email: Jev spots promises and requests in mail you send and read, and Cove adds them to Google Tasks when you approve. Plan your day, see what you finished, and what's left on today's calendar.</li><li>Ask Cove opens right inside an email. Ask it to write a reply and the draft lands in the reply box.</li><li>Ask Cove can archive, mark read, star or label many emails at once after you approve the exact list, with Undo.</li><li>Important and Other tabs in the Inbox, a Spam folder, and one-click Unsubscribe for newsletters.</li><li>Write with AI inline: a small ✦ above Send rewrites, shortens or fixes the whole draft or just your selection.</li><li>Drag in the calendar to create, move or resize events, and a calmer event editor.</li><li>Connections shows what's set up and what's next, with your AI account, Jev key, Calendar and Tasks in one place.</li><li>Cove paces Gmail when it asks to slow down, and clicking the Dock icon reopens a closed window.</li></ul><p>Nothing is sent, archived or deleted without you.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.52.dmg" length="21977558" type="application/octet-stream" sparkle:edSignature="brmuK0Z6BVp3LIs1jepHbYPTkHHG4IsAtzo6iD159arempkD54QKkaGPcWesiQb/UCOoa5V7hPlggUFlfYL0Bw=="/>
+        </item>
+        <item>
             <title>0.1.50</title>
             <pubDate>Tue, 29 Sep 2026 22:32:35 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.49.dmg" length="18224513" type="application/octet-stream" sparkle:edSignature="eZbz4CTyoyFSj/+oBQH6JTKku/7Q2+0cY4YNcVhRpcIQ/noINdnkCHNdAzTa18hP/zq1ywKZiUlE1PTaZGhvDg=="/>
         </item>
-        <item>
-            <title>0.1.48</title>
-            <pubDate>Tue, 29 Sep 2026 14:45:46 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>50</sparkle:version>
-            <sparkle:shortVersionString>0.1.48</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.48</title></head><body><h1>Your AI keys stay put</h1><ul><li>Fixes an issue in 0.1.47 where AI provider and TypeSafe keys could disappear the first time Cove used them, so Jev and AI writing asked for a key that had just been saved.</li><li>Settings now confirms a TypeSafe key was actually stored before showing “Credentials saved”.</li></ul><p>If you used 0.1.47, re-enter your TypeSafe key and any AI provider API keys once in Settings. Your Google connection, mail and learned voice were not affected.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.48.dmg" length="17953739" type="application/octet-stream" sparkle:edSignature="p/nPkFy0c5nY8e188NZU6+lCPLMakiYr/YW5FwRu4ld3zWFg+HiuonmKIzEkBcRKfS5yb4tFbasfaptx/PReDA=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: Qi/VY4MwNVkC1OOb9TZ74WO7iFNtYmy7FG3/oAFWfAUueHZvTa5R6pXRvlzWPKcRjgV+YkRwtopTmI9g3/0KCw==
-length: 5017
+edSignature: hdvBcBOHVmsDC2gEQcmMrjUMdf1eulZDrvwh3hrUXsCu8hYFQQ+Z/ZNql+pZBQgSs/71fYA+NC+YI8WaPv50AQ==
+length: 5846
 -->

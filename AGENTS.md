@@ -13,14 +13,18 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 30, 2026
 
-- **Unreleased work:** branch `scarranca/secure-incremental-mail-cache` is 40+ commits ahead of `origin/main` (`f5d77df`, the 0.1.50 publish). None of it is pushed.
-  - A 0.1.51 app was built and signed but **not notarized or published**. Its release notes, beta page and landing page are committed.
-  - The plan is to ship everything as **0.1.52**. `scripts/write-app-info.py` is already at 0.1.52 / build 54.
-  - 0.1.52 adds tasks from email (Google Tasks), the Important/Other inbox, assistant screen context, navigation and approval-gated bulk actions, "try an agent on recent mail" and notify mode, inline AI writing, calendar dragging, Gmail rate-limit backoff, Dock reopen, and a UI simplification pass.
-  - Evidence: `docs/qa/0.1.51/AUDIT.md` and `docs/qa/0.1.52/AUDIT-*.md`. It is being tested by the user in QA builds.
+- **Cove 0.1.52, build 54**, is published (Pages deployment `1391114e`). It includes the unshipped 0.1.51 work:
+  - agents built from a description, with templates, Try it and the dot-portrait header;
+  - Google Tasks from email (overview, Done, side column);
+  - Ask Cove inside the email; approval-gated bulk changes;
+  - Important/Other tabs, a Spam folder and Unsubscribe;
+  - inline AI writing, calendar dragging and the event editor;
+  - Connections setup.
+  Evidence: `docs/qa/0.1.52/AUDIT.md` (and the `AUDIT-*.md` files beside it).
 - **QA builds** (`scripts/build-qa.sh` with `COVE_GOOGLE_OAUTH_FILE`) are copied to `dist/QA-<version>[-letter]/Cove QA.app`.
   - The QA bundle (`ai.cove.qa`) keeps its data under `~/Library/Application Support/Cove/QA`, and that data holds the user's real, migrated account. Treat it as real mail.
-  - The user launches QA builds themselves. Never force-quit one: it may be holding an unsaved draft.
+  - The user launches QA builds themselves. Never force-quit one.
+- The Higgsfield MCP (`https://mcp.higgsfield.ai/mcp`, user scope) is connected for generated imagery; the agents portrait came from it. Generations spend the user's credits, so preflight with `get_cost`.
 - **Cove 0.1.50, build 52**, is published (Pages deployment `e50c3f33`). It adds instant search, faster and streaming drafts, Ask Cove follow-ups that reuse found emails, per-email encrypted storage (storage version 3, verified by a real-account migration check), and a landing refresh. Evidence: `docs/qa/0.1.50/AUDIT.md`. The local-first index continues: the working set is not narrowed yet (see the audit's order).
 - 0.1.49, build 51 (Pages deployment `463c0cae`, commit `5fd1f42`). It adds large-question Gmail research (up to 100 matches, batched and cited), a daily brief, chat replies, contact lookups and memories in every AI draft. Evidence: `docs/qa/0.1.49/AUDIT.md`.
 - 0.1.48 (deployment `75e0a625`) was a hotfix for 0.1.47: login-keychain queries must set `kSecUseDataProtectionKeychain: false` (`Vault.legacyQuery`), because otherwise deletes also remove data-protection items on the hardened build. Evidence: `docs/qa/0.1.48/AUDIT.md` and `docs/qa/0.1.47/AUDIT.md`.
