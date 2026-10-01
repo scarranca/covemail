@@ -15,9 +15,9 @@ public struct GoogleTask: Codable, Identifiable, Equatable, Sendable {
   public var completed: String?
   public var completedAt: Date? { completed.flatMap { ISO8601DateFormatter.withFractions.date(from: $0) ?? ISO8601DateFormatter().date(from: $0) } }
   public init(id: String, title: String, notes: String? = nil, due: String? = nil, status: String? = nil,
-              webViewLink: String? = nil, parent: String? = nil, position: String? = nil) {
+              webViewLink: String? = nil, parent: String? = nil, position: String? = nil, completed: String? = nil) {
     self.id = id; self.title = title; self.notes = notes; self.due = due; self.status = status; self.webViewLink = webViewLink
-    self.parent = parent; self.position = position
+    self.parent = parent; self.position = position; self.completed = completed
   }
   public var isCompleted: Bool { status == "completed" }
   /// The due date as a local calendar day (Google stores tasks' due dates without a time).

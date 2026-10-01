@@ -224,3 +224,25 @@ public enum TaskContext {
     }.sorted { $0.start < $1.start }.prefix(limit).map { $0 }
   }
 }
+
+/// How many tasks were finished each day, oldest first: the Tasks header draws these as dots.
+public enum TaskMomentum {
+  public static func daily(_ tasks: [GoogleTask], days: Int = 14, now: Date = Date(), calendar: Calendar = .current) -> [Int] {
+    let today = calendar.startOfDay(for: now)
+    var counts = Array(repeating: 0, count: days)
+    for task in tasks where task.isCompleted {
+      guard let at = task.completedAt else { continue }
+      let day = calendar.dateComponents([.day], from: calendar.startOfDay(for: at), to: today).day ?? -1
+      if (0..<days).contains(day) { counts[days - 1 - day] += 1 }
+    }
+    return counts
+  }
+  /// Emails where Jev found a promise or request that hasn't become a task yet, newest first.
+  public static func waitingInMail(_ mails: [Mail], now: Date = Date(), within days: Int = 21) -> [Mail] {
+    let since = now.addingTimeInterval(-Double(days) * 86_400)
+    return mails.filter {
+      $0.taskCheck?.found == true && $0.taskCheck?.createdTaskIDs == nil && $0.date >= since
+        && $0.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"])
+    }.sorted { $0.date > $1.date }
+  }
+}

@@ -184,12 +184,10 @@ struct TasksView: View {
         HStack(spacing: 0) {
           ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+              overview
               quickAddBar
               if planning || plan != nil || planError != nil { planCard }
-              if topLevel.filter({ !$0.isCompleted }).isEmpty && !store.tasksLoading {
-                Text("Nothing open. Add one above, or Cove will suggest tasks after you send or read an email with a promise.")
-                  .font(.coveSecondary).foregroundStyle(Palette.body).padding(.top, 8)
-              }
+              waitingInMail
               ForEach(Group.allCases, id: \.self) { section in
                 let tasks = topLevel.filter { !$0.isCompleted && group($0) == section }
                 if !tasks.isEmpty {
@@ -237,17 +235,79 @@ struct TasksView: View {
       }
       Spacer()
       if store.tasksConnected && !store.isSample {
-        if AIProviderSettings.shared.hasWorkingDefault {
-          Button { runPlan() } label: { Label("Plan my day", systemImage: "sparkles") }
-            .buttonStyle(SecondaryButton(compact: true)).disabled(planning || topLevel.allSatisfy(\.isCompleted))
-            .help("Cove picks what to do today and finds time for it")
-        }
         Button { Task { await store.refreshTasks() } } label: {
           SwiftUI.Group { if store.tasksLoading { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.clockwise") } }
             .frame(width: 24, height: 32)
         }.buttonStyle(.plain).disabled(store.tasksLoading).help("Refresh from Google Tasks").accessibilityLabel("Refresh tasks")
       }
     }.padding(.horizontal, 32).padding(.vertical, 22)
+  }
+
+  /// The day at a glance, like Home: what's due, what got done, and two weeks of finished tasks as dots.
+  private var overview: some View {
+    let open = topLevel.filter { !$0.isCompleted }
+    let overdue = open.filter { group($0) == .overdue }.count
+    let dueToday = open.filter { group($0) == .today }.count
+    let done = topLevel.filter(\.isCompleted).count
+    let counts = TaskMomentum.daily(store.googleTasks)
+    let headline = overdue > 0 ? "\(overdue) overdue" : dueToday > 0 ? "\(dueToday) due today"
+      : open.isEmpty ? "All clear" : "Nothing due today"
+    let detail = open.isEmpty
+      ? (done > 0 ? "You finished \(done) in the last 30 days." : "Add one below, or let Cove find them in your email.")
+      : "\(open.count) open · \(done) done in the last 30 days"
+    return ViewThatFits(in: .horizontal) {
+      HStack(alignment: .center, spacing: 28) { overviewText(headline, detail, open: open.count).frame(width: 300, alignment: .leading); momentum(counts) }
+      VStack(alignment: .leading, spacing: 18) { overviewText(headline, detail, open: open.count); momentum(counts) }
+    }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+      .background(Color(red: 0.114, green: 0.125, blue: 0.165), in: RoundedRectangle(cornerRadius: 10))
+  }
+  private func overviewText(_ headline: String, _ detail: String, open: Int) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text(headline).font(.coveTitle).foregroundStyle(Color(white: 0.96))
+      Text(detail).font(.coveSecondary).foregroundStyle(Color(white: 0.8)).fixedSize(horizontal: false, vertical: true)
+      if AIProviderSettings.shared.hasWorkingDefault && open > 0 {
+        Button { runPlan() } label: { Label("Plan my day", systemImage: "sparkles") }
+          .buttonStyle(SecondaryButton(compact: true)).disabled(planning).padding(.top, 4)
+          .help("Cove picks what to do today and finds time for it")
+      }
+    }
+  }
+  private func momentum(_ counts: [Int]) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      TaskMomentumView(counts: counts).frame(height: 96)
+      HStack {
+        Text("2 weeks ago"); Spacer()
+        Text("\(counts.reduce(0, +)) done"); Spacer()
+        Text("Today")
+      }.font(.coveMetadata).foregroundStyle(Color(white: 0.7))
+    }.frame(maxWidth: .infinity)
+  }
+
+  /// Emails where Jev found a promise or a request that isn't a task yet.
+  @ViewBuilder private var waitingInMail: some View {
+    let waiting = Array(TaskMomentum.waitingInMail(store.mails).prefix(5))
+    if !waiting.isEmpty {
+      VStack(alignment: .leading, spacing: 8) {
+        Label("Found in your email", systemImage: "envelope.badge").font(.coveLabel).foregroundStyle(Palette.body)
+          .padding(.horizontal, 12)
+        VStack(spacing: 0) {
+          ForEach(Array(waiting.enumerated()), id: \.element.id) { index, mail in
+            if index > 0 { Divider() }
+            HStack(spacing: 12) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(mail.sender.isEmpty ? mail.senderEmail : mail.sender).font(.coveLabel).lineLimit(1)
+                Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(1)
+              }
+              Spacer(minLength: 8)
+              Text(mail.date, format: .dateTime.month(.abbreviated).day()).font(.coveMetadata).foregroundStyle(Palette.muted)
+              Button { store.taskSuggestionMail = mail } label: { Label("Create task", systemImage: "plus") }
+                .buttonStyle(SecondaryButton(compact: true))
+            }.padding(.horizontal, 14).padding(.vertical, 10)
+          }
+        }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
+          .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
+      }
+    }
   }
 
   private var connect: some View {
@@ -733,5 +793,34 @@ struct TaskDetailView: View {
     title = task.title
     notes = TaskDetailText.userNotes(task.notes)
     due = task.dueDay
+  }
+}
+
+
+/// Finished tasks per day as the Home tide's point cloud: busier days rise higher.
+struct TaskMomentumView: View {
+  let counts: [Int]
+  var previewTime: Double?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.scenePhase) private var scenePhase
+  private static let colors: [Color] = [
+    Color(red: 0.47, green: 0.85, blue: 0.79), Color(red: 0.54, green: 0.73, blue: 0.94),
+    Color(red: 0.73, green: 0.63, blue: 0.93), Color(red: 0.95, green: 0.74, blue: 0.55),
+  ]
+  private var animated: Bool { previewTime == nil && !reduceMotion && scenePhase == .active && counts.contains { $0 > 0 } }
+  var body: some View {
+    TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !animated)) { timeline in
+      let time = previewTime ?? (animated ? timeline.date.timeIntervalSinceReferenceDate : 0)
+      Canvas { context, size in
+        for layer in MailTideGeometry.dots(counts: counts, width: size.width, height: size.height, time: time) {
+          var path = Path()
+          for dot in layer {
+            path.addEllipse(in: CGRect(x: dot.x - dot.radius, y: dot.y - dot.radius, width: dot.radius * 2, height: dot.radius * 2))
+          }
+          context.opacity = layer.first?.opacity ?? 1
+          context.fill(path, with: .linearGradient(Gradient(colors: Self.colors), startPoint: .zero, endPoint: CGPoint(x: size.width, y: 0)))
+        }
+      }
+    }.accessibilityElement().accessibilityLabel("\(counts.reduce(0, +)) tasks finished in the last two weeks")
   }
 }

@@ -113,6 +113,17 @@ private actor TasksFlowHTTP: HTTPTransport {
     store.googleTasks.append(call)
     XCTAssertEqual(store.relatedContext(for: call).people.map(\.email), ["millet@uisr.io"])
     try await render(TaskDetailView(store: store, task: call, close: {}), size: CGSize(width: 600, height: 640), name: "tasks-related")
+    // The overview: finished tasks as dots, and emails with a promise that isn't a task yet.
+    let stamp = ISO8601DateFormatter()
+    store.googleTasks += (0..<9).map { index in
+      GoogleTask(id: "done\(index)", title: "Done \(index)", status: "completed",
+                 completed: stamp.string(from: Date().addingTimeInterval(-Double([0, 1, 1, 2, 4, 4, 4, 7, 10][index]) * 86_400)))
+    }
+    var promise = Mail(id: "m3", sender: "Martha Ruiz", senderEmail: "martha@example.com", subject: "Can you send the signed contract?",
+                       body: "Could you send it by Friday?", date: Date().addingTimeInterval(-3_600), labels: ["INBOX"])
+    promise.taskCheck = MailTaskCheck(found: true, confidence: 0.9)
+    store.mails.append(promise)
+    try await render(TasksView(store: store), size: CGSize(width: 1100, height: 900), name: "tasks-overview")
   }
 
   private func render<V: View>(_ view: V, size: CGSize, name: String) async throws {
