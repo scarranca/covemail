@@ -981,6 +981,9 @@ struct CalendarEventEditor: View {
         Button { dismiss() } label: { Image(systemName: "xmark").font(.cove(size: 12)) }
           .buttonStyle(.plain).foregroundStyle(Palette.body).keyboardShortcut(.cancelAction).accessibilityLabel("Close")
       }
+      if draft.editing == nil && !reviewingProposal {
+        EventAskLine(store: store, draft: $draft)
+      }
       TextField("Event title", text: $draft.title, prompt: Text("Add a title").foregroundStyle(Palette.muted))
         .textFieldStyle(.plain).font(.coveTitle).accessibilityLabel("Event title")
         .onSubmit { if canSave { save() } }
@@ -1306,6 +1309,124 @@ struct EventGuestsField: View {
     draft.guests.append(email)
     // New events with guests usually want a call link.
     if draft.editing == nil && draft.guests.count == 1 { draft.addMeet = true }
+    text = ""
+  }
+}
+
+/// The ✦ on a new event: it grows into one line where the user describes the event in their own words,
+/// and the writing model fills the editor below. Nothing is saved or sent until the user clicks Add.
+struct EventAskLine: View {
+  @Bindable var store: AppStore
+  @Binding var draft: CalendarEventDraft
+  @State var open = false
+  @State var text = ""
+  @State private var task: Task<Void, Never>?
+  @State private var notes: [String] = []
+  @State private var filled = false
+  @FocusState private var focused: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  private var settings: AIProviderSettings { .shared }
+  private var canAsk: Bool {
+    task == nil && settings.hasWorkingDefault && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if task != nil { WritingThinkingBar(stage: "Reading your event…").transition(.opacity) }
+      HStack(spacing: 10) {
+        Button { if !open { open = true; focused = true } } label: {
+          Image(systemName: "sparkles").font(.cove(size: open ? 14 : 16)).foregroundStyle(open ? Palette.body : Palette.ink)
+            .symbolEffect(.bounce, value: open)
+            .frame(width: 24, height: 28).contentShape(Rectangle())
+        }.buttonStyle(.plain).help("Describe the event and Cove fills it in").accessibilityLabel("Describe the event")
+        if open {
+          TextField("", text: $text, prompt: Text("Describe it… “Lunch with Maya Friday at 1, add a Meet”").foregroundStyle(Palette.muted),
+                    axis: .vertical)
+            .lineLimit(1...3).textFieldStyle(.plain).font(.coveBody).focused($focused)
+            .onSubmit { ask() }.onExitCommand { if task == nil { open = false } }
+            .disabled(task != nil).accessibilityLabel("Describe the event")
+          if task != nil {
+            Button { task?.cancel(); task = nil } label: {
+              Image(systemName: "stop.fill").font(.cove(size: 10)).frame(width: 28, height: 28)
+                .background(Palette.ink, in: Circle()).foregroundStyle(.white)
+            }.buttonStyle(.plain).accessibilityLabel("Stop")
+          } else {
+            Button(action: ask) {
+              Image(systemName: "arrow.up").font(.cove(size: 12, weight: .semibold)).frame(width: 28, height: 28)
+                .background(canAsk ? Palette.ink : Palette.disabled, in: Circle())
+                .foregroundStyle(canAsk ? Color.white : Palette.disabledText)
+            }.buttonStyle(.plain).disabled(!canAsk).help("Fill in the event (Return)").accessibilityLabel("Fill in the event")
+          }
+        }
+      }
+      .padding(.leading, open ? 10 : 8).padding(.trailing, open ? 6 : 8).padding(.vertical, 6).frame(minHeight: 40)
+      .frame(maxWidth: open ? .infinity : 40, alignment: .leading)
+      .background(open ? Palette.canvas : Palette.sidebar, in: RoundedRectangle(cornerRadius: open ? 10 : 20))
+      .overlay(RoundedRectangle(cornerRadius: open ? 10 : 20).strokeBorder(task != nil ? Palette.inputBorder : open ? Palette.line : .clear))
+      .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.8), value: open)
+      if open && !settings.hasWorkingDefault {
+        Text("Connect a writing model in Connections to describe events in your own words.")
+          .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      }
+      if filled && notes.isEmpty {
+        Label("Filled in from your description. Review it before adding.", systemImage: "checkmark.circle")
+          .font(.coveMetadata).foregroundStyle(Palette.body)
+      }
+      ForEach(notes, id: \.self) { note in
+        Label(note, systemImage: "info.circle").font(.coveMetadata).foregroundStyle(Palette.body)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
+  private func ask() {
+    guard canAsk, settings.hasWorkingDefault else { return }
+    let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let now = Date(), zone = TimeZone.current
+    let clock = ISO8601DateFormatter(); clock.timeZone = zone
+    notes = []; filled = false
+    task = Task {
+      defer { task = nil }
+      do {
+        let prompt = try AIPrompt(intent: .describeEvent,
+          instruction: request + "\nCurrent LOCAL date/time: \(clock.string(from: now)) (\(now.formatted(.dateTime.weekday(.wide)))); time zone: \(zone.identifier).",
+          mails: [])
+        let reply = try await settings.complete(prompt)
+        try Task.checkCancellation()
+        apply(try EventDescription.parse(reply, now: now, timeZone: zone), request: request)
+      } catch is CancellationError {
+      } catch {
+        notes = [(error as? CoveError)?.localizedDescription ?? error.localizedDescription]
+      }
+    }
+  }
+
+  /// Fills the editor. Guests come only from the user's words: names must match exactly one contact.
+  private func apply(_ event: EventDescription, request: String) {
+    if !event.title.isEmpty { draft.title = event.title }
+    if let start = event.start, let end = event.end { draft.start = start; draft.end = end }
+    var problems: [String] = []
+    if let question = event.question { problems.append(question) }
+    if !event.guests.isEmpty {
+      // Guests need Google Calendar; switch to it when it's connected.
+      if !draft.onGoogle, store.calendarConnected, !store.isSample { draft.onGoogle = true }
+      for guest in event.guests {
+        switch RecipientResolver.resolve([guest], contacts: store.contacts, question: request, accountEmail: store.accountEmail) {
+        case .resolved(let people):
+          for person in people where !draft.guests.contains(where: { $0.caseInsensitiveCompare(person.email) == .orderedSame }) {
+            draft.guests.append(person.email)
+          }
+        case .ambiguous(let name, let candidates):
+          problems.append("Which “\(name)”? " + candidates.prefix(3).map { "\($0.name) <\($0.email)>" }.joined(separator: ", ") + ". Add them below.")
+        case .missing(let name):
+          problems.append("“\(name)” isn’t in your contacts. Add their email below.")
+        }
+      }
+      if !draft.onGoogle { problems.append("To invite guests, save to Google Calendar.") }
+    }
+    if event.meet && draft.onGoogle { draft.addMeet = true }
+    notes = problems
+    filled = true
     text = ""
   }
 }
