@@ -234,7 +234,7 @@ struct Sidebar: View {
         VStack(spacing: 2) {
           nav("Home", icon: "house", selected: store.screen == "home", shortcut: "⌘0") { store.screen = "home" }
           nav("Mail", icon: "tray", selected: inMail, shortcut: "⌘1",
-              badge: inMail ? nil : store.inboxCount) { store.chooseFolder("Inbox") }
+              badge: inMail ? nil : store.inboxBadgeCount) { store.chooseFolder("Inbox") }
           nav("Calendar", icon: "calendar", selected: store.screen == "calendar", shortcut: "⌘2") { store.screen = "calendar" }
           nav("Agents", icon: "sparkles", selected: inAgents, shortcut: "⌘3") { store.screen = "agents" }
           nav("Contacts", icon: "person.crop.rectangle", selected: store.screen == "contacts", shortcut: "⌘4") { store.screen = "contacts" }
@@ -243,7 +243,7 @@ struct Sidebar: View {
             section("Mail")
             ForEach(folders, id: \.0) { name, icon in
               nav(name, icon: icon, selected: store.screen == "mail" && store.folder == name,
-                  badge: name == "Inbox" ? store.inboxCount : nil) {
+                  badge: name == "Inbox" ? store.inboxBadgeCount : nil) {
                 store.chooseFolder(name)
               }
             }

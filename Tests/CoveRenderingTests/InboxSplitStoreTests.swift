@@ -40,6 +40,7 @@ import XCTest
     XCTAssertEqual(store.inboxTab, .important)
     XCTAssertEqual(store.visible.map(\.id), ["maya", "sam"])
     XCTAssertEqual(store.inboxUnreadCounts, [.important: 1, .other: 2])
+    XCTAssertEqual(store.inboxBadgeCount, 1, "the sidebar counts unread Important mail, not every Inbox email")
     store.labelUnreadOnly = true
     XCTAssertEqual(store.visible.map(\.id), ["maya"])
     store.chooseInboxTab(.other)

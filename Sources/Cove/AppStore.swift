@@ -315,6 +315,11 @@ import SwiftUI
         && $0.labels.isDisjoint(with: ["TRASH", "SPAM"]) && ($0.snoozedUntil ?? .distantPast) <= now
     }.count
   }
+  /// The sidebar's Inbox number: unread mail that needs the user. With the split inbox that's unread in
+  /// Important only, so Other's newsletters never make an empty Important look busy.
+  var inboxBadgeCount: Int {
+    splitsInbox ? inboxUnreadCounts[.important] ?? 0 : inboxUnreadCount
+  }
   var attentionCount: Int {
     mails.filter {
       !queuedTrashIDs.contains($0.id) && $0.isPriority && $0.labels.contains("INBOX") && $0.labels.isDisjoint(with: ["TRASH", "SPAM"])
