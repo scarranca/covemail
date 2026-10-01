@@ -146,7 +146,10 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 
 - Preserve Workweek/Week/Month views, current-time scrolling, selected-day agenda, overlap layout, and quiet grid lines. User scrolling remains in control after initial navigation.
 - Unreleased (0.1.51): in the week grids, dragging empty space opens the editor prefilled; dragging an event moves or resizes it (bottom 8 pt), saved immediately with Undo; events with other guests confirm first; only `LocalEvent.canReschedule` events move. The event's drag gesture uses the column's fixed coordinate space (the event follows the pointer via offset). Event details use icon actions like the reader. See `docs/qa/0.1.51/AUDIT.md`.
-- Gmail requests back off on rate limits and pace bulk loops (`GmailPacer`); never retry non-GET requests after server errors, and never surface provider error text.
+- Gmail requests back off on rate limits; never retry non-GET requests after server errors, and never surface provider error text.
+  - Since 0.1.54, `GmailPacer` is a budget of Google's real 6,000 units per user per minute. Every request spends its official cost (`GmailClient.quotaCost`: a read costs 20). Background work waits above a 1,500-unit reserve and runs about 10× slower on battery (`PowerState`).
+  - Sync applies history label changes without re-reading emails (`GmailSyncResult.labelChanges`), reads newest first, and keeps partial progress (`pendingIDs`) when Gmail rate-limits partway.
+  - Rate limits are a status line, never an alert.
 - Home surfaces pending invitations with Accept/Maybe/Decline. Ensure controls fit narrow panes, including their loading state.
 - Weather is opt-in via location, with manual city fallback and visible errors. Do not silently enable location or invent forecast data.
 - Contacts combine local records and downloaded correspondents; Google Contacts sync is not implemented. Keep in touch has narrower relevance filtering plus Ignore/Undo.

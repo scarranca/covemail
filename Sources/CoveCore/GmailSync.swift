@@ -14,6 +14,9 @@ public struct GmailSyncResult {
   /// Emails this sync didn't get to because Gmail asked Cove to slow down. They are saved and
   /// checked first on the next sync, so a long catch-up continues in batches instead of failing.
   public var pendingIDs: Set<String> = []
+  /// Label changes Gmail's history reported for emails already on this Mac, applied without reading them
+  /// again (a read costs 20 quota units; the history entry is already paid for).
+  public var labelChanges: [String: GmailLabelChange] = [:]
 
   public init(
     messages: [Mail] = [], labels: [String: Set<String>] = [:],
@@ -51,6 +54,11 @@ public struct GmailSyncResult {
       values[mail.id] = mail
     }
     for (id, labels) in labels { values[id]?.labels = labels }
+    let refreshed = Set(messages.map(\.id)).union(labels.keys)
+    for (id, change) in labelChanges where !refreshed.contains(id) {
+      values[id]?.labels.formUnion(change.added)
+      values[id]?.labels.subtract(change.removed)
+    }
     for id in deletedIDs {
       guard let previous = values.removeValue(forKey: id), !previous.draft.isEmpty else { continue }
       // A remotely deleted source must not destroy an unsent local reply.
@@ -75,7 +83,7 @@ public struct GmailSyncResult {
   ) throws -> [Mail] {
     guard let store else { return applying(to: live) }
     let liveIDs = Set(live.map(\.id))
-    let touched = Set(messages.map(\.id)).union(labels.keys).union(deletedIDs).subtracting(liveIDs)
+    let touched = Set(messages.map(\.id)).union(labels.keys).union(labelChanges.keys).union(deletedIDs).subtracting(liveIDs)
     let archived = touched.isEmpty ? [] : try store.loadMessages(ids: touched)
     guard !archived.isEmpty else { return applying(to: live) }
     let archivedIDs = Set(archived.map(\.id))
@@ -103,7 +111,7 @@ extension Database {
 
 extension GmailClient {
   private struct MessageReference: Decodable { let id: String }
-  private struct Change: Decodable { let message: MessageReference }
+  private struct Change: Decodable { let message: MessageReference; let labelIds: [String]? }
   private struct HistoryRecord: Decodable {
     let messagesAdded: [Change]?
     let messagesDeleted: [Change]?
@@ -116,7 +124,8 @@ extension GmailClient {
     let historyId: String
   }
   private struct HistoryDelta {
-    var changed: Set<String> = []
+    var added: Set<String> = []
+    var labelChanges: [String: GmailLabelChange] = [:]
     var deleted: Set<String> = []
     var cursor: String
   }
@@ -132,18 +141,22 @@ extension GmailClient {
       let page = try JSONDecoder().decode(
         HistoryPage.self,
         from: await request("history", token: token, query: query))
+      // Records arrive oldest first; label changes are replayed in that order.
       for record in page.history ?? [] {
-        for change in (record.messagesAdded ?? []) + (record.labelsAdded ?? [])
-          + (record.labelsRemoved ?? [])
-        {
-          delta.changed.insert(change.message.id)
+        for change in record.messagesAdded ?? [] { delta.added.insert(change.message.id) }
+        for change in record.labelsAdded ?? [] {
+          delta.labelChanges[change.message.id, default: GmailLabelChange()].add(Set(change.labelIds ?? []))
+        }
+        for change in record.labelsRemoved ?? [] {
+          delta.labelChanges[change.message.id, default: GmailLabelChange()].remove(Set(change.labelIds ?? []))
         }
         for change in record.messagesDeleted ?? [] { delta.deleted.insert(change.message.id) }
       }
       delta.cursor = page.historyId
       pageToken = page.nextPageToken
     } while pageToken != nil
-    delta.changed.subtract(delta.deleted)
+    delta.added.subtract(delta.deleted)
+    for id in delta.deleted { delta.labelChanges[id] = nil }
     return delta
   }
   public func message(id: String, token: String) async throws -> Mail? {
@@ -197,7 +210,8 @@ extension GmailClient {
     into result: GmailSyncResult
   ) async throws -> GmailSyncResult {
     var result = result
-    let ids = ids.sorted()
+    // Newest first: Gmail ids grow with time, so a long catch-up fills recent mail before old mail.
+    let ids = ids.sorted(by: >)
     // Three at a time, paced: a long catch-up stays under Gmail's per-user limits.
     for start in stride(from: 0, to: ids.count, by: 3) {
       let batch = Array(ids[start..<min(start + 3, ids.count)])
@@ -245,9 +259,14 @@ extension GmailClient {
         as HTTPFailure where error.statusCode == 404
       { delta = nil }
       if let delta {
-        return try await fetchUpdates(
-          ids: delta.changed.union(pendingIDs).subtracting(delta.deleted), cachedIDs: storedIDs, token: token,
-          into: GmailSyncResult(deletedIDs: delta.deleted, historyID: delta.cursor))
+        // Only emails Cove doesn't have yet are read. Label changes on stored emails come from the
+        // history itself, and new emails already stored (sent from Cove, for example) need nothing.
+        let known = storedIDs.union(cachedIDs)
+        let unknownLabelled = Set(delta.labelChanges.keys).subtracting(known)
+        let reads = delta.added.subtracting(known).union(unknownLabelled).union(pendingIDs).subtracting(delta.deleted)
+        var result = GmailSyncResult(deletedIDs: delta.deleted, historyID: delta.cursor)
+        result.labelChanges = delta.labelChanges.filter { known.contains($0.key) && !pendingIDs.contains($0.key) }
+        return try await fetchUpdates(ids: reads, cachedIDs: storedIDs, token: token, into: result)
       }
     }
     // Capture a baseline BEFORE reading messages, so concurrent changes are replayed next sync.
@@ -266,4 +285,13 @@ extension GmailClient {
       ids: cachedIDs.union(pendingIDs).subtracting(fetchedIDs), cachedIDs: knownIDs,
       token: token, into: result)
   }
+}
+
+/// What Gmail's history says happened to one email's labels, replayed in order.
+public struct GmailLabelChange: Equatable, Sendable {
+  public var added: Set<String> = []
+  public var removed: Set<String> = []
+  public init(added: Set<String> = [], removed: Set<String> = []) { self.added = added; self.removed = removed }
+  mutating func add(_ ids: Set<String>) { added.formUnion(ids); removed.subtract(ids) }
+  mutating func remove(_ ids: Set<String>) { removed.formUnion(ids); added.subtract(ids) }
 }

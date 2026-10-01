@@ -21,7 +21,8 @@ final class GmailSyncTests: XCTestCase {
               "historyId": "110",
               "history": [
                 [
-                  "labelsAdded": [["message": ["id": "spam"]]],
+                  "labelsAdded": [["message": ["id": "spam"], "labelIds": ["SPAM"]]],
+                  "labelsRemoved": [["message": ["id": "spam"], "labelIds": ["INBOX", "UNREAD"]]],
                   "messagesDeleted": [["message": ["id": "deleted"]]],
                 ]
               ],
@@ -34,18 +35,14 @@ final class GmailSyncTests: XCTestCase {
             "historyId": "110", "nextPageToken": "second",
             "history": [
               [
-                "labelsAdded": [["message": ["id": "trashed"]]],
+                "labelsAdded": [["message": ["id": "trashed"], "labelIds": ["TRASH"]]],
+                "labelsRemoved": [["message": ["id": "trashed"], "labelIds": ["INBOX", "UNREAD"]]],
                 "messagesAdded": [["message": ["id": "new"]]],
               ]
             ],
           ]
         )
-      case "trashed":
-        XCTAssertEqual(request.query("format"), "minimal")
-        return (200, ["labelIds": ["TRASH"]])
-      case "spam":
-        XCTAssertEqual(request.query("format"), "minimal")
-        return (200, ["labelIds": ["SPAM"]])
+      // Label changes on stored emails come from the history itself: "trashed" and "spam" are never read.
       case "new":
         XCTAssertEqual(request.query("format"), "full")
         return (200, ["id": "new", "threadId": "new-thread", "labelIds": ["INBOX"]])
@@ -241,7 +238,8 @@ final class GmailSyncTests: XCTestCase {
         if request.url!.lastPathComponent == "history" {
           return (
             200,
-            ["historyId": "101", "history": [["labelsRemoved": [["message": ["id": "existing"]]]]]]
+            // An email this Mac doesn't have yet, so it must be read (label changes on stored mail need no read).
+            ["historyId": "101", "history": [["labelsRemoved": [["message": ["id": "unknown"], "labelIds": ["INBOX"]]]]]]
           )
         }
         if networkFailure { throw URLError(.notConnectedToInternet) }
@@ -306,7 +304,7 @@ final class GmailSyncTests: XCTestCase {
       switch name {
       case "history":
         return (200, ["historyId": "200", "history": ids.map { ["messagesAdded": [["message": ["id": $0]]]] }])
-      case "m1", "m2", "m3":
+      case "m7", "m8", "m9":  // newest first
         return (200, ["id": name, "threadId": "t", "labelIds": ["INBOX"]])
       default:
         // Gmail's per-user limit, as a 403 with its machine-readable reason.
@@ -314,8 +312,8 @@ final class GmailSyncTests: XCTestCase {
       }
     }
     let first = try await GmailClient(transport: limited).synchronize(token: "t", cached: [], historyID: "100")
-    XCTAssertEqual(Set(first.messages.map(\.id)), ["m1", "m2", "m3"], "the batch that arrived is kept")
-    XCTAssertEqual(first.pendingIDs, Set(ids.dropFirst(3)), "the rest waits for the next sync")
+    XCTAssertEqual(Set(first.messages.map(\.id)), ["m7", "m8", "m9"], "the newest batch arrived and is kept")
+    XCTAssertEqual(first.pendingIDs, Set(ids.prefix(6)), "the rest waits for the next sync")
     XCTAssertEqual(first.historyID, "200")
 
     // Next sync: nothing new in history, but the pending emails are fetched first.

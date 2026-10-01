@@ -225,8 +225,10 @@ public struct GmailClient {
     // them is safe for any method; server errors are retried only for reads, so a send or label
     // change can never be applied twice. Bulk fetches are also paced (`pacedBulk`).
     let live = transport is LiveHTTP
+    let cost = Self.quotaCost(path: path, method: method)
     var attempt = 0
     while true {
+      if live { await GmailPacer.shared.spend(cost) }
       do { return try await checked(request, transport: transport) } catch let failure as HTTPFailure {
         let retryable = failure.isRateLimited || (method == "GET" && [500, 502, 503, 504].contains(failure.statusCode))
         guard retryable, attempt < 5 else { throw failure }
@@ -311,7 +313,7 @@ public struct GmailClient {
   }
   /// One label change among many (an approved assistant bulk change), paced like bulk reads.
   public func modifyPaced(id: String, token: String, add: [String] = [], remove: [String] = []) async throws {
-    try await pacedBulk()
+    try await pacedBulk(cost: 5)
     try await modify(id: id, token: token, add: add, remove: remove)
   }
   /// One label change for up to 1,000 emails in a single request (Gmail's messages.batchModify).
@@ -404,26 +406,97 @@ public struct GmailClient {
 }
 
 extension GmailClient {
-  /// Waits for a slot before one request of a bulk fetch; interactive requests are never queued.
-  func pacedBulk() async throws {
-    if transport is LiveHTTP { try await GmailPacer.shared.wait() }
+  /// Waits until Gmail's per-user budget has room for one background read (20 units) without eating into
+  /// the reserve kept for what the user does. Interactive requests never wait here.
+  func pacedBulk(cost: Double = 20) async throws {
+    if transport is LiveHTTP { try await GmailPacer.shared.waitForBulk(cost: cost) }
+  }
+
+  /// Google's published cost of one call, in quota units (Gmail API usage limits).
+  static func quotaCost(path: String, method: String) -> Double {
+    let parts = path.split(separator: "/").map(String.init)
+    switch (parts.first ?? "", parts.count, method) {
+    case ("profile", _, _): return 1
+    case ("history", _, _): return 2
+    case ("labels", 1, "GET"), ("labels", 2, "GET"): return 1
+    case ("labels", _, _): return 5
+    case ("settings", _, "GET"): return 1
+    case ("messages", 1, _): return 5                       // list
+    case ("messages", 2, _) where parts[1] == "send": return 100
+    case ("messages", 2, _) where parts[1] == "batchModify": return 50
+    case ("messages", 2, "DELETE"): return 10
+    case ("messages", 2, _): return 20                      // get
+    case ("messages", _, _) where parts.last == "modify": return 5
+    case ("messages", _, _) where parts.last == "untrash": return 5
+    case ("messages", _, _): return 20                      // trash, attachments
+    case ("threads", 1, _): return 10
+    case ("threads", 2, "GET"): return 40
+    case ("threads", _, _): return 10
+    case ("drafts", 1, "GET"): return 5
+    case ("drafts", _, "POST"): return parts.last == "send" ? 100 : 10
+    case ("drafts", _, _): return 15
+    default: return 5
+    }
   }
 }
 
-/// Spaces bulk Gmail requests from this Mac (about 20 per second, well under Gmail's per-user quota of
-/// 250 units per second, where one message read costs 5), and pauses everyone after a rate limit.
+/// Gmail allows each user 6,000 quota units per minute (a message read costs 20), so a sustained
+/// catch-up can read about five emails a second. Cove spends that budget like Superhuman: background
+/// work only uses what is left above a reserve for things the user does, goes about ten times more
+/// gently on battery, and everything pauses after Gmail says to slow down.
 actor GmailPacer {
   static let shared = GmailPacer()
-  private var next = Date.distantPast
-  private let interval: TimeInterval = 0.05
-  func wait() async throws {
+  static let unitsPerMinute = 6_000.0
+  /// Kept free for interactive requests (opening, sending, archiving) during a catch-up.
+  static let reserve = 1_500.0
+  private var available = GmailPacer.unitsPerMinute
+  private var updated = Date()
+  private var pausedUntil = Date.distantPast
+  private var nextBulk = Date.distantPast
+  /// Minimum spacing between background reads: plugged in vs on battery (or Low Power Mode).
+  private let spacing: @Sendable () -> TimeInterval
+
+  private let reserved: Double
+
+  init(spacing: @escaping @Sendable () -> TimeInterval = { PowerState.onBattery ? 0.6 : 0.06 },
+       reserve: Double = GmailPacer.reserve) {
+    self.spacing = spacing
+    self.reserved = reserve
+  }
+
+  private func refill() {
     let now = Date()
-    let slot = max(now, next)
-    next = slot.addingTimeInterval(interval)
-    let delay = slot.timeIntervalSince(now)
-    if delay > 0 { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+    available = min(Self.unitsPerMinute, available + now.timeIntervalSince(updated) * Self.unitsPerMinute / 60)
+    updated = now
+  }
+  /// Every request records what it costs, interactive or not.
+  func spend(_ units: Double) {
+    refill()
+    available -= units
+  }
+  func waitForBulk(cost: Double) async throws {
+    while true {
+      try Task.checkCancellation()
+      refill()
+      let now = Date()
+      let ready = max(pausedUntil, nextBulk)
+      if ready > now {
+        try await Task.sleep(nanoseconds: UInt64(ready.timeIntervalSince(now) * 1_000_000_000))
+        continue
+      }
+      let shortfall = reserved + cost - available
+      if shortfall <= 0 {
+        nextBulk = now.addingTimeInterval(spacing())
+        return
+      }
+      try await Task.sleep(nanoseconds: UInt64(shortfall / (Self.unitsPerMinute / 60) * 1_000_000_000))
+    }
   }
   func slowDown(for seconds: TimeInterval) {
-    next = max(next, Date().addingTimeInterval(seconds))
+    refill()
+    pausedUntil = max(pausedUntil, Date().addingTimeInterval(seconds))
+    available = min(available, 0)
   }
+  /// For tests: the budget left right now.
+  func remaining() -> Double { refill(); return available }
 }
