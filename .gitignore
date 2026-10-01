@@ -24,3 +24,6 @@ site/downloads/*.dmg
 
 backend/node_modules/
 backend/coverage/
+
+# Brand films (rendered output; recreate with scripts/video/)
+/videos/
