@@ -78,3 +78,15 @@
 
 Full `swift test`: CoveCoreTests 264, CoveRenderingTests 353, 0 failures.
 - **Reply buttons (user: "4 buttons when replying"):** while the reply box is open (being written or holding a saved draft), the reader hides its bottom bar (Continue reply / Forward / ✦ Ask Cove). It repeated actions next to the box's own Send, Template, Discard and ✦. The bar returns after Send or Discard. Render `/tmp/cove-reader-assistant-reply.png` inspected.
+
+## Release
+
+- **First build discarded:** a build made before the reply-bar fix was notarized (`d3f5a401-d7c3-488e-81b4-8316a874622d`) and discarded unpublished.
+- **App notarization** `1e0c47f7-4147-4c99-8384-505690c357ab`: Accepted, stapled.
+- **DMG notarization** `c6d70907-3958-47e2-9c02-0d6fdd638544`: Accepted, stapled. 21,755,962 bytes, SHA-256 `2a88cfdb64771f2a792718faca8f6a516b89e18bd01e5277cc2b4f594d91b8e5`.
+- **Feed and site:** the feed is signed (34 verified releases). Cloudflare Pages deployment `0c483037`.
+- **Public checks:**
+  - `/release.json`, the appcast and `/download/latest` serve 0.1.55, and the beta page says "Download Cove 0.1.55".
+  - The downloaded DMG matches the bytes and SHA-256 above.
+  - The Ed25519 signature verifies, and tampering is rejected.
+- **Not run:** the headless previous→current update probe.

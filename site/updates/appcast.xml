@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.55</title>
+            <pubDate>Wed, 30 Sep 2026 21:38:29 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>57</sparkle:version>
+            <sparkle:shortVersionString>0.1.55</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.55</title></head><body><h1>Keep working while Cove syncs</h1><ul><li>Archive, star, label and connect Calendar or Tasks while Cove catches up: syncing now runs quietly in the background.</li><li>Your changes show instantly and reach Gmail in order; a sync never undoes them, and if Gmail refuses one, only that change is undone.</li><li>Writing is much faster: drafts save after a short pause instead of on every keystroke.</li><li>Accents and other composed characters (á, ñ, ü) no longer send the cursor to the start.</li><li>Send now waits 4 seconds with an Undo bar, like Delete, instead of asking first.</li></ul><p>Nothing is sent, archived or deleted without you.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.55.dmg" length="21755962" type="application/octet-stream" sparkle:edSignature="XhaN2xqqYTvPiDZqA7fmrVx8kJOtVSl4nkvHS2XjLcoxfNR+ySRp88LSQgzlflrJstOfFkj8yr8wPG2hcknwBg=="/>
+        </item>
+        <item>
             <title>0.1.54</title>
             <pubDate>Wed, 30 Sep 2026 20:20:13 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.53.dmg" length="21572358" type="application/octet-stream" sparkle:edSignature="6+C+wUdF9sGjQX+h3V54AMrtKF4BIGQwqCtYfxamhtClDbiMM0Zs26cYQnQAELWReqC4PCUdvMm4akipN9XUAg=="/>
         </item>
-        <item>
-            <title>0.1.52</title>
-            <pubDate>Wed, 30 Sep 2026 17:50:43 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>54</sparkle:version>
-            <sparkle:shortVersionString>0.1.52</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.52</title></head><body><h1>Agents that work, tasks you keep</h1><ul><li>Create an agent by describing the job in a sentence. Cove turns it into steps you can read and edit, then try it on recent mail before turning it on. Start from ideas like Finance, Client requests or Meeting requests.</li><li>Tasks from your email: Jev spots promises and requests in mail you send and read, and Cove adds them to Google Tasks when you approve. Plan your day, see what you finished, and what's left on today's calendar.</li><li>Ask Cove opens right inside an email. Ask it to write a reply and the draft lands in the reply box.</li><li>Ask Cove can archive, mark read, star or label many emails at once after you approve the exact list, with Undo.</li><li>Important and Other tabs in the Inbox, a Spam folder, and one-click Unsubscribe for newsletters.</li><li>Write with AI inline: a small ✦ above Send rewrites, shortens or fixes the whole draft or just your selection.</li><li>Drag in the calendar to create, move or resize events, and a calmer event editor.</li><li>Connections shows what's set up and what's next, with your AI account, Jev key, Calendar and Tasks in one place.</li><li>Cove paces Gmail when it asks to slow down, and clicking the Dock icon reopens a closed window.</li></ul><p>Nothing is sent, archived or deleted without you.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.52.dmg" length="21977558" type="application/octet-stream" sparkle:edSignature="brmuK0Z6BVp3LIs1jepHbYPTkHHG4IsAtzo6iD159arempkD54QKkaGPcWesiQb/UCOoa5V7hPlggUFlfYL0Bw=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: G3P3GNpzPJMiVE9ZmgbJh0yMtzd0K0EYydKQ63sC2nIW5bPnvBAQupgbGLsj1qU970zb8036jwxfmWrxAiFACQ==
-length: 5193
+edSignature: FP0z+MYRmrS1bn78STj6qXK/CKNEpsLWsq518ESilxn6N9xn0YLlAQxJHSrH8lk1JsrR7crYVICq8PdTK32vDA==
+length: 4528
 -->
