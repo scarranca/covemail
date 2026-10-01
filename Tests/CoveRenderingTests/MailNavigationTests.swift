@@ -27,26 +27,32 @@ import XCTest
     try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
       windowNumber: window.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code))
   }
-  func testUTogglesReadAndRArchivesThenOpensTheNextEmail() async throws {
+  func testUTogglesReadEArchivesThenOpensTheNextAndRReplies() async throws {
     _ = NSApplication.shared
     let store = try fixture()
     let view = MailNavigationShortcut.ShortcutView(store: store)
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false; window.contentView = view
     defer { window.close() }
-    let u = try letter("u", code: 32, window: window), r = try letter("r", code: 15, window: window)
+    let u = try letter("u", code: 32, window: window), e = try letter("e", code: 14, window: window)
+    let r = try letter("r", code: 15, window: window)
     XCTAssertNotNil(view.handle(u), "nothing selected: U passes through")
     store.selectedID = "mail-0"
     XCTAssertNil(view.handle(u))
     for _ in 0..<20 where store.mails[0].isUnread { try await Task.sleep(for: .milliseconds(10)) }
     XCTAssertFalse(store.mails.first { $0.id == "mail-0" }!.isUnread, "U marks it read")
     XCTAssertNil(view.handle(r))
-    XCTAssertEqual(store.selectedID, "mail-1", "R moves straight to the next email")
+    XCTAssertEqual(store.replyRequestID, "mail-0", "R asks the open email for a reply")
+    XCTAssertEqual(store.selectedID, "mail-0")
+    store.replyRequestID = nil
+    XCTAssertNil(view.handle(e))
+    XCTAssertEqual(store.selectedID, "mail-1", "E moves straight to the next email")
     for _ in 0..<20 where store.mails[0].labels.contains("INBOX") { try await Task.sleep(for: .milliseconds(10)) }
-    XCTAssertFalse(store.mails.first { $0.id == "mail-0" }!.labels.contains("INBOX"), "R archives")
+    XCTAssertFalse(store.mails.first { $0.id == "mail-0" }!.labels.contains("INBOX"), "E archives")
     let editor = NSTextView(frame: view.bounds)
     view.addSubview(editor); window.makeFirstResponder(editor)
     XCTAssertNotNil(view.handle(r), "typing an r is just typing")
+    XCTAssertNotNil(view.handle(e))
   }
   func testNavigationFromReaderRespectsOrderBoundsAndReturnToList() throws {
     _ = NSApplication.shared

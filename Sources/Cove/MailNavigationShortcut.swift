@@ -38,8 +38,13 @@ struct MailNavigationShortcut: NSViewRepresentable {
         guard let mail = selectedMail else { return event }
         Task { await store.modify(mail, add: mail.isUnread ? [] : ["UNREAD"], remove: mail.isUnread ? ["UNREAD"] : []) }
         return nil
-      case "r", "e":
-        // R (or E, as in Superhuman/Gmail): done. Archive it and open the next email.
+      case "r":
+        // R: reply, like the Reply button.
+        guard let mail = selectedMail, !mail.labels.contains("DRAFT") else { return event }
+        store.replyRequestID = mail.id
+        return nil
+      case "e":
+        // E (as in Superhuman and Gmail): done. Archive it and open the next email.
         guard let mail = selectedMail, mail.labels.contains("INBOX"), mail.labels.isDisjoint(with: ["TRASH", "DRAFT", "SPAM"])
         else { return event }
         let list = store.visible

@@ -199,6 +199,8 @@ import SwiftUI
   var googleTasks: [GoogleTask] = []
   /// A task to open when the Tasks screen appears (from an email's linked-task strip).
   var openTaskID: String?
+  /// Set by the R shortcut: the reader showing this email opens its reply box.
+  var replyRequestID: String?
   @ObservationIgnored private var tasksLoadedOnce = false
   var tasksLoading = false
   /// Emails whose task check is running, so each is sent to Jev at most once at a time.

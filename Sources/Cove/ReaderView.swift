@@ -125,20 +125,13 @@ struct ReaderView: View {
         // While a reply is open, its own box has Send and ✦; repeating Reply/Forward/✦ below is noise.
         if !replying {
         Divider()
-        responseBar { all in
-          replyAll = all
-          if localDraft {
-            store.composeID = current.id; store.showComposer = true
-          } else {
-            showReply = true
-            // Wait for the editor to participate in layout before revealing it.
-            Task { @MainActor in
-              await Task.yield()
-              proxy.scrollTo("reply", anchor: .bottom)
-              replyFocusRequest += 1
-            }
-          }
+        responseBar { all in startReply(all: all, proxy: proxy) }
         }
+        // R in Mail asks the open email for a reply, exactly like the Reply button.
+        Color.clear.frame(height: 0).onChange(of: store.replyRequestID) { _, id in
+          guard id == current.id else { return }
+          store.replyRequestID = nil
+          startReply(all: false, proxy: proxy)
         }
       }
     }.background(Palette.canvas).foregroundStyle(Palette.ink)
@@ -462,6 +455,20 @@ struct ReaderView: View {
             .frame(maxWidth: .infinity)
         }
       }.transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+  }
+  private func startReply(all: Bool, proxy: ScrollViewProxy) {
+    replyAll = all
+    if localDraft {
+      store.composeID = current.id; store.showComposer = true
+    } else {
+      showReply = true
+      // Wait for the editor to participate in layout before revealing it.
+      Task { @MainActor in
+        await Task.yield()
+        proxy.scrollTo("reply", anchor: .bottom)
+        replyFocusRequest += 1
+      }
     }
   }
   /// The chat's height: dragged or toggled by the user and remembered, never taller than the reader.
