@@ -42,11 +42,9 @@ import XCTest
     invited.onGoogle = true; invited.guests = ["maya@example.com", "contacto@grupo-amx.com"]; invited.addMeet = true
     try await render(CalendarEventEditor(store: store, draft: invited), name: "event-editor-guests", width: 440)
     var describing = CalendarEventDraft()
-    try await render(VStack(alignment: .leading, spacing: 16) {
-      EventAskLine(store: store, draft: Binding(get: { describing }, set: { describing = $0 }))
-      EventAskLine(store: store, draft: Binding(get: { describing }, set: { describing = $0 }), open: true,
-                   text: "Lunch with Maya Friday at 1, add a Meet")
-    }.padding(30), name: "event-ask-line", width: 440)
+    try await render(EventAskLine(store: store, draft: Binding(get: { describing }, set: { describing = $0 }),
+                                  open: .constant(true), text: "Lunch with Maya Friday at 1, add a Meet").padding(30),
+                     name: "event-ask-line", width: 440)
     try await render(CalendarSearchView(store: store, select: { _ in XCTFail("Rendering must not select") }), name: "calendar-search", width: 390)
   }
 

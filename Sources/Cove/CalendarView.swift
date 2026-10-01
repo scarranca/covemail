@@ -967,6 +967,8 @@ struct CalendarEventEditor: View {
 
   @State private var pickingDay = false
   @State private var pickingCalendar = false
+  @State private var askOpen = false
+  private var describing: Bool { draft.editing == nil && !reviewingProposal }
   private var canSave: Bool {
     !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.end > draft.start
   }
@@ -980,9 +982,6 @@ struct CalendarEventEditor: View {
         Spacer()
         Button { dismiss() } label: { Image(systemName: "xmark").font(.cove(size: 12)) }
           .buttonStyle(.plain).foregroundStyle(Palette.body).keyboardShortcut(.cancelAction).accessibilityLabel("Close")
-      }
-      if draft.editing == nil && !reviewingProposal {
-        EventAskLine(store: store, draft: $draft)
       }
       TextField("Event title", text: $draft.title, prompt: Text("Add a title").foregroundStyle(Palette.muted))
         .textFieldStyle(.plain).font(.coveTitle).accessibilityLabel("Event title")
@@ -1046,7 +1045,18 @@ struct CalendarEventEditor: View {
         Text(saveError).font(.coveMetadata).foregroundStyle(Palette.danger)
           .fixedSize(horizontal: false, vertical: true)
       }
+      if describing && askOpen {
+        EventAskLine(store: store, draft: $draft, open: $askOpen)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
       HStack(spacing: 16) {
+        if describing && !askOpen {
+          // The ✦ sits by the actions, like Send in compose; it opens the describe line above.
+          Button { withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) { askOpen = true } } label: {
+            Image(systemName: "sparkles").font(.cove(size: 16)).foregroundStyle(Palette.ink)
+              .frame(width: 40, height: 40).background(Palette.sidebar, in: Circle()).contentShape(Circle())
+          }.buttonStyle(.plain).help("Describe the event and Cove fills it in").accessibilityLabel("Describe the event")
+        }
         Spacer()
         Button("Cancel") { dismiss() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
         Button(draft.onGoogle && draft.guestsChanged && !draft.guests.isEmpty
@@ -1249,7 +1259,7 @@ struct EventGuestsField: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: 12) {
       if !draft.guests.isEmpty {
         MailChipLayout(spacing: 6) {
           ForEach(draft.guests, id: \.self) { guest in
@@ -1264,6 +1274,9 @@ struct EventGuestsField: View {
       }
       TextField("Add guests", text: $text, prompt: Text("Add guests by name or email").foregroundStyle(Palette.muted))
         .textFieldStyle(.plain).font(.coveSecondary).focused($focused)
+        .padding(.horizontal, 12).frame(height: 36)
+        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(focused ? Palette.inputBorder : Palette.line))
         .onSubmit { add(suggestions.first?.email ?? text) }
         .onChange(of: text) { _, value in
           problem = nil
@@ -1289,8 +1302,10 @@ struct EventGuestsField: View {
       }
       if let problem { Text(problem).font(.coveMetadata).foregroundStyle(Palette.danger) }
       if draft.editing == nil {
-        Toggle("Add a Google Meet link", isOn: $draft.addMeet).toggleStyle(.checkbox).font(.coveSecondary)
-          .foregroundStyle(Palette.body)
+        Toggle(isOn: $draft.addMeet) {
+          Label("Add a Google Meet link", systemImage: "video").font(.coveSecondary).foregroundStyle(Palette.body)
+            .padding(.leading, 4)
+        }.toggleStyle(.checkbox).padding(.top, 4)
       }
       if !draft.guests.isEmpty && draft.guestsChanged {
         Text("Guests get Google’s invitation email when you save.").font(.coveMetadata).foregroundStyle(Palette.muted)
@@ -1313,18 +1328,17 @@ struct EventGuestsField: View {
   }
 }
 
-/// The ✦ on a new event: it grows into one line where the user describes the event in their own words,
+/// The ✦ on a new event (by Cancel / Add): it opens one line where the user describes the event in their own words,
 /// and the writing model fills the editor below. Nothing is saved or sent until the user clicks Add.
 struct EventAskLine: View {
   @Bindable var store: AppStore
   @Binding var draft: CalendarEventDraft
-  @State var open = false
+  @Binding var open: Bool
   @State var text = ""
   @State private var task: Task<Void, Never>?
   @State private var notes: [String] = []
   @State private var filled = false
   @FocusState private var focused: Bool
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var settings: AIProviderSettings { .shared }
   private var canAsk: Bool {
     task == nil && settings.hasWorkingDefault && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1332,42 +1346,6 @@ struct EventAskLine: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      if task != nil { WritingThinkingBar(stage: "Reading your event…").transition(.opacity) }
-      HStack(spacing: 10) {
-        Button { if !open { open = true; focused = true } } label: {
-          Image(systemName: "sparkles").font(.cove(size: open ? 14 : 16)).foregroundStyle(open ? Palette.body : Palette.ink)
-            .symbolEffect(.bounce, value: open)
-            .frame(width: 24, height: 28).contentShape(Rectangle())
-        }.buttonStyle(.plain).help("Describe the event and Cove fills it in").accessibilityLabel("Describe the event")
-        if open {
-          TextField("", text: $text, prompt: Text("Describe it… “Lunch with Maya Friday at 1, add a Meet”").foregroundStyle(Palette.muted),
-                    axis: .vertical)
-            .lineLimit(1...3).textFieldStyle(.plain).font(.coveBody).focused($focused)
-            .onSubmit { ask() }.onExitCommand { if task == nil { open = false } }
-            .disabled(task != nil).accessibilityLabel("Describe the event")
-          if task != nil {
-            Button { task?.cancel(); task = nil } label: {
-              Image(systemName: "stop.fill").font(.cove(size: 10)).frame(width: 28, height: 28)
-                .background(Palette.ink, in: Circle()).foregroundStyle(.white)
-            }.buttonStyle(.plain).accessibilityLabel("Stop")
-          } else {
-            Button(action: ask) {
-              Image(systemName: "arrow.up").font(.cove(size: 12, weight: .semibold)).frame(width: 28, height: 28)
-                .background(canAsk ? Palette.ink : Palette.disabled, in: Circle())
-                .foregroundStyle(canAsk ? Color.white : Palette.disabledText)
-            }.buttonStyle(.plain).disabled(!canAsk).help("Fill in the event (Return)").accessibilityLabel("Fill in the event")
-          }
-        }
-      }
-      .padding(.leading, open ? 10 : 8).padding(.trailing, open ? 6 : 8).padding(.vertical, 6).frame(minHeight: 40)
-      .frame(maxWidth: open ? .infinity : 40, alignment: .leading)
-      .background(open ? Palette.canvas : Palette.sidebar, in: RoundedRectangle(cornerRadius: open ? 10 : 20))
-      .overlay(RoundedRectangle(cornerRadius: open ? 10 : 20).strokeBorder(task != nil ? Palette.inputBorder : open ? Palette.line : .clear))
-      .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.8), value: open)
-      if open && !settings.hasWorkingDefault {
-        Text("Connect a writing model in Connections to describe events in your own words.")
-          .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
-      }
       if filled && notes.isEmpty {
         Label("Filled in from your description. Review it before adding.", systemImage: "checkmark.circle")
           .font(.coveMetadata).foregroundStyle(Palette.body)
@@ -1376,7 +1354,42 @@ struct EventAskLine: View {
         Label(note, systemImage: "info.circle").font(.coveMetadata).foregroundStyle(Palette.body)
           .fixedSize(horizontal: false, vertical: true)
       }
+      if !settings.hasWorkingDefault {
+        Text("Connect a writing model in Connections to describe events in your own words.")
+          .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      }
+      if task != nil { WritingThinkingBar(stage: "Reading your event…").transition(.opacity) }
+      HStack(spacing: 10) {
+        Image(systemName: "sparkles").font(.cove(size: 14)).foregroundStyle(Palette.body)
+          .frame(width: 24, height: 28).accessibilityHidden(true)
+        TextField("", text: $text, prompt: Text("Describe it… “Lunch with Maya Friday at 1, add a Meet”").foregroundStyle(Palette.muted),
+                  axis: .vertical)
+          .lineLimit(1...3).textFieldStyle(.plain).font(.coveBody).focused($focused)
+          .onSubmit { ask() }.onExitCommand { if task == nil { close() } }
+          .disabled(task != nil).accessibilityLabel("Describe the event")
+        if task != nil {
+          Button { task?.cancel(); task = nil } label: {
+            Image(systemName: "stop.fill").font(.cove(size: 10)).frame(width: 28, height: 28)
+              .background(Palette.ink, in: Circle()).foregroundStyle(.white)
+          }.buttonStyle(.plain).accessibilityLabel("Stop")
+        } else {
+          Button(action: ask) {
+            Image(systemName: "arrow.up").font(.cove(size: 12, weight: .semibold)).frame(width: 28, height: 28)
+              .background(canAsk ? Palette.ink : Palette.disabled, in: Circle())
+              .foregroundStyle(canAsk ? Color.white : Palette.disabledText)
+          }.buttonStyle(.plain).disabled(!canAsk).help("Fill in the event (Return)").accessibilityLabel("Fill in the event")
+          Button(action: close) { Image(systemName: "xmark").font(.cove(size: 10)).frame(width: 24, height: 28) }
+            .buttonStyle(.plain).foregroundStyle(Palette.muted).help("Close (Esc)").accessibilityLabel("Close")
+        }
+      }
+      .padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 6).frame(minHeight: 44)
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(task != nil ? Palette.inputBorder : Palette.line))
     }
+    .onAppear { focused = true }
+  }
+  private func close() {
+    withAnimation(.easeOut(duration: 0.2)) { open = false }
   }
 
   private func ask() {
