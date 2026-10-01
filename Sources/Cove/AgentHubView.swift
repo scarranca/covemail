@@ -178,7 +178,7 @@ struct AgentHubView: View {
           Task {
             if inbox.isEmpty { await store.sync() } else { await store.classifyInbox() }
           }
-        }.buttonStyle(PrimaryButton()).disabled(store.busy || store.isSample)
+        }.buttonStyle(PrimaryButton()).disabled(store.syncing || store.isSample)
           .help(inbox.isEmpty ? "Download your latest mail" : "Let Jev find messages that may need a reply")
       } else {
         ForEach(Array(priorities.prefix(3))) { message in

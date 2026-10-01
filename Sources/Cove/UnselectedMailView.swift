@@ -9,7 +9,7 @@ struct UnselectedMailView: View {
     VStack(spacing: 0) {
       HStack(spacing: 7) {
         Spacer(minLength: 0)
-        if store.busy {
+        if store.busy || store.syncing {
           ProgressView().controlSize(.mini)
         } else {
           Image(systemName: store.lastSync == nil ? "tray" : "checkmark.circle")
@@ -61,7 +61,7 @@ struct UnselectedMailView: View {
   }
 
   @ViewBuilder private var syncStatus: some View {
-    if store.busy {
+    if store.busy || store.syncing {
       Text(store.status.isEmpty ? "Working…" : store.status)
     } else if store.isSample {
       Text("Sample inbox · saved locally")

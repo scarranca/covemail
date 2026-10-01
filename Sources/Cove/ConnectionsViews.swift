@@ -253,9 +253,9 @@ struct SetupChecklistCard: View {
               if store.connectingStep == step {
                 HStack(spacing: 8) {
                   ProgressView().controlSize(.small)
-                  Text(store.busy && !store.status.hasPrefix("Connecting") ? "After sync…" : "Connecting…")
+                  Text("Connecting…")
                     .font(.coveControl).foregroundStyle(Palette.body)
-                }.frame(height: 32).help("Cove connects as soon as the current sync finishes")
+                }.frame(height: 32).help("Finish connecting in the browser window Google opened")
               } else {
                 Button("Set up") { open(step) }
                   .buttonStyle(index == 0 ? AnyButtonStyle(PrimaryButton(compact: true)) : AnyButtonStyle(SecondaryButton(compact: true)))

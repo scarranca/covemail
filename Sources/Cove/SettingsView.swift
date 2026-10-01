@@ -91,7 +91,7 @@ struct SettingsView: View {
           Menu("Manage account") {
             Button("Sync now") { Task { await store.sync() } }
             Button("Reconnect Gmail") { connect() }
-            Button("Disconnect") { store.disconnect() }
+            Button(store.syncing ? "Disconnect (after sync)" : "Disconnect") { store.disconnect() }.disabled(store.syncing)
           }.menuStyle(.borderlessButton).font(.coveControl).fixedSize().disabled(store.busy)
         } else {
           Button("Connect Gmail") { connect() }.buttonStyle(PrimaryButton())

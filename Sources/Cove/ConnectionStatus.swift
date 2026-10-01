@@ -70,8 +70,8 @@ struct ConnectionStatusTag: View {
                 .foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
               if issue.canRetryMailSync {
                 Text(store.backgroundSyncEnabled ? "Cove will retry during its next mail check." : "Background sync is paused. Retry when you’re ready.").foregroundStyle(Palette.body)
-                Button(store.busy ? "Working…" : "Retry sync") { Task { await store.sync() } }
-                  .buttonStyle(SecondaryButton()).disabled(store.busy || !store.entered || !store.queuedTrashIDs.isEmpty)
+                Button(store.syncing ? "Working…" : "Retry sync") { Task { await store.sync() } }
+                  .buttonStyle(SecondaryButton()).disabled(store.syncing || !store.entered || !store.queuedTrashIDs.isEmpty)
               } else {
                 Text(issue.operation == "Marking email as read…" ? "Open the email again to retry when your connection is restored." : "Try the action again when your connection is restored.").foregroundStyle(Palette.body)
               }

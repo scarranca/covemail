@@ -103,18 +103,23 @@ import XCTest
     }
   }
 
-  func testSampleMutationsStayLocalAndBusyDoesNotSend() async throws {
+  func testArchiveWorksDuringSyncAndSampleMutationsStayLocal() async throws {
+    // Since 0.1.55 a running sync no longer blocks the user: archiving applies and reaches Gmail.
     let http = HubActionsHTTP()
-    let (app, db, mail) = try fixture(http)
-    app.busy = true
+    let (app, _, mail) = try fixture(http)
+    app.syncing = true
     await app.archive(mail)
-    await app.trash(mail)
-    XCTAssertEqual(app.mails.first?.labels, mail.labels)
-    app.busy = false
-    app.isSample = true
-    await app.archive(mail)
-    await app.trash(mail)
-    let count = await http.requests.count
+    XCTAssertFalse(app.mails.first?.labels.contains("INBOX") ?? true)
+    let sent = await http.requests.count
+    XCTAssertEqual(sent, 1)
+
+    // The sample mailbox never contacts Gmail.
+    let sampleHTTP = HubActionsHTTP()
+    let (sample, db, sampleMail) = try fixture(sampleHTTP)
+    sample.isSample = true
+    await sample.archive(sampleMail)
+    await sample.trash(sampleMail)
+    let count = await sampleHTTP.requests.count
     XCTAssertEqual(count, 0)
     XCTAssertTrue(try XCTUnwrap(db.loadMail().first).labels.contains("TRASH"))
   }

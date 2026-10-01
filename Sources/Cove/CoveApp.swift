@@ -75,7 +75,7 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
       }
       CommandGroup(after: .newItem) {
         Button("Sync Gmail") { Task { await store.sync() } }.keyboardShortcut("r").disabled(
-          store.busy || !store.entered)
+          store.syncing || !store.entered)
         Button("Ask Cove") { store.showAssistant = true }.keyboardShortcut("j").disabled(
           !store.entered)
       }
@@ -261,7 +261,7 @@ struct Sidebar: View {
         }
       }
       Spacer(minLength: 0)
-      if store.busy {
+      if store.busy || store.syncing {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
           Text(store.status).lineLimit(2)

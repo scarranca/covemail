@@ -81,9 +81,9 @@ final class MailboxPollingTests: XCTestCase {
 
   func testBusySampleAndDisconnectedChecksDoNotConsumeTheNextPoll() async throws {
     let (store, _, transport, _) = try fixture()
-    store.busy = true
+    store.syncing = true                      // a sync already running: the poll doesn't start another
     await store.pollMailbox()
-    store.busy = false
+    store.syncing = false
     store.isSample = true
     await store.pollMailbox()
     store.isSample = false

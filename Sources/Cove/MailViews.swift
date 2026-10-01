@@ -32,7 +32,7 @@ struct MailboxView: View {
                 Task { if store.mailScopeLabelID != nil { await store.loadLabelMail() } else { await store.sync() } }
               } label: {
                 Image(systemName: "arrow.clockwise")
-              }.buttonStyle(.plain).help("Sync Gmail (⌘R)").disabled(store.busy)
+              }.buttonStyle(.plain).help("Sync Gmail (⌘R)").disabled(store.syncing)
             }
             if store.isFocusedMailView {
               Text("\(store.focusedMails.count) downloaded · \(store.focusedMails.filter(\.isUnread).count) unread")
@@ -129,7 +129,7 @@ struct MailboxView: View {
           }
           Divider()
           HStack(spacing: 6) {
-            if store.busy { ProgressView().controlSize(.mini) }
+            if store.busy || store.syncing { ProgressView().controlSize(.mini) }
             Text(
               store.status.isEmpty
                 ? (store.isSample ? "Sample mailbox" : "Gmail · saved locally") : store.status
@@ -154,7 +154,7 @@ struct MailboxView: View {
     .task(id: store.folder) {
       guard store.mailScopeLabelID != nil else { return }
       do {
-        while store.busy { try await Task.sleep(for: .milliseconds(100)) }
+        while store.syncing { try await Task.sleep(for: .milliseconds(100)) }
         try Task.checkCancellation()
         await store.loadLabelMail()
       } catch {}
