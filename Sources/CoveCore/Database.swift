@@ -332,7 +332,8 @@ public final class Database {
       else { throw CoveError.message("Could not read the local mailbox.") }
       let id = String(cString: idText)
       let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 1)))
-      mails.append(try JSONDecoder().decode(Mail.self, from: cipher?.open(data, record: "message:" + id) ?? data))
+      // Mail stored before Cove repaired double-decoded text reads correctly without a refetch.
+      mails.append(Mojibake.repaired(try JSONDecoder().decode(Mail.self, from: cipher?.open(data, record: "message:" + id) ?? data)))
     }
     return mails
   }

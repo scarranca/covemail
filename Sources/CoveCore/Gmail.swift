@@ -160,7 +160,7 @@ public struct GmailMessage: Decodable {
         autoSubmitted: header("Auto-Submitted"), precedence: header("Precedence")),
       cc: header("Cc"))
     mail.unsubscribe = MailUnsubscribe.parse(header: header("List-Unsubscribe"), post: header("List-Unsubscribe-Post"))
-    return mail
+    return Mojibake.repaired(mail)
   }
   /// A few senders leak presentation markup into text/plain. Only recognize paired,
   /// attributed HTML fragments that also occur literally in the HTML alternative.

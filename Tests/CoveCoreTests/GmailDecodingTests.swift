@@ -85,10 +85,12 @@ final class GmailDecodingTests: XCTestCase {
     XCTAssertEqual(decoded.body, "Hace unos días volvió el café & el té.\nMás detalles.")
   }
 
-  func testMissingMismatchedASCIIBasedOrTooShortSnippetPreservesDeclaredCharset() throws {
+  // Since the mojibake repair: UTF-8 bytes under a Latin-1 header read correctly even without a
+  // corroborating snippet (real Latin-1 accents are never valid UTF-8 runs).
+  func testUTF8UnderALatin1HeaderReadsCorrectlyWithoutASnippet() throws {
     let body = "Plain opening. Hace unos días volvió el café del barrio."
     let bytes = Data(body.utf8)
-    let declared = try XCTUnwrap(String(data: bytes, encoding: .isoLatin1))
+    let declared = body
     for snippet in ["", "Otros días con texto diferente", "Plain opening.", "días"] {
       let decoded = try mail(
         part: [
@@ -100,7 +102,9 @@ final class GmailDecodingTests: XCTestCase {
     }
   }
 
-  func testIntentionalLatin1MojibakeCharactersRemainLiteral() throws {
+  /// The deliberate trade-off: text that spells mojibake on purpose is repaired too. That is far rarer
+  /// than mail whose accents arrive broken ("botÃ³n"), which Cove now always fixes.
+  func testLiteralMojibakeIsRepairedLikeBrokenText() throws {
     let body = "The literal characters Ã© describe mojibake in this example."
     let bytes = try XCTUnwrap(body.data(using: .isoLatin1))
     XCTAssertNotNil(
@@ -111,7 +115,7 @@ final class GmailDecodingTests: XCTestCase {
         "headers": [["name": "Content-Type", "value": "text/plain; charset=iso-8859-1"]],
         "body": ["data": bytes.base64URL],
       ], snippet: "The literal characters Ã© describe mojibake")
-    XCTAssertEqual(decoded.body, body)
+    XCTAssertEqual(decoded.body, "The literal characters é describe mojibake in this example.")
   }
 
   func testCorroboratingSnippetCannotOverrideOtherDeclaredCharsets() throws {
