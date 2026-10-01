@@ -320,5 +320,5 @@
 .plan-mock.is-live .pm-card,.plan-mock.is-live .pm-foot{opacity:0;transform:translateY(8px)}
 .plan-mock.is-live .pm-card.is-in,.plan-mock.is-live .pm-foot.is-in{opacity:1;transform:none}
 @media(max-width:1050px){.agents-hero{grid-template-columns:1fr;padding:36px}.agents-portrait{height:340px}.agents-build{grid-template-columns:1fr;gap:40px}}
-@media(max-width:700px){.agents-new{padding-block:55px}.agents-hero{padding:26px 20px;gap:24px}.agents-copy>p:not(.eyebrow){font-size:16px}.agents-portrait{height:280px}.cap-now{font-size:13px}.agents-build{margin-top:48px}}
+@media(max-width:700px){.agents-hero h2 br{display:none}.agents-new{padding-block:55px}.agents-hero{padding:26px 20px;gap:24px}.agents-copy>p:not(.eyebrow){font-size:16px}.agents-portrait{height:280px}.cap-now{font-size:13px}.agents-build{margin-top:48px}}
 @media(prefers-reduced-motion:reduce){.cap-now,.cap-next,.pm-card,.pm-foot{transition:none}}
