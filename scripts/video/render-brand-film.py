@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 FONT = os.path.join(ROOT, "Sources/Cove/Resources/Inter.ttf")
 PORTRAIT = os.path.join(ROOT, "Sources/Cove/Resources/agent-portrait.jpg")
-W, H, SS, FPS, SEG = 1920, 1080, 2, 30, 9.0
+W, H, SS, FPS, SEG = 1920, 1080, 2, 30, 6.0
 # Scenes are written on a 12-unit timeline and played back in SEG seconds, so pacing scales in one place.
 BEAT = 12.0
 TOTAL = 4 * SEG
