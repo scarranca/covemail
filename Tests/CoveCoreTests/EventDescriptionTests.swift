@@ -36,3 +36,15 @@ final class EventDescriptionTests: XCTestCase {
     XCTAssertTrue(AIIntent.describeEvent.instructions.contains("never invent or complete an address"))
   }
 }
+
+final class EventDescriptionFreeSpotTests: XCTestCase {
+  func testFirstOpenSpotLeavesTheTimeToCove() throws {
+    let zone = TimeZone(identifier: "America/Mexico_City")!
+    let event = try EventDescription.parse(#"{"title":"Call with Manuel","start":"2026-10-02T10:00:00-06:00","end":"","guests":["Manuel"],"meet":true,"free":{"day":"","durationMinutes":30}}"#,
+                                           now: ISO8601DateFormatter().date(from: "2026-10-01T15:00:00Z")!, timeZone: zone)
+    XCTAssertNil(event.start, "the model never picks a free time itself")
+    XCTAssertEqual(event.free, .init(day: nil, durationMinutes: 30, startMinute: 540, endMinute: 1020))
+    XCTAssertNil(event.question)
+    XCTAssertTrue(AIIntent.describeEvent.instructions.contains("first/next/earliest free or open spot"))
+  }
+}

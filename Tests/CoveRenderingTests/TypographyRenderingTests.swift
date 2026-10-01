@@ -37,10 +37,11 @@ import XCTest
       Spacer(minLength: 0)
     }.padding(.vertical, 12), name: "rsvp-loading", width: 192)
     try await render(ContactEditor(store: store, record: record, onSave: { _ in XCTFail("Rendering must not save") }), name: "contact-editor", width: 490)
-    try await render(CalendarEventEditor(store: store, draft: CalendarEventDraft(title: "Product design review")), name: "event-editor", width: 440)
+    try await render(CalendarEventEditor(store: store, draft: CalendarEventDraft(title: "Product design review")), name: "event-editor", width: 560)
     var invited = CalendarEventDraft(title: "Demo gigstack")
     invited.onGoogle = true; invited.guests = ["maya@example.com", "contacto@grupo-amx.com"]; invited.addMeet = true
-    try await render(CalendarEventEditor(store: store, draft: invited), name: "event-editor-guests", width: 440)
+    invited.describeFirst = true
+    try await render(CalendarEventEditor(store: store, draft: invited), name: "event-editor-guests", width: 560)
     var describing = CalendarEventDraft()
     try await render(EventAskLine(store: store, draft: Binding(get: { describing }, set: { describing = $0 }),
                                   open: .constant(true)).padding(30),

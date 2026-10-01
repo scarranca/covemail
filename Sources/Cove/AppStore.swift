@@ -1264,6 +1264,33 @@ import SwiftUI
     return (CalendarSearch.with(person, in: found.events + local).sorted { $0.start < $1.start }, found.complete)
   }
 
+  /// The first free time for a described event: on the named day, or the next seven weekdays from today.
+  /// Reads the real calendar for each day (primary Google Calendar plus Cove's local events).
+  func firstOpenSpot(_ spot: EventDescription.FreeSpot, now: Date = Date(), timeZone: TimeZone = .current) async throws
+    -> DateInterval? {
+    var calendar = Calendar(identifier: .gregorian); calendar.timeZone = timeZone
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.calendar = calendar
+    formatter.timeZone = timeZone; formatter.dateFormat = "yyyy-MM-dd"
+    var days: [String] = []
+    if let day = spot.day { days = [day] } else {
+      var date = calendar.startOfDay(for: now)
+      while days.count < 7 {
+        if !calendar.isDateInWeekend(date) { days.append(formatter.string(from: date)) }
+        guard let next = calendar.date(byAdding: .day, value: 1, to: date) else { break }
+        date = next
+      }
+    }
+    for day in days {
+      let window = try WritingAvailability(day: day, durationMinutes: spot.durationMinutes, startMinute: spot.startMinute,
+                                           endMinute: max(spot.endMinute, spot.startMinute + spot.durationMinutes), timeZone: timeZone)
+      let events = try await writingCalendar(from: window.dayRange.start, to: window.dayRange.end)
+      try Task.checkCancellation()
+      if let slot = try window.firstSlot(events: events, now: now) { return slot }
+    }
+    return nil
+  }
+
   func aiSearchMail(_ query: String) async throws -> [Mail] {
     guard entered, !isSample else {
       throw CoveError.message("Connect Gmail to search beyond the sample mailbox.")

@@ -48,7 +48,8 @@ public struct WritingAvailability: Equatable, Sendable {
   /// Uses wall-clock boundaries, so a daylight-saving transition is not treated as a 24-hour day.
   public func firstSlot(events: [LocalEvent], now: Date) throws -> DateInterval? {
     let range = dayRange
-    guard events.allSatisfy({ $0.blocksTime == false || $0.end > $0.start }) else {
+    // A zero-length event (a reminder, a pin) can't take time; only one ending before it starts is invalid.
+    guard events.allSatisfy({ $0.blocksTime == false || $0.end >= $0.start }) else {
       throw CoveError.message("Calendar returned an invalid event. Availability could not be verified.")
     }
     func boundary(_ minute: Int) -> Date? {

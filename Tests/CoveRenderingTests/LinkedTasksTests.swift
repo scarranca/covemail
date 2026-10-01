@@ -43,3 +43,26 @@ private struct OfflineHTTP: HTTPTransport {
     return (Data("{}".utf8), HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!)
   }
 }
+
+@MainActor final class FirstOpenSpotTests: XCTestCase {
+  func testFindsTheFirstOpenSpotAroundBusyTimeAndSkipsWeekends() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveOpenSpot-" + UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    let store = try AppStore(database: Database(url: root.appendingPathComponent("mail.sqlite")), accountEmail: "me@example.com",
+      gmail: GmailClient(transport: OfflineHTTP()), gmailTokenProvider: { "fixture" }, syncClock: Date.init)
+    store.isSample = true; store.entered = true
+    let zone = TimeZone(identifier: "America/Mexico_City")!
+    var calendar = Calendar(identifier: .gregorian); calendar.timeZone = zone
+    // Friday Oct 2 2026, 8:00 local. Busy 9:00–10:00, plus a zero-length reminder at 10:00.
+    let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 2, hour: 8))!
+    let nine = calendar.date(from: DateComponents(year: 2026, month: 10, day: 2, hour: 9))!
+    let ten = calendar.date(from: DateComponents(year: 2026, month: 10, day: 2, hour: 10))!
+    store.events = [LocalEvent(title: "Standup", start: nine, end: ten), LocalEvent(title: "Pin", start: ten, end: ten)]
+    let today = try await store.firstOpenSpot(.init(day: nil, durationMinutes: 30, startMinute: 540, endMinute: 1020), now: now, timeZone: zone)
+    XCTAssertEqual(today?.start, ten, "right after the busy hour; a zero-length reminder doesn't block or break the check")
+    // A full Friday rolls over the weekend to Monday.
+    store.events = [LocalEvent(title: "Offsite", start: nine, end: calendar.date(from: DateComponents(year: 2026, month: 10, day: 2, hour: 17))!)]
+    let next = try await store.firstOpenSpot(.init(day: nil, durationMinutes: 30, startMinute: 540, endMinute: 1020), now: now, timeZone: zone)
+    XCTAssertEqual(next.map { calendar.component(.weekday, from: $0.start) }, 2, "Monday")
+  }
+}

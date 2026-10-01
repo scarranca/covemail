@@ -421,7 +421,11 @@ struct CalendarView: View {
         Image(systemName: "chevron.right")
       }.buttonStyle(.plain).help(displayMode == .month ? "Next month" : "Next week")
         .accessibilityLabel(displayMode == .month ? "Next month" : "Next week")
-      // New event lives in the sidebar (⌘N); the header keeps navigation, sync and search.
+      // + starts an event from scratch: the describe line is open, the time defaults to the next half hour.
+      Button { newEvent() } label: {
+        Image(systemName: "plus").font(.cove(size: 13, weight: .semibold)).foregroundStyle(.white)
+          .frame(width: 30, height: 30).background(Palette.ink, in: Circle())
+      }.buttonStyle(.plain).help("New event (⌘E)").accessibilityLabel("New event").keyboardShortcut("e")
       if store.calendarConnected && !store.isSample {
         Button { Task { await refresh() } } label: {
           Group {
@@ -448,6 +452,18 @@ struct CalendarView: View {
     }
   }
 
+  private func newEvent() {
+    let calendar = Calendar.current
+    let now = Date()
+    let hour = calendar.date(bySettingHour: calendar.component(.hour, from: now), minute: 0, second: 0, of: now) ?? now
+    let half = hour.addingTimeInterval(calendar.component(.minute, from: now) < 30 ? 1_800 : 3_600)
+    // On a future day the event starts at 9; today, at the next half hour.
+    let start = calendar.isDate(store.calendarDay, inSameDayAs: now) || store.calendarDay < now
+      ? half : calendar.date(bySettingHour: 9, minute: 0, second: 0, of: store.calendarDay) ?? half
+    var draft = CalendarEventDraft(start: start, end: start.addingTimeInterval(1_800))
+    draft.describeFirst = true
+    eventDraft = draft
+  }
   private var dayEvents: [LocalEvent] {
     CalendarAgenda.events(store.visibleEvents, on: store.calendarDay)
   }
@@ -528,12 +544,6 @@ struct CalendarView: View {
   }
   private func movePeriod(_ amount: Int) {
     store.selectCalendarDay(displayMode.moved(amount, from: store.calendarDay))
-  }
-  private func newEvent() {
-    let start = Calendar.current.date(
-      bySettingHour: 9, minute: 0, second: 0, of: store.calendarDay)!
-    let proposed = Calendar.current.isDateInToday(store.calendarDay) ? max(start, Date()) : start
-    eventDraft = CalendarEventDraft(start: proposed)
   }
   func refresh() async {
     await store.syncCalendar(
@@ -936,6 +946,8 @@ struct CalendarEventDraft: Identifiable {
   /// Guest addresses (Google Calendar only). Saving sends them Google's invitation email.
   var guests: [String]
   var addMeet = false
+  /// Opened from the calendar's + : start with the describe line open.
+  var describeFirst = false
   /// Whether the guest list differs from the event's, so an edit only re-invites when it changed.
   var guestsChanged: Bool {
     Set(guests.map { $0.lowercased() }) != Set((editing?.attendees ?? []).filter { $0.isSelf != true }.compactMap { $0.email?.lowercased() })
@@ -975,7 +987,7 @@ struct CalendarEventEditor: View {
   private var googleAvailable: Bool { store.calendarConnected && !store.isSample && draft.editing == nil }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 22) {
+    VStack(alignment: .leading, spacing: 26) {
       HStack(alignment: .firstTextBaseline) {
         Text(reviewingProposal ? "Review your event" : draft.editing == nil ? "New event" : "Edit event")
           .font(.coveMetadata).foregroundStyle(Palette.muted)
@@ -986,7 +998,7 @@ struct CalendarEventEditor: View {
       TextField("Event title", text: $draft.title, prompt: Text("Add a title").foregroundStyle(Palette.muted))
         .textFieldStyle(.plain).font(.coveTitle).accessibilityLabel("Event title")
         .onSubmit { if canSave { save() } }
-      VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: 20) {
         row("clock") {
           VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -1064,16 +1076,17 @@ struct CalendarEventEditor: View {
                : draft.editing == nil ? "Add event" : "Save changes") { save() }
           .buttonStyle(PrimaryButton()).keyboardShortcut(.defaultAction).disabled(!canSave)
       }
-    }.padding(30).frame(width: 440).disabled(saving || store.busy || store.calendarSyncing)
+    }.padding(36).frame(width: 560).disabled(saving || store.busy || store.calendarSyncing)
       .interactiveDismissDisabled(saving || store.busy)
       .onAppear {
         account = store.accountEmail
+        if draft.describeFirst && describing { askOpen = true }
         // New events go to Google when it's connected; the menu can still choose this Mac.
         if draft.editing == nil && googleAvailable && !reviewingProposal { draft.onGoogle = true }
       }
   }
   private func row<Content: View>(_ icon: String, @ViewBuilder content: () -> Content) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 12) {
+    HStack(alignment: .firstTextBaseline, spacing: 16) {
       Image(systemName: icon).font(.cove(size: 13)).foregroundStyle(Palette.body).frame(width: 18).accessibilityHidden(true)
       content()
     }
@@ -1338,6 +1351,8 @@ struct EventAskLine: View {
   @State private var task: Task<Void, Never>?
   @State private var notes: [String] = []
   @State private var filled = false
+  @State private var found: String?
+  @State private var stage = "Reading your event…"
   @FocusState private var focused: Bool
   private var settings: AIProviderSettings { .shared }
   private var canAsk: Bool {
@@ -1346,7 +1361,10 @@ struct EventAskLine: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      if filled && notes.isEmpty {
+      if let found {
+        Label(found, systemImage: "calendar.badge.checkmark").font(.coveMetadata).foregroundStyle(Palette.body)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if filled && notes.isEmpty {
         Label("Filled in from your description. Review it before adding.", systemImage: "checkmark.circle")
           .font(.coveMetadata).foregroundStyle(Palette.body)
       }
@@ -1358,14 +1376,14 @@ struct EventAskLine: View {
         Text("Connect a writing model in Connections to describe events in your own words.")
           .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       }
-      if task != nil { WritingThinkingBar(stage: "Reading your event…").transition(.opacity) }
+      if task != nil { WritingThinkingBar(stage: stage).transition(.opacity) }
       HStack(alignment: .center, spacing: 10) {
         Image(systemName: "sparkles").font(.cove(size: 14)).foregroundStyle(Palette.body)
           .frame(width: 24, height: 28).accessibilityHidden(true)
         // A one-line prompt: a wrapped placeholder makes the field taller and pushes the text above the icons.
-        TextField("", text: $text, prompt: Text("Describe the event…").foregroundStyle(Palette.muted), axis: .vertical)
+        TextField("", text: $text, prompt: Text("Describe it… “30 min with Manuel, first open spot”").foregroundStyle(Palette.muted), axis: .vertical)
           .lineLimit(1...3).textFieldStyle(.plain).font(.coveBody).focused($focused)
-          .help("For example: lunch with Maya Friday at 1, add a Meet")
+          .help("For example: lunch with Maya Friday at 1 · 30 min with Manuel at the first open spot tomorrow")
           .onSubmit { ask() }.onExitCommand { if task == nil { close() } }
           .disabled(task != nil).accessibilityLabel("Describe the event")
         if task != nil {
@@ -1398,7 +1416,7 @@ struct EventAskLine: View {
     let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
     let now = Date(), zone = TimeZone.current
     let clock = ISO8601DateFormatter(); clock.timeZone = zone
-    notes = []; filled = false
+    notes = []; filled = false; found = nil; stage = "Reading your event…"
     task = Task {
       defer { task = nil }
       do {
@@ -1407,7 +1425,7 @@ struct EventAskLine: View {
           mails: [])
         let reply = try await settings.complete(prompt)
         try Task.checkCancellation()
-        apply(try EventDescription.parse(reply, now: now, timeZone: zone), request: request)
+        await apply(try EventDescription.parse(reply, now: now, timeZone: zone), request: request)
       } catch is CancellationError {
       } catch {
         notes = [(error as? CoveError)?.localizedDescription ?? error.localizedDescription]
@@ -1416,10 +1434,29 @@ struct EventAskLine: View {
   }
 
   /// Fills the editor. Guests come only from the user's words: names must match exactly one contact.
-  private func apply(_ event: EventDescription, request: String) {
+  private func apply(_ event: EventDescription, request: String) async {
     if !event.title.isEmpty { draft.title = event.title }
     if let start = event.start, let end = event.end { draft.start = start; draft.end = end }
     var problems: [String] = []
+    found = nil
+    if let spot = event.free {
+      if store.calendarConnected || store.isSample {
+        stage = "Finding your first open \(spot.durationMinutes) minutes…"
+        do {
+          if let slot = try await store.firstOpenSpot(spot) {
+            draft.start = slot.start; draft.end = slot.end
+            found = "First open spot: " + slot.start.formatted(.dateTime.weekday(.wide).month(.abbreviated).day().hour().minute())
+              + ". Checked your Google Calendar and Cove’s events."
+          } else {
+            problems.append(spot.day == nil ? "No open \(spot.durationMinutes) minutes in the next seven weekdays. Pick a time below."
+                                            : "No open \(spot.durationMinutes) minutes that day. Pick a time below or ask for another day.")
+          }
+        } catch is CancellationError { return
+        } catch { problems.append((error as? CoveError)?.localizedDescription ?? "Couldn’t check your calendar. Pick a time below.") }
+      } else {
+        problems.append("Connect Google Calendar to find an open spot. Pick a time below for now.")
+      }
+    }
     if let question = event.question { problems.append(question) }
     if !event.guests.isEmpty {
       // Guests need Google Calendar; switch to it when it's connected.

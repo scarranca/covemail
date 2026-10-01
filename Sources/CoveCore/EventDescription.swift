@@ -11,12 +11,25 @@ public struct EventDescription: Equatable, Sendable {
   public var meet: Bool
   /// Set when the model couldn't tell the day or time.
   public var question: String?
+  /// "The first open spot": Cove finds the time in the real calendar. day nil = the next days from today.
+  public struct FreeSpot: Equatable, Sendable {
+    public var day: String?
+    public var durationMinutes: Int
+    public var startMinute: Int
+    public var endMinute: Int
+    public init(day: String?, durationMinutes: Int, startMinute: Int, endMinute: Int) {
+      self.day = day; self.durationMinutes = durationMinutes; self.startMinute = startMinute; self.endMinute = endMinute
+    }
+  }
+  public var free: FreeSpot?
 
   public static func parse(_ reply: String, now: Date, timeZone: TimeZone) throws -> EventDescription {
     let cleaned = reply.trimmingCharacters(in: .whitespacesAndNewlines)
       .replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
     struct Payload: Decodable {
+      struct Free: Decodable { var day: String?; var durationMinutes: Int?; var startMinute: Int?; var endMinute: Int? }
       var title: String?; var start: String?; var end: String?; var guests: [String]?; var meet: Bool?; var question: String?
+      var free: Free?
     }
     guard let open = cleaned.firstIndex(of: "{"), let close = cleaned.lastIndex(of: "}"), open < close,
       let payload = try? JSONDecoder().decode(Payload.self, from: Data(cleaned[open...close].utf8))
@@ -32,9 +45,16 @@ public struct EventDescription: Equatable, Sendable {
     let title = (payload.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     let guests = (payload.guests ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     let question = payload.question?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let free = payload.free.map { spot in
+      FreeSpot(day: spot.day.flatMap { $0.count == 10 ? $0 : nil },
+               durationMinutes: min(max(spot.durationMinutes ?? 30, 5), 480),
+               startMinute: min(max(spot.startMinute ?? 540, 0), 1439), endMinute: min(max(spot.endMinute ?? 1020, 1), 1440))
+    }
+    if free != nil { start = nil; end = nil }
     return EventDescription(
       title: String(title.prefix(200)), start: start, end: end, guests: Array(guests.prefix(20)),
       meet: payload.meet == true,
-      question: start == nil ? ((question?.isEmpty == false ? question : nil) ?? "What day and time?") : nil)
+      question: start == nil && free == nil ? ((question?.isEmpty == false ? question : nil) ?? "What day and time?") : nil,
+      free: free)
   }
 }
