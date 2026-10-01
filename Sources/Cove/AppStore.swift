@@ -556,6 +556,9 @@ import SwiftUI
     pendingReadTasks = [:]
     readChanges = [:]
     readRevision = 0
+    for task in labelTasks.values { task.cancel() }
+    labelTasks = [:]
+    labelEdits = [:]
     calendarDay = Calendar.current.startOfDay(for: Date())
     calendarEventID = nil
     invitationError = nil
@@ -1390,6 +1393,10 @@ import SwiftUI
         let undoRemove = add.filter { !before.contains($0) }
         self.applyLocalLabelChange(id: id, add: undoAdd, remove: undoRemove)
         self.reconcileSelection()
+        if let http = error as? HTTPFailure, http.isRateLimited {
+          // No alert for rate limits, but the user must know why it came back.
+          self.status = "Gmail is busy, so that change didn’t go through. Try again in a minute."
+        }
         self.reportFailure(error, operation: "Updating message…",
           message: "Couldn’t update this email in Gmail, so it’s back as it was. " + error.localizedDescription)
       }
@@ -1421,36 +1428,39 @@ import SwiftUI
 
   private func beginLabelEdit(id: String, add: Set<String>, remove: Set<String>) -> Int {
     labelEditRevision += 1
-    var edit = labelEdits[id] ?? LabelEdit()
-    edit.apply(add: add, remove: remove)
-    edit.revision = labelEditRevision
-    edit.inFlight.insert(labelEditRevision)
-    labelEdits[id] = edit
+    labelEdits[id, default: LabelEdit()].changes.append(
+      .init(revision: labelEditRevision, add: add, remove: remove, inFlight: true))
     return labelEditRevision
   }
   /// Gmail has it now; the record stays until a sync that started afterwards has seen it.
   private func finishLabelEdit(id: String, revision: Int) {
-    labelEdits[id]?.inFlight.remove(revision)
+    guard let index = labelEdits[id]?.changes.firstIndex(where: { $0.revision == revision }) else { return }
+    labelEdits[id]?.changes[index].inFlight = false
   }
-  /// Gmail refused it: forget it so it isn't re-applied.
+  /// Gmail refused it: forget only this change, so it's never re-applied (later changes stay).
   private func dropLabelEdit(id: String, revision: Int) {
-    guard var edit = labelEdits[id] else { return }
-    edit.inFlight.remove(revision)
-    if edit.inFlight.isEmpty && edit.revision == revision { labelEdits[id] = nil } else { labelEdits[id] = edit }
+    labelEdits[id]?.changes.removeAll { $0.revision == revision }
+    if labelEdits[id]?.changes.isEmpty == true { labelEdits[id] = nil }
   }
-  /// A sync result was read from Gmail starting at `since`; anything newer, or not yet in Gmail, wins.
+  /// A sync result was read from Gmail starting at `since`; changes made after that, or not yet in Gmail,
+  /// are replayed in order on top of it. Older, delivered changes are already part of Gmail's copy.
   func reapplyLabelEdits(to merged: inout [Mail], since revision: Int) {
     guard !labelEdits.isEmpty else { return }
     for index in merged.indices {
-      guard let edit = labelEdits[merged[index].id], edit.revision > revision || !edit.inFlight.isEmpty else { continue }
-      merged[index].labels.formUnion(edit.added)
-      merged[index].labels.subtract(edit.removed)
+      guard let edit = labelEdits[merged[index].id] else { continue }
+      for change in edit.changes where change.revision > revision || change.inFlight {
+        merged[index].labels.formUnion(change.add)
+        merged[index].labels.subtract(change.remove)
+      }
     }
   }
-  /// After a sync that started at `revision`: changes that reached Gmail before it started are now in
-  /// Gmail's own state, so they no longer need re-applying.
+  /// After a sync that started at `revision`: changes delivered before it started are in Gmail's own
+  /// state now, so they no longer need re-applying.
   func pruneLabelEdits(through revision: Int) {
-    labelEdits = labelEdits.filter { $0.value.revision > revision || !$0.value.inFlight.isEmpty }
+    for id in Array(labelEdits.keys) {
+      labelEdits[id]?.changes.removeAll { $0.revision <= revision && !$0.inFlight }
+      if labelEdits[id]?.changes.isEmpty == true { labelEdits[id] = nil }
+    }
   }
 
   private func applyLocalLabelChange(id: String, add: [String], remove: [String]) {
@@ -1553,6 +1563,10 @@ import SwiftUI
     let generation = mailboxGeneration
     if let task = pendingReadTasks[mail.id] { await task.value }
     guard generation == mailboxGeneration else { return }
+    // Recorded while in flight, so a sync running when the undo window ends can't put it back.
+    let edit = beginLabelEdit(id: mail.id, add: ["TRASH"], remove: ["INBOX"])
+    var delivered = false
+    defer { if delivered { finishLabelEdit(id: mail.id, revision: edit) } else { dropLabelEdit(id: mail.id, revision: edit) } }
     await run("Moving to Trash…") {
       if !self.isSample && !mail.id.hasPrefix("local-") {
         let token: String
@@ -1568,6 +1582,7 @@ import SwiftUI
         self.mails[index].labels.remove("INBOX")
         self.persistMessage(self.mails[index])
       }
+      delivered = true
       self.reconcileSelection()
     }
   }
@@ -1859,6 +1874,7 @@ import SwiftUI
         guard generation == mailboxGeneration else { throw CancellationError() }
       }
       try Task.checkCancellation()
+      let threadEditRevision = labelEditRevision
       syncing = true
       syncLabel = "Reading Gmail conversation…"
       if !busy { status = syncLabel }
@@ -1883,8 +1899,9 @@ import SwiftUI
         try Task.checkCancellation()
         guard generation == mailboxGeneration, let database else { throw CancellationError() }
         if let fetched {
-          let merged = try GmailSyncResult(messages: fetched, historyID: "").merging(into: mails, store: database)
+          var merged = try GmailSyncResult(messages: fetched, historyID: "").merging(into: mails, store: database)
             .map { cloudSnoozes.applying(to: $0) }
+          reapplyLabelEdits(to: &merged, since: threadEditRevision)
           try database.saveMailSnapshot(merged)
           mails = merged
           let ids = Set(fetched.map(\.id))
@@ -3799,15 +3816,14 @@ extension AppStore {
   }
 }
 
-/// The net label change the user made to one email, for re-applying over sync results.
+/// The label changes the user made to one email, in order, for replaying over sync results.
 struct LabelEdit {
-  var added: Set<String> = []
-  var removed: Set<String> = []
-  var revision = 0
-  /// Revisions still on their way to Gmail.
-  var inFlight: Set<Int> = []
-  mutating func apply(add: Set<String>, remove: Set<String>) {
-    added.formUnion(add); removed.subtract(add)
-    removed.formUnion(remove); added.subtract(remove)
+  struct Change {
+    var revision: Int
+    var add: Set<String>
+    var remove: Set<String>
+    /// Still on its way to Gmail.
+    var inFlight: Bool
   }
+  var changes: [Change] = []
 }

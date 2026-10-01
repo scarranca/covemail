@@ -22,6 +22,14 @@
   - Approved bulk changes still hold `busy` for their single batch call.
   - Connect Calendar/Tasks waits only for `busy`, so it no longer waits for a sync.
 
+## Review fixes (independent review before QA)
+
+- **One record per change:** `LabelEdit` keeps a list of changes per email (revision, add, remove, in flight), replayed in order. A refused change drops only its own record. Before, a refused star could be re-applied if an archive of the same email was queued.
+- **Trash:** `trash()` (also used when the 5-second undo window ends) records TRASH/−INBOX while in flight. `busy` no longer excludes sync, so without this a sync overlapping the commit could briefly un-trash it.
+- **Fourth merge site:** the AI thread read now re-applies changes too.
+- **Account switch** clears `labelEdits` and cancels `labelTasks`.
+- **Rate-limited action:** if Gmail rate-limits one of the user's own changes after its retries, the change is undone with a status line saying why (still no alert).
+
 ## Tests
 
 - `WorkWhileSyncingTests`:
@@ -30,5 +38,8 @@
   - a change Gmail refuses (400) is undone, reported, and never re-applied.
 - `HubActionsTests` was updated: archiving during a sync now applies and sends one request, where it used to be blocked. The sample mailbox still never sends.
 - `MailboxPollingTests`: a poll is skipped while a sync is running.
-- Full `swift test`: CoveCoreTests 264, CoveRenderingTests 347, 0 failures.
+- `LabelEditInFlightTests`:
+  - A real `sync()` runs while a fake Gmail holds the archive request; history says the email is back in the Inbox. It stays archived before and after Gmail confirms, and the record is pruned by the next sync. Confirmed to fail with the sync's re-apply removed.
+  - Star and archive are queued on one email and Gmail refuses the star: the star is undone, the archive stays, and only the archive is ever re-applied.
+- Full `swift test`: CoveCoreTests 264, CoveRenderingTests 349, 0 failures.
 - Not yet verified live: archiving and starring during a long real catch-up.
