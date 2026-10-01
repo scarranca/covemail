@@ -66,3 +66,34 @@ private struct OfflineHTTP: HTTPTransport {
     XCTAssertEqual(next.map { calendar.component(.weekday, from: $0.start) }, 2, "Monday")
   }
 }
+
+@MainActor final class CalendarDeleteShortcutTests: XCTestCase {
+  func testCommandDeleteAsksToDeleteTheSelectedEventButNotWhileTyping() throws {
+    _ = NSApplication.shared
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveCalDelete-" + UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    let store = try AppStore(database: Database(url: root.appendingPathComponent("mail.sqlite")), accountEmail: "me@example.com",
+      gmail: GmailClient(transport: OfflineHTTP()), gmailTokenProvider: { "fixture" }, syncClock: Date.init)
+    store.entered = true; store.screen = "calendar"
+    let event = LocalEvent(title: "Demo", start: Date(), end: Date().addingTimeInterval(1800))
+    store.events = [event]
+    var asked: [String] = []
+    let view = CalendarDeleteShortcut.ShortcutView(store: store) { asked.append($0.id) }
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = view
+    defer { window.close() }
+    let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
+      context: nil, characters: "\u{7f}", charactersIgnoringModifiers: "\u{7f}", isARepeat: false, keyCode: 51))
+    XCTAssertNotNil(view.handle(key), "no event selected: the key passes through")
+    store.calendarEventID = event.id
+    let editor = NSTextView(frame: view.bounds)
+    view.addSubview(editor); window.makeFirstResponder(editor)
+    XCTAssertNotNil(view.handle(key), "typing keeps ⌘Delete"); XCTAssertTrue(asked.isEmpty)
+    window.makeFirstResponder(nil)
+    store.screen = "mail"
+    XCTAssertNotNil(view.handle(key), "Mail owns ⌘Delete there")
+    store.screen = "calendar"
+    XCTAssertNil(view.handle(key))
+    XCTAssertEqual(asked, [event.id], "it asks, through the same confirmation as the trash button")
+  }
+}

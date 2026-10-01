@@ -171,6 +171,7 @@ struct CalendarView: View {
       }
     }
     .onChange(of: store.calendarConnected) { _, _ in Task { await refresh() } }
+    .background(CalendarDeleteShortcut(store: store) { event in deleteTarget = event }.frame(width: 0, height: 0))
     .confirmationDialog(
       "Delete this event?",
       isPresented: Binding(get: { deleteTarget != nil }, set: { if !$0 { deleteTarget = nil } })
@@ -278,7 +279,7 @@ struct CalendarView: View {
           .help("Edit event").disabled(store.busy || store.calendarSyncing)
       }
       Button(role: .destructive) { deleteTarget = event } label: { eventAction("Delete event", icon: "trash") }
-        .help("Delete event").disabled(store.busy || store.calendarSyncing)
+        .help("Delete event (⌘⌫)").disabled(store.busy || store.calendarSyncing)
     }.buttonStyle(ReaderActionStyle()).foregroundStyle(Palette.body)
   }
   private func eventAction(_ title: String, icon: String) -> some View {
