@@ -1542,7 +1542,7 @@ import SwiftUI
       }
     }
   }
-  /// Counts with a sender, date or topic ("how many emails from ICE last week?"): the writing model
+  /// Counts with a sender, date or topic ("how many emails from Acme last week?"): the writing model
   /// turns the question into a Gmail search and Gmail counts every match exactly (ids only). The
   /// newest matches are shown as sources; only those are saved, like other cited emails.
   func countMatchingMail(

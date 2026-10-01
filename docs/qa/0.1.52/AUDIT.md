@@ -30,7 +30,7 @@
 - App notarization `bc2646b8-b315-4b27-8350-99355595ae46`: Accepted, stapled.
 - DMG notarization `563de04c-4181-4153-9033-83b9f411bd42`: Accepted, stapled (`finish-dmg.sh`: Notarized Developer ID). Stapled DMG: 21,977,558 bytes, SHA-256 `89d8846a32a94ec3a3b5662bd2cb410d4723f0e83599dd17630ababaf39f95cb`.
 - `prepare-update.py 0.1.52` signed the feed (31 verified releases); `build-site.py` staged `dist/site`.
-- Cloudflare Pages `covemail`, deployment `1391114e` (main). The custom domain took about a minute to serve it.
+- Cloudflare Pages `covemail`, deployment `1391114e` (main). Redeployed as `a7d30c6b` after the user asked to replace "ICE" (a real customer) with the neutral example sender "Acme" on the landing. The custom domain took about a minute to serve it.
 - Public checks:
   - `/release.json` and the appcast both list 0.1.52.
   - `/download/latest` redirects to `/downloads/Cove-0.1.52.dmg`.
