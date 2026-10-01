@@ -82,54 +82,115 @@ struct SettingsView: View {
     return "Connect Gmail first"
   }
   private var gmailSection: some View {
-    VStack(alignment: .leading, spacing: 20) {
-      HStack(spacing: 16) {
-        copy(store.entered ? (store.isSample ? "Sample mailbox" : store.accountEmail) : "Connect your Gmail account",
-             store.auth.isConnected ? "Connected · \(syncDescription)" : "")
-        Spacer(minLength: 0)
-        if store.auth.isConnected {
-          Menu("Manage account") {
+    VStack(alignment: .leading, spacing: 28) {
+      // Account
+      SettingsCard {
+        HStack(spacing: 14) {
+          CoveAvatar(initials: String((store.entered ? store.accountEmail : "G").prefix(2)).uppercased(), size: 40)
+          VStack(alignment: .leading, spacing: 3) {
+            Text(store.entered ? (store.isSample ? "Sample mailbox" : store.accountEmail) : "Connect your Gmail account")
+              .font(.coveSubheading)
+            HStack(spacing: 6) {
+              if store.auth.isConnected { Circle().fill(Color.green.opacity(0.8)).frame(width: 6, height: 6) }
+              Text(store.auth.isConnected ? (store.syncing ? "Syncing…" : "Connected · \(syncDescription)")
+                                          : store.isSample ? "Explore with sample mail, or connect Gmail" : "Not connected")
+            }.font(.coveSecondary).foregroundStyle(Palette.body)
+          }
+          Spacer(minLength: 12)
+          if store.auth.isConnected {
             Button("Sync now") { Task { await store.sync() } }
-            Button("Reconnect Gmail") { connect() }
-            Button(store.syncing ? "Disconnect (after sync)" : "Disconnect") { store.disconnect() }.disabled(store.syncing)
-          }.menuStyle(.borderlessButton).font(.coveControl).fixedSize().disabled(store.busy)
-        } else {
-          Button("Connect Gmail") { connect() }.buttonStyle(PrimaryButton())
-            .disabled(store.busy || !selectedGoogleConfiguration.isConfigured)
+              .buttonStyle(SecondaryButton(compact: true)).disabled(store.syncing)
+            Menu {
+              Button("Reconnect Gmail") { connect() }
+              Divider()
+              Button(store.syncing ? "Disconnect (after sync)" : "Disconnect", role: .destructive) { store.disconnect() }
+                .disabled(store.syncing)
+            } label: { Image(systemName: "ellipsis").font(.cove(size: 13)).frame(width: 30, height: 30) }
+              .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(store.busy)
+              .accessibilityLabel("Manage account")
+          } else {
+            Button("Connect Gmail") { connect() }.buttonStyle(PrimaryButton(compact: true))
+              .disabled(store.busy || !selectedGoogleConfiguration.isConfigured)
+          }
         }
-      }
-      Toggle(isOn: $store.backgroundSyncEnabled) {
-        copy("Sync mail in the background", "")
-      }.toggleStyle(CoveToggleStyle()).accessibilityLabel("Sync mail in the background")
-        .help("Check for new mail about every two minutes while Cove is open")
-      HStack(spacing: 16) {
-        copy("Google Calendar", calendarDescription)
-        Spacer(minLength: 0)
-        if store.auth.isConnected && !store.isSample && !store.calendarConnected {
-          Button("Connect Calendar") { Task { await store.connectCalendar() } }
-            .buttonStyle(SecondaryButton()).disabled(store.connectingStep != nil)
-            .help("Adds Calendar to your Google sign-in. Your mail stays as it is.")
+        if store.busy && store.status.contains("Connecting") {
+          SettingsDivider()
+          HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text(store.status).font(.coveSecondary).foregroundStyle(Palette.body)
+            Spacer()
+            Button("Cancel sign-in") { store.auth.cancel() }.buttonStyle(SecondaryButton(compact: true))
+          }
         }
       }
 
-      DisclosureGroup("Google connection settings", isExpanded: $showAdvancedGoogle) {
-        VStack(alignment: .leading, spacing: 16) {
-          Text("Optional. Leave blank to use Cove’s built-in Google client.")
-            .font(.coveSecondary).foregroundStyle(Palette.body)
-          TextField("Custom Google OAuth client ID", text: $clientID).textFieldStyle(CoveFieldStyle())
-          SecureField("Custom desktop client secret", text: $secret).textFieldStyle(CoveFieldStyle())
-          Button("Save credentials") { save() }.buttonStyle(SecondaryButton()).disabled(store.busy)
-            .help("Disconnect before changing the client for an existing connection")
-        }.padding(.top, 16)
-      }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle())
-      if store.busy {
-        HStack {
-          ProgressView().controlSize(.small)
-          Text(store.status).font(.coveSecondary)
-          if store.status.contains("Connecting") { Button("Cancel sign-in") { store.auth.cancel() }.buttonStyle(SecondaryButton(compact: true)) }
+      // Sending
+      SettingsGroup("Sending") {
+        SettingsCard {
+          SettingsRow("Default From address",
+                      detail: store.sendingAliases.count > 1
+                        ? "New emails come from this address. Replies come from the address the email was sent to."
+                        : "Your Gmail has one sending address. Add more in Gmail → Settings → Accounts → Send mail as.") {
+            if store.sendingAliases.count > 1 {
+              CoveMenuPicker("Default From address", selection: Binding(get: { store.defaultSender }, set: { store.setDefaultSender($0) }),
+                             options: store.sendingAliases.map { ($0, $0) })
+            } else {
+              Text(store.entered ? store.accountEmail : "—").font(.coveSecondary).foregroundStyle(Palette.body)
+            }
+          }
         }
       }
+
+      // Sync
+      SettingsGroup("Sync") {
+        SettingsCard {
+          SettingsRow("Sync mail in the background", detail: "Checks for new mail about every two minutes while Cove is open.") {
+            Toggle("", isOn: $store.backgroundSyncEnabled).toggleStyle(CoveToggleStyle()).labelsHidden()
+              .accessibilityLabel("Sync mail in the background")
+          }
+        }
+      }
+
+      // Google services
+      SettingsGroup("Google services") {
+        SettingsCard {
+          SettingsRow("Google Calendar", icon: "calendar", detail: calendarDescription) {
+            if store.calendarConnected || store.isSample { SettingsStatusPill(text: store.isSample ? "Sample" : "Connected") }
+            else if store.auth.isConnected {
+              Button("Connect") { Task { await store.connectCalendar() } }
+                .buttonStyle(SecondaryButton(compact: true)).disabled(store.connectingStep != nil)
+                .help("Adds Calendar to your Google sign-in. Your mail stays as it is.")
+            }
+          }
+          SettingsDivider()
+          SettingsRow("Google Tasks", icon: "checklist", detail: tasksDescription) {
+            if store.tasksConnected { SettingsStatusPill(text: "Connected") }
+            else if store.auth.isConnected && !store.isSample {
+              Button("Connect") { Task { await store.connectTasks() } }
+                .buttonStyle(SecondaryButton(compact: true)).disabled(store.connectingStep != nil)
+            }
+          }
+        }
+      }
+
+      // Advanced: only for people bringing their own Google client.
+      DisclosureGroup("Advanced · custom Google client", isExpanded: $showAdvancedGoogle) {
+        VStack(alignment: .leading, spacing: 14) {
+          Text("Optional. Leave blank to use Cove’s built-in Google client. Disconnect before changing the client of an existing connection.")
+            .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+          TextField("Custom Google OAuth client ID", text: $clientID).textFieldStyle(CoveFieldStyle())
+          SecureField("Custom desktop client secret", text: $secret).textFieldStyle(CoveFieldStyle())
+          Button("Save credentials") { save() }.buttonStyle(SecondaryButton(compact: true)).disabled(store.busy)
+        }.padding(.top, 14)
+      }.font(.coveSecondary).foregroundStyle(Palette.body).disclosureGroupStyle(CoveDisclosureStyle())
     }
+    .task { if store.entered && !store.isSample { await store.loadSendingAliasesIfNeeded() } }
+  }
+  private var tasksDescription: String {
+    if store.isSample { return "Connect Gmail to use Google Tasks." }
+    if store.tasksConnected { return "Create tasks from emails and see them in Tasks." }
+    if store.auth.isConnected { return store.tasksConnectError ?? "Turn emails into tasks you can check off." }
+    return "Connect Gmail first"
   }
 
   private var jevSection: some View {
@@ -337,3 +398,62 @@ private struct AIKeyProtectionSettings: View {
   }
 }
 
+/// Settings building blocks: a quiet group title, a bordered card, and rows that read left to right.
+struct SettingsGroup<Content: View>: View {
+  let title: String
+  let content: Content
+  init(_ title: String, @ViewBuilder content: () -> Content) { self.title = title; self.content = content() }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text(title).font(.coveLabel).foregroundStyle(Palette.body)
+      content
+    }
+  }
+}
+struct SettingsCard<Content: View>: View {
+  let content: Content
+  init(@ViewBuilder content: () -> Content) { self.content = content() }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) { content }
+      .padding(.horizontal, 18).padding(.vertical, 16)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 12))
+      .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line))
+  }
+}
+struct SettingsDivider: View {
+  var body: some View { Divider().padding(.vertical, 14) }
+}
+struct SettingsRow<Accessory: View>: View {
+  let title: String
+  var icon: String? = nil
+  let detail: String
+  let accessory: Accessory
+  init(_ title: String, icon: String? = nil, detail: String, @ViewBuilder accessory: () -> Accessory) {
+    self.title = title; self.icon = icon; self.detail = detail; self.accessory = accessory()
+  }
+  var body: some View {
+    HStack(alignment: .center, spacing: 14) {
+      if let icon {
+        Image(systemName: icon).font(.cove(size: 14)).foregroundStyle(Palette.body)
+          .frame(width: 32, height: 32).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+          .accessibilityHidden(true)
+      }
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title).font(.coveLabel)
+        if !detail.isEmpty {
+          Text(detail).font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      Spacer(minLength: 16)
+      accessory
+    }
+  }
+}
+struct SettingsStatusPill: View {
+  let text: String
+  var body: some View {
+    Label(text, systemImage: "checkmark").font(.coveMetadata).foregroundStyle(Palette.body)
+      .padding(.horizontal, 10).frame(height: 24).background(Palette.surface, in: Capsule())
+  }
+}
