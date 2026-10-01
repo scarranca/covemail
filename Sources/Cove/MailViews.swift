@@ -139,7 +139,8 @@ struct MailboxView: View {
                 ? (store.isSample ? "Sample mailbox" : "Gmail · saved locally") : store.status
             ).lineLimit(2)
             Spacer()
-            Text("↑ ↓ emails · Esc back").fixedSize().help("Up and Down select emails. Escape or Left returns to the list. Shortcuts pause while you type.")
+            Text("↑ ↓ emails · U unread · R done · ⌘⌫ trash").fixedSize()
+              .help("Up and Down select emails. U marks read or unread. R (or E) archives and opens the next email. ⌘Delete moves to Trash with Undo. Escape or Left returns to the list. Shortcuts pause while you type.")
           }.font(.coveMetadata).foregroundStyle(Palette.muted).padding(12)
         }.frame(width: min(392, max(300, geometry.size.width * 0.328))).background(Palette.surface)
           .overlay(alignment: .bottom) { InboxMoveToast(store: store).padding(.bottom, 58) }

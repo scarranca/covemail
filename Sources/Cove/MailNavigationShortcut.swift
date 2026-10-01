@@ -31,6 +31,26 @@ struct MailNavigationShortcut: NSViewRepresentable {
         (window.firstResponder as? NSTextView)?.isEditable != true,
         (window.firstResponder as? NSTextField)?.isEditable != true,
         !(window.firstResponder is NSPopUpButton) else { return event }
+      // Letters by character, not key code, so they follow the user's keyboard layout.
+      switch event.charactersIgnoringModifiers?.lowercased() {
+      case "u":
+        // U: mark the open email read or unread.
+        guard let mail = selectedMail else { return event }
+        Task { await store.modify(mail, add: mail.isUnread ? [] : ["UNREAD"], remove: mail.isUnread ? ["UNREAD"] : []) }
+        return nil
+      case "r", "e":
+        // R (or E, as in Superhuman/Gmail): done. Archive it and open the next email.
+        guard let mail = selectedMail, mail.labels.contains("INBOX"), mail.labels.isDisjoint(with: ["TRASH", "DRAFT", "SPAM"])
+        else { return event }
+        let list = store.visible
+        let next = list.firstIndex(where: { $0.id == mail.id }).flatMap { index in
+          index + 1 < list.count ? list[index + 1].id : index > 0 ? list[index - 1].id : nil
+        }
+        Task { await store.archive(mail) }
+        store.selectedID = next
+        return nil
+      default: break
+      }
       switch event.keyCode {
       case 125, 126:
         guard !store.visible.isEmpty else { return event }
@@ -42,6 +62,9 @@ struct MailNavigationShortcut: NSViewRepresentable {
       default: return event
       }
       return nil
+    }
+    private var selectedMail: Mail? {
+      store.selectedID.flatMap { id in store.mails.first { $0.id == id } }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
