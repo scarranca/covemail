@@ -36,8 +36,15 @@ import Foundation
     /// The user also asked to archive that email.
     var archive: Bool
   }
+  /// A calendar search for meetings with one person, over a long range.
+  struct MeetingsQuery: Equatable {
+    let person: String
+    let start: Date
+    let end: Date
+  }
   enum Result {
     case email
+    case meetings(MeetingsQuery)
     case task(TaskProposal)
     case compose(ComposeRequest)
     case reply(String)
@@ -59,7 +66,7 @@ import Foundation
   private struct Plan: Decodable {
     enum Action: String, Decodable {
       case email, clarify, propose, find, agenda, compose, reply, remember, forget, contact, brief, followup
-      case navigate, bulk, view, move, task
+      case navigate, bulk, view, move, task, meetings
     }
     let action: Action
     var screen: String?
@@ -76,6 +83,7 @@ import Foundation
     var subject: String?
     var purpose: String?
     var intro: Bool?
+    var person: String?
     var due: String?
     var notes: String?
     var archive: Bool?
@@ -126,6 +134,19 @@ import Foundation
     switch plan.action {
     case .navigate: return navigation(plan)
     case .bulk: return bulk(plan, screen: screen)
+    case .meetings:
+      guard let person = (plan.person ?? plan.name)?.trimmingCharacters(in: .whitespacesAndNewlines), !person.isEmpty else {
+        return .clarification("Whose meetings should I look for?")
+      }
+      guard calendarAvailable else {
+        return .clarification("Connect Google Calendar in Connections so I can look for meetings with \(String(person.prefix(80))).")
+      }
+      var start = plan.start.flatMap(clock.date(from:)) ?? now.addingTimeInterval(-365 * 86_400)
+      var end = plan.end.flatMap(clock.date(from:)) ?? now.addingTimeInterval(90 * 86_400)
+      if end <= start { swap(&start, &end) }
+      // Google returns at most a few pages; keep the range to three years.
+      start = max(start, end.addingTimeInterval(-3 * 366 * 86_400))
+      return .meetings(MeetingsQuery(person: String(person.prefix(200)), start: start, end: end))
     case .task:
       guard let title = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
         return .clarification("What should the task say?")

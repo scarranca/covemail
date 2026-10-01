@@ -17,4 +17,22 @@ public enum CalendarSearch {
       return $0.id < $1.id
     }
   }
+
+  /// Events with a person: by address, the event's guests or organizer; by name, guests' names or the title.
+  public static func with(_ person: String, in events: [LocalEvent]) -> [LocalEvent] {
+    let wanted = person.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !wanted.isEmpty else { return [] }
+    if wanted.contains("@") {
+      return events.filter { event in
+        event.organizerEmail?.caseInsensitiveCompare(wanted) == .orderedSame
+          || (event.attendees ?? []).contains { $0.email?.caseInsensitiveCompare(wanted) == .orderedSame }
+      }
+    }
+    let terms = wanted.split(whereSeparator: \.isWhitespace).map(String.init)
+    return events.filter { event in
+      let text = ([event.title, event.organizerName ?? ""] + (event.attendees ?? []).flatMap { [$0.name ?? "", $0.email ?? ""] })
+        .joined(separator: "\n")
+      return terms.allSatisfy { text.localizedStandardContains($0) }
+    }
+  }
 }

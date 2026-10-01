@@ -60,4 +60,37 @@ import XCTest
     host.cacheDisplay(in: host.bounds, to: rep)
     try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-assistant-task-card.png"))
   }
+
+  func testMeetingsWithAPersonSearchesALongRangeWithoutAskingForDates() async throws {
+    let now = Date(timeIntervalSince1970: 1_790_800_000)
+    let router = AssistantCalendar(complete: { _ in #"{"action":"meetings","person":"contacto@grupo-amx.com"}"# },
+                                   calendar: { _, _ in [] }, calendarAvailable: true, now: now)
+    guard case .meetings(let query) = try await router.respond("i had meetings with manuel contacto@grupo-amx.com?", progress: { _ in })
+    else { return XCTFail("a person's meetings must not ask for a 31-day range") }
+    XCTAssertEqual(query.person, "contacto@grupo-amx.com")
+    XCTAssertEqual(query.start, now.addingTimeInterval(-365 * 86_400))
+    XCTAssertEqual(query.end, now.addingTimeInterval(90 * 86_400))
+    let disconnected = AssistantCalendar(complete: { _ in #"{"action":"meetings","person":"Manuel"}"# },
+                                         calendar: { _, _ in [] }, calendarAvailable: false, now: now)
+    guard case .clarification = try await disconnected.respond("meetings with Manuel?", progress: { _ in }) else { return XCTFail() }
+    XCTAssertTrue(AIIntent.planAssistant.instructions.contains(#"{"action":"meetings""#))
+  }
+
+  func testMeetingsAgendaRenders() throws {
+    let now = Date(timeIntervalSince1970: 1_790_800_000)
+    let events = [-200.0, -90, -12, 20].enumerated().map { index, days in
+      LocalEvent(title: ["Kickoff with Grupo AMX", "Pricing review", "Contract follow-up", "Quarterly check-in"][index],
+                 start: now.addingTimeInterval(days * 86_400), end: now.addingTimeInterval(days * 86_400 + 3_600))
+    }
+    var agenda = AssistantAgenda(start: now.addingTimeInterval(-365 * 86_400), end: now.addingTimeInterval(90 * 86_400),
+                                 events: events, totalCount: 4, now: now, timeZone: .current)
+    agenda.heading = "Meetings with Manuel"
+    XCTAssertEqual(agenda.days.count, 4, "a long range lists only the days with meetings")
+    let host = NSHostingView(rootView: AssistantAgendaView(agenda: agenda).padding(24).frame(width: 640).background(Color.white))
+    host.frame = NSRect(x: 0, y: 0, width: 640, height: host.fittingSize.height)
+    host.layoutSubtreeIfNeeded()
+    let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: rep)
+    try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-meetings-agenda.png"))
+  }
 }

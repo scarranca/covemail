@@ -117,7 +117,8 @@ public struct GoogleCalendarClient {
       let page = try JSONDecoder().decode(
         Page.self, from: await request(token: token, query: query))
       if maxPages != nil, (page.items ?? []).contains(where: {
-        $0.status != "cancelled" && ($0.local().map { $0.end <= $0.start } ?? true)
+        // A zero-length event (a reminder, a pin) can't overlap anything; only an event without times is unsafe.
+        $0.status != "cancelled" && ($0.local().map { $0.end < $0.start } ?? true)
       }) {
         throw CoveError.message("Calendar returned an incomplete event. Availability could not be verified.")
       }
@@ -133,6 +134,34 @@ public struct GoogleCalendarClient {
     } while pageToken != nil
     return result
   }
+  /// Google's free-text event search (titles, descriptions, locations, guests' names and addresses) over a
+  /// long range, for questions like "did I meet with Manuel this year?". Newest pages first are not
+  /// guaranteed, so it stops after `maxPages` and reports whether more remain.
+  public func search(token: String, query: String, from: Date, to: Date, maxPages: Int = 4) async throws
+    -> (events: [LocalEvent], complete: Bool) {
+    struct Page: Decodable { var items: [Event]?; var nextPageToken: String? }
+    var pageToken: String?
+    var result: [LocalEvent] = []
+    var pages = 0
+    repeat {
+      try Task.checkCancellation()
+      var items = [
+        URLQueryItem(name: "q", value: String(query.prefix(200))),
+        URLQueryItem(name: "timeMin", value: ISO8601DateFormatter().string(from: from)),
+        URLQueryItem(name: "timeMax", value: ISO8601DateFormatter().string(from: to)),
+        URLQueryItem(name: "singleEvents", value: "true"),
+        URLQueryItem(name: "orderBy", value: "startTime"),
+        URLQueryItem(name: "maxResults", value: "250"),
+      ]
+      if let pageToken { items.append(URLQueryItem(name: "pageToken", value: pageToken)) }
+      let page = try JSONDecoder().decode(Page.self, from: await request(token: token, query: items))
+      result += (page.items ?? []).compactMap { $0.local() }
+      pageToken = page.nextPageToken
+      pages += 1
+    } while pageToken != nil && pages < maxPages
+    return (result, pageToken == nil)
+  }
+
   public func create(token: String, title: String, start: Date, end: Date) async throws
     -> LocalEvent
   {

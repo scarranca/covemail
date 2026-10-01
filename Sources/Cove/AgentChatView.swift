@@ -1009,6 +1009,28 @@ struct AssistantView: View {
               exchanges[index].bulk = AssistantBulkState(plan: plan)
             }
             return
+          case .meetings(let query):
+            exchanges[index].isCalendar = true
+            exchanges[index].progress = "Searching your calendar for \(query.person)…"
+            let found = try await store.meetings(with: query.person, from: query.start, to: query.end)
+            guard !Task.isCancelled, store.accountEmail == account,
+              let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
+            let past = found.events.filter { $0.start < Date() }
+            var agenda = AssistantAgenda(start: query.start, end: query.end, events: Array(found.events.suffix(40)),
+              totalCount: found.events.count, now: Date(), timeZone: .current, sample: store.isSample)
+            agenda.heading = "Meetings with \(query.person)"
+            agenda.coverageNote = (store.isSample ? "Sample calendar · on this Mac" : "Searched your primary Google Calendar and events saved in Cove.")
+              + (found.complete ? "" : " Google returned only the first results; ask about a shorter range to see more.")
+            exchanges[index].agenda = agenda
+            let range = agenda.dateLabel
+            exchanges[index].answer = found.events.isEmpty
+              ? "I didn’t find meetings with \(query.person) between \(range)."
+              : "\(past.count) past meeting\(past.count == 1 ? "" : "s") with \(query.person)"
+                + (past.last.map { ", most recently " + $0.start.formatted(.dateTime.month(.abbreviated).day().year()) } ?? "")
+                + (found.events.count > past.count ? ", and \(found.events.count - past.count) upcoming." : ".")
+                + "\n\n" + agenda.plainText
+            exchanges[index].source = agenda.coverage
+            return
           case .task(let proposal):
             exchanges[index].task = AssistantTaskState(proposal: proposal)
             exchanges[index].answer = "Here’s your task. Nothing is created until you add it."

@@ -14,8 +14,16 @@ struct AssistantAgenda {
   let now: Date
   let timeZone: TimeZone
   var sample = false
+  /// Set for a person search ("Meetings with Manuel"): a long range listed by the days that have events.
+  var heading: String? = nil
+  var coverageNote: String? = nil
   var calendar: Calendar { var value = Calendar.current; value.timeZone = timeZone; return value }
   var days: [Day] {
+    if heading != nil || end.timeIntervalSince(start) > 32 * 86_400 {
+      let starts = Array(Set(events.map { calendar.startOfDay(for: max($0.start, start)) })).sorted()
+      return starts.map { day in Day(date: day, events: CalendarAgenda.events(events, on: day, calendar: calendar)) }
+        .filter { !$0.events.isEmpty }
+    }
     var date = calendar.startOfDay(for: start)
     var result: [Day] = []
     while date < end, result.count < 32 {
@@ -28,6 +36,7 @@ struct AssistantAgenda {
   }
   var singleDay: Bool { calendar.isDate(start, inSameDayAs: end.addingTimeInterval(-0.001)) }
   var title: String {
+    if let heading { return heading }
     if singleDay {
       if calendar.isDate(start, inSameDayAs: now) { return "Today’s schedule" }
       if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(start, inSameDayAs: tomorrow) { return "Tomorrow’s schedule" }
@@ -37,8 +46,11 @@ struct AssistantAgenda {
   }
   var dateLabel: String {
     if singleDay { return format(start, template: "EEEE MMM d") }
-    return format(start, template: "MMM d") + " – " + format(end.addingTimeInterval(-0.001), template: "MMM d yyyy")
+    return format(start, template: spansYears ? "MMM d yyyy" : "MMM d") + " – " + format(end.addingTimeInterval(-0.001), template: "MMM d yyyy")
   }
+  var spansYears: Bool { calendar.component(.year, from: start) != calendar.component(.year, from: end.addingTimeInterval(-0.001)) }
+  /// Day headings carry the year when the range crosses one.
+  var dayTemplate: String { spansYears ? "EEEE MMM d yyyy" : "EEEE MMM d" }
   var zoneLabel: String {
     timeZone.secondsFromGMT(for: start) == timeZone.secondsFromGMT(for: end.addingTimeInterval(-0.001))
       ? timeZone.abbreviation(for: start) ?? timeZone.identifier : timeZone.identifier
@@ -51,11 +63,11 @@ struct AssistantAgenda {
     let allDay = events.filter { $0.allDay == true }.count
     return "\(totalCount) \(totalCount == 1 ? "event" : "events")" + (allDay > 0 ? " · \(allDay) all day" : "")
   }
-  var coverage: String { sample ? "Sample calendar · on this Mac" : "Checked your primary Google Calendar and events saved in Cove." }
+  var coverage: String { coverageNote ?? (sample ? "Sample calendar · on this Mac" : "Checked your primary Google Calendar and events saved in Cove.") }
   var plainText: String {
     let sections = days.map { day in
       let rows = day.events.map { "• \(timeLabel($0, on: day.date)) — \($0.title)\(overlaps($0, on: day) ? " (overlaps another event)" : "")" }.joined(separator: "\n")
-      return (singleDay ? "" : format(day.date, template: "EEEE MMM d") + "\n") + rows
+      return (singleDay ? "" : format(day.date, template: dayTemplate) + "\n") + rows
     }
     return ([title + " · " + dateLabel + " · " + zoneLabel, rangeLabel, summary,
              events.isEmpty ? "No events found in this range." : sections.joined(separator: "\n\n"),
@@ -110,7 +122,7 @@ struct AssistantAgendaView: View {
       ForEach(agenda.days) { day in
         VStack(alignment: .leading, spacing: 0) {
           if !agenda.singleDay {
-            Text(agenda.format(day.date, template: "EEEE MMM d")).font(.coveSubheading)
+            Text(agenda.format(day.date, template: agenda.dayTemplate)).font(.coveSubheading)
               .padding(.bottom, 10).accessibilityAddTraits(.isHeader)
           }
           ForEach(day.events) { event in

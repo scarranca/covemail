@@ -1241,6 +1241,26 @@ import SwiftUI
     return fetched + events.filter { $0.googleID == nil && $0.end > from && $0.start < to }
   }
 
+  /// Meetings with one person over a long range (Ask Cove's meetings lookup), newest last.
+  func meetings(with person: String, from: Date, to: Date) async throws -> (events: [LocalEvent], complete: Bool) {
+    guard entered, to > from else { throw CoveError.message("Choose a valid date range.") }
+    if isSample {
+      return (CalendarSearch.with(person, in: events.filter { $0.end > from && $0.start < to }).sorted { $0.start < $1.start }, true)
+    }
+    guard calendarConnected else { throw CoveError.message("Google Calendar is not connected.") }
+    let generation = mailboxGeneration
+    let token: String
+    if let gmailTokenProvider { token = try await gmailTokenProvider() }
+    else { token = try await auth.token() }
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration else { throw CancellationError() }
+    let found = try await calendarClient.search(token: token, query: person, from: from, to: to)
+    try Task.checkCancellation()
+    guard generation == mailboxGeneration, calendarConnected else { throw CancellationError() }
+    let local = events.filter { $0.googleID == nil && $0.end > from && $0.start < to }
+    return (CalendarSearch.with(person, in: found.events + local).sorted { $0.start < $1.start }, found.complete)
+  }
+
   func aiSearchMail(_ query: String) async throws -> [Mail] {
     guard entered, !isSample else {
       throw CoveError.message("Connect Gmail to search beyond the sample mailbox.")

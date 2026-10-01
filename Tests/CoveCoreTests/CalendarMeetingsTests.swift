@@ -1,0 +1,51 @@
+import XCTest
+
+@testable import CoveCore
+
+final class CalendarMeetingsTests: XCTestCase {
+  func testZeroLengthEventsNoLongerBreakTheBoundedRead() async throws {
+    let item = #"{"id":"pin","summary":"Reminder","start":{"dateTime":"2026-09-24T18:00:00Z"},"end":{"dateTime":"2026-09-24T18:00:00Z"}}"#
+    let client = GoogleCalendarClient(transport: MockHTTP { _ in Data("{\"items\":[\(item)]}".utf8) })
+    let events = try await client.events(token: "synthetic", from: Date(timeIntervalSince1970: 1_790_000_000),
+                                         to: Date(timeIntervalSince1970: 1_790_100_000), maxPages: 2)
+    XCTAssertEqual(events.count, 1)
+  }
+
+  func testSearchSendsTheQueryAndKeepsGoingAcrossPages() async throws {
+    let seen = Locked<[URLRequest]>([])
+    let client = GoogleCalendarClient(transport: MockHTTP { request in
+      seen.mutate { $0.append(request) }
+      let second = request.url?.query?.contains("pageToken=p2") == true
+      return Data((second
+        ? #"{"items":[{"id":"b","summary":"Pricing","start":{"dateTime":"2026-05-02T16:00:00Z"},"end":{"dateTime":"2026-05-02T17:00:00Z"}}]}"#
+        : #"{"items":[{"id":"a","summary":"Kickoff","start":{"dateTime":"2026-02-02T16:00:00Z"},"end":{"dateTime":"2026-02-02T17:00:00Z"}}],"nextPageToken":"p2"}"#).utf8)
+    })
+    let found = try await client.search(token: "synthetic", query: "contacto@grupo-amx.com",
+                                        from: Date(timeIntervalSince1970: 1_760_000_000), to: Date(timeIntervalSince1970: 1_800_000_000))
+    XCTAssertEqual(found.events.map(\.title), ["Kickoff", "Pricing"])
+    XCTAssertTrue(found.complete)
+    let query = try XCTUnwrap(seen.value.first?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.queryItems)
+    XCTAssertEqual(query.first { $0.name == "q" }?.value, "contacto@grupo-amx.com")
+  }
+
+  func testPersonMatchingByAddressOrName() {
+    var withManuel = LocalEvent(title: "Weekly sync", start: Date(), end: Date().addingTimeInterval(1800))
+    withManuel.attendees = [CalendarAttendee(name: "Manuel Pérez", email: "contacto@grupo-amx.com", response: "accepted", isSelf: nil)]
+    var organized = LocalEvent(title: "Contract", start: Date(), end: Date().addingTimeInterval(1800))
+    organized.organizerEmail = "CONTACTO@grupo-amx.com"
+    let mentions = LocalEvent(title: "Notes about contacto@grupo-amx.com", start: Date(), end: Date().addingTimeInterval(1800))
+    let other = LocalEvent(title: "Lunch", start: Date(), end: Date().addingTimeInterval(1800))
+    let events = [withManuel, organized, mentions, other]
+    XCTAssertEqual(CalendarSearch.with("contacto@grupo-amx.com", in: events).map(\.title), ["Weekly sync", "Contract"],
+                   "an address must be a guest or the organizer, not a word in the title")
+    XCTAssertEqual(CalendarSearch.with("manuel", in: events).map(\.title), ["Weekly sync"])
+  }
+}
+
+final class Locked<Value>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: Value
+  init(_ value: Value) { stored = value }
+  var value: Value { lock.lock(); defer { lock.unlock() }; return stored }
+  func mutate(_ change: (inout Value) -> Void) { lock.lock(); change(&stored); lock.unlock() }
+}
