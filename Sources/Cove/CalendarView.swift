@@ -1359,12 +1359,13 @@ struct EventAskLine: View {
           .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       }
       if task != nil { WritingThinkingBar(stage: "Reading your event…").transition(.opacity) }
-      HStack(spacing: 10) {
+      HStack(alignment: .center, spacing: 10) {
         Image(systemName: "sparkles").font(.cove(size: 14)).foregroundStyle(Palette.body)
           .frame(width: 24, height: 28).accessibilityHidden(true)
-        TextField("", text: $text, prompt: Text("Describe it… “Lunch with Maya Friday at 1, add a Meet”").foregroundStyle(Palette.muted),
-                  axis: .vertical)
+        // A one-line prompt: a wrapped placeholder makes the field taller and pushes the text above the icons.
+        TextField("", text: $text, prompt: Text("Describe the event…").foregroundStyle(Palette.muted), axis: .vertical)
           .lineLimit(1...3).textFieldStyle(.plain).font(.coveBody).focused($focused)
+          .help("For example: lunch with Maya Friday at 1, add a Meet")
           .onSubmit { ask() }.onExitCommand { if task == nil { close() } }
           .disabled(task != nil).accessibilityLabel("Describe the event")
         if task != nil {
