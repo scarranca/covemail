@@ -74,9 +74,9 @@ struct MailboxView: View {
             Text(error).font(.coveMetadata).foregroundStyle(Palette.danger)
               .fixedSize(horizontal: false, vertical: true).padding(12)
           }
-          if store.visible.isEmpty, store.effectiveInboxTab == .important {
+          if store.visible.isEmpty, let tab = store.effectiveInboxTab {
             InboxDuskView(title: "All caught up",
-                          detail: store.labelUnreadOnly ? "Nothing unread in Important." : "Nothing in Important right now.")
+                          detail: store.labelUnreadOnly ? "Nothing unread in \(tab.title)." : "Nothing in \(tab.title) right now.")
               .frame(maxWidth: .infinity, maxHeight: .infinity)
           } else if store.visible.isEmpty {
             VStack(spacing: 12) {
