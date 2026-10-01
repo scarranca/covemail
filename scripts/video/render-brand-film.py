@@ -17,7 +17,9 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 FONT = os.path.join(ROOT, "Sources/Cove/Resources/Inter.ttf")
 PORTRAIT = os.path.join(ROOT, "Sources/Cove/Resources/agent-portrait.jpg")
-W, H, SS, FPS, SEG = 1920, 1080, 2, 30, 12.0
+W, H, SS, FPS, SEG = 1920, 1080, 2, 30, 9.0
+# Scenes are written on a 12-unit timeline and played back in SEG seconds, so pacing scales in one place.
+BEAT = 12.0
 TOTAL = 4 * SEG
 FRAMES = int(TOTAL * FPS)
 
@@ -31,6 +33,17 @@ TIDE = [(120, 217, 201), (138, 186, 240), (186, 161, 237), (230, 168, 201), (242
 def smooth(x):
     x = min(1.0, max(0.0, x))
     return x * x * (3 - 2 * x)
+
+
+def ease_out(x):
+    """Expo-style ease out: quick start, long gentle landing, like launch titles."""
+    x = min(1.0, max(0.0, x))
+    return 1 - (1 - x) ** 4
+
+
+def ease_in(x):
+    x = min(1.0, max(0.0, x))
+    return x ** 3
 
 
 def window(t, start, end, fade=0.9):
@@ -136,6 +149,35 @@ def text(draw, xy, value, size, color, alpha, weight="Medium", anchor="la"):
     draw.text((xy[0] * SS, xy[1] * SS), value, font=F(size, weight), fill=color + (int(255 * alpha),), anchor=anchor)
 
 
+def reveal(layer, x, y, value, size, color, local, start, end=BEAT, weight="Medium", stagger=0.08, center=False):
+    """Launch-style title: each word slides up from behind its own baseline mask, one after another, and leaves
+    upward the same way. `end=None` keeps it on screen to the end of the movement."""
+    f = F(size, weight)
+    words = value.split(" ")
+    space = f.getlength(" ")
+    widths = [f.getlength(word) for word in words]
+    ascent, descent = f.getmetrics()
+    box = ascent + descent
+    cursor = x * SS - ((sum(widths) + space * (len(words) - 1)) / 2 if center else 0)
+    top = y * SS
+    stop = BEAT if end is None else end
+    for i, word in enumerate(words):
+        enter = ease_out((local - start - i * stagger) / 0.95)
+        leave = ease_in((local - (stop - 0.75) - i * stagger * 0.5) / 0.6)
+        alpha = enter * (1 - leave)
+        if alpha > 0.01:
+            image = Image.new("RGBA", (int(widths[i]) + 6, box + 6), (0, 0, 0, 0))
+            ImageDraw.Draw(image).text((0, 0), word, font=f, fill=color + (int(255 * min(1, alpha * 1.15)),))
+            shift = int((1 - enter) * box * 0.95) - int(leave * box * 0.5)
+            if shift >= 0:
+                part = image.crop((0, 0, image.width, image.height - shift))
+                layer.alpha_composite(part, (int(cursor), int(top + shift)))
+            else:
+                part = image.crop((0, -shift, image.width, image.height))
+                layer.alpha_composite(part, (int(cursor), int(top)))
+        cursor += widths[i] + space
+
+
 def dot(draw, x, y, r, color, alpha):
     if alpha <= 0.01:
         return
@@ -177,13 +219,13 @@ def frame(n):
     image = BASE.copy()
     layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    segment, local = int(t // SEG), t % SEG
+    segment, local = int(t // SEG), (t % SEG) * BEAT / SEG
 
     if segment == 0:  # Settle: scattered dots drift into the tide.
         counts = [3, 5, 4, 7, 6, 9, 8, 6, 7, 10, 8, 6, 7, 5]
         points, xs = tide_points(counts, 120, 610, 1680, 360, t)
         settle = smooth((local - 0.4) / 6.5)
-        alpha = window(local, 0, SEG, 1.1)
+        alpha = window(local, 0, BEAT, 1.1)
         rng = np.random.default_rng(11)
         for (px, py, r, op) in points:
             sx = rng.uniform(0, W, len(px))
@@ -195,28 +237,28 @@ def frame(n):
             gy = sy + (py - sy) * settle + jy
             for i in range(0, len(gx)):
                 dot(draw, gx[i], gy[i], r, tide_color(xs[i]), op * alpha * (0.35 + 0.65 * settle))
-        text(draw, (160, 300), "Find your focus.", 92, INK, window(local, 4.2, SEG, 1.2))
-        text(draw, (160, 410), "Let the rest settle.", 92, MUTED, window(local, 6.0, SEG, 1.2))
+        reveal(layer, 160, 300, "Find your focus.", 92, INK, local, 2.6)
+        reveal(layer, 160, 410, "Let the rest settle.", 92, MUTED, local, 3.8)
 
     elif segment == 1:  # One calm place: the tide as a horizon, the work above it.
         counts = [6, 7, 5, 8, 9, 7, 6, 8, 10, 9, 7, 8, 6, 7]
         points, xs = tide_points(counts, 120, 700, 1680, 300, t)
-        alpha = window(local, 0, SEG, 1.1)
+        alpha = window(local, 0, BEAT, 1.1)
         for (px, py, r, op) in points:
             for i in range(len(px)):
                 dot(draw, px[i], py[i], r, tide_color(xs[i]), op * alpha)
-        text(draw, (160, 230), "Your email and calendar.", 76, INK, window(local, 0.8, SEG, 1.2))
-        text(draw, (160, 325), "One calm workspace.", 76, MUTED, window(local, 2.2, SEG, 1.2))
+        reveal(layer, 160, 230, "Your email and calendar.", 76, INK, local, 0.6)
+        reveal(layer, 160, 325, "One calm workspace.", 76, MUTED, local, 1.6)
         x = 160
         for i, (label, icon) in enumerate([("Ask Cove, right in your email", "✦"), ("Important and Other", None),
                                            ("Tasks from your email", None), ("Calendar you can drag", None)]):
-            a = window(local, 4.0 + i * 0.9, SEG, 1.0)
-            rise = (1 - smooth((local - 4.0 - i * 0.9) / 1.0)) * 14
+            a = window(local, 3.2 + i * 0.45, BEAT, 0.7)
+            rise = (1 - ease_out((local - 3.2 - i * 0.45) / 0.9)) * 26
             width = pill(draw, x, 470 + rise, label, a, icon)
             x += (width or 0) + 16
 
     elif segment == 2:  # Agents: the portrait gathers from loose dots; a soft light reads down the face.
-        alpha = window(local, 0, SEG, 1.1)
+        alpha = window(local, 0, BEAT, 1.1)
         gather = smooth((local - 0.3) / 4.0)
         scan_y = PORTRAIT_BOX[1] + ((local % 6) / 6) * PORTRAIT_BOX[2] * 1.3 - PORTRAIT_BOX[2] * 0.15
         rng = np.random.default_rng(23)
@@ -230,16 +272,15 @@ def frame(n):
             lit = min(1, ink + near * 0.22)
             shade = int(255 * (0.72 + 0.24 * lit))
             dot(draw, gx, gy, 0.7 + 1.9 * lit, (shade, shade, min(255, shade + 4)), (0.2 + 0.75 * lit) * alpha)
-        text(draw, (160, 300), "Agents", 26, VIOLET, window(local, 1.2, SEG, 1.0))
-        text(draw, (160, 350), "Work your inbox", 84, INK, window(local, 1.6, SEG, 1.2))
-        text(draw, (160, 450), "for you.", 84, INK, window(local, 2.2, SEG, 1.2))
+        reveal(layer, 160, 300, "Agents", 26, VIOLET, local, 1.0)
+        reveal(layer, 160, 350, "Work your inbox", 84, INK, local, 1.3)
+        reveal(layer, 160, 450, "for you.", 84, INK, local, 1.9)
         captions = ["Invoice #2048 from Acme  →  Finance / Invoices", "Client asks about delivery  →  reply drafted",
                     "Flight confirmation  →  Travel"]
         for i, line in enumerate(captions):
-            start = 4.6 + i * 2.2
-            a = window(local, start, start + 2.4 if i < 2 else SEG, 0.6)
-            text(draw, (160, 620 + (1 - smooth((local - start) / 0.6)) * 10), line, 30, WARM, a)
-        text(draw, (160, 690), "Nothing is ever sent for you.", 26, MUTED, window(local, 6.0, SEG, 1.2), weight="Regular")
+            start = 3.6 + i * 2.4
+            reveal(layer, 160, 620, line, 30, WARM, local, start, start + 2.4 if i < 2 else None, stagger=0.04)
+        reveal(layer, 160, 690, "Nothing is ever sent for you.", 26, MUTED, local, 5.2, weight="Regular", stagger=0.04)
 
     else:  # Momentum, then the mark.
         counts = [1, 0, 2, 1, 3, 0, 2, 4, 1, 3, 2, 5, 3, 4]
@@ -249,9 +290,9 @@ def frame(n):
         for (px, py, r, op) in points:
             for i in range(len(px)):
                 dot(draw, px[i], py[i], r, tide_color(xs[i]), op * part)
-        text(draw, (160, 230), "Keep the promises", 76, INK, window(local, 1.4, 7.2, 1.2))
-        text(draw, (160, 325), "in your email.", 76, MUTED, window(local, 2.4, 7.2, 1.2))
-        close = window(local, 7.6, SEG, 1.2)
+        reveal(layer, 160, 230, "Keep the promises", 76, INK, local, 1.0, 7.0)
+        reveal(layer, 160, 325, "in your email.", 76, MUTED, local, 1.8, 7.0)
+        close = window(local, 7.6, BEAT, 1.2)
         if close > 0.01:
             size = 96 * SS
             logo = LOGO.resize((size, size), Image.LANCZOS)
@@ -259,12 +300,11 @@ def frame(n):
             word = F(96)
             word_w = draw.textlength("cove", font=word)
             total = size + 26 * SS + word_w
-            lx = int(W * SS / 2 - total / 2)
+            lx = int(W * SS / 2 - total / 2 - (1 - ease_out((local - 7.6) / 1.4)) * 40 * SS)
             layer.alpha_composite(logo, (lx, int(430 * SS)))
             draw.text((lx + size + 26 * SS, 478 * SS), "cove", font=word, fill=INK + (int(255 * close),), anchor="lm")
-            text(draw, (W / 2, 610), "Find your focus. Let the rest settle.", 34, MUTED, window(local, 8.4, SEG, 1.2),
-                 weight="Regular", anchor="mm")
-            text(draw, (W / 2, 690), "covemail.xyz", 26, (210, 212, 220), window(local, 9.2, SEG, 1.2), anchor="mm")
+            reveal(layer, W / 2, 588, "Find your focus. Let the rest settle.", 34, MUTED, local, 8.4, weight="Regular", center=True, stagger=0.05)
+            reveal(layer, W / 2, 672, "covemail.xyz", 26, (210, 212, 220), local, 9.3, center=True)
 
     image.alpha_composite(layer)
     return np.asarray(image.convert("RGB").resize((W, H), Image.LANCZOS), dtype=np.uint8).tobytes()
