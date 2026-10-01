@@ -112,4 +112,15 @@ actor TasksHTTP: HTTPTransport {
     let received = Mail(id: "r", sender: "Ana", senderEmail: "ana@example.com", subject: "Contract", body: "x")
     XCTAssertEqual(TaskDetection.fallback(for: received, accountEmail: "me@example.com").title, "Reply to Ana: Contract")
   }
+
+  func testAutomatedPaymentRequestJevCallsActionableIsChecked() {
+    var request = Mail(id: "pay", sender: "Siegrist Contadores vía Gigstack Pro", senderEmail: "pagos@gigstack.pro",
+      subject: "Solicitud de pago", body: "Por favor realiza el pago por $4,800.00 MXN", labels: ["INBOX"], isBulkOrAutomated: true)
+    XCTAssertFalse(TaskDetection.eligible(request, accountEmail: "me@example.com"), "automated mail is skipped by default")
+    request.decision = Decision(category: .purchases, confidence: 0.8, needsReply: 0.8, urgent: 0.2, model: "t")
+    XCTAssertTrue(TaskDetection.eligible(request, accountEmail: "me@example.com"), "Jev said action is likely")
+    request.decision = Decision(category: .newsletters, confidence: 0.8, needsReply: 0.8, urgent: 0.2, model: "t")
+    XCTAssertFalse(TaskDetection.eligible(request, accountEmail: "me@example.com"))
+    XCTAssertTrue(TaskDetection.gateInstructions.contains("request to pay"))
+  }
 }

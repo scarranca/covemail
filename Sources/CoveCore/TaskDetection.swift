@@ -33,6 +33,8 @@ public enum TaskDetection {
     else { return false }
     // The user's own sent mail is checked for promises they made.
     if mail.labels.contains("SENT") || mail.senderEmail.caseInsensitiveCompare(accountEmail) == .orderedSame { return true }
+    // Jev already judged it actionable (a payment request, a form to sign): automated senders count too.
+    if let decision = mail.decision, decision.needsReply >= 0.65, decision.category != .newsletters { return true }
     if mail.isBulkOrAutomated == true { return false }
     if let category = mail.decision?.category, [.newsletters, .updates, .purchases].contains(category) { return false }
     return InboxSplit.split(mail, senderRules: senderRules) == .important
@@ -42,8 +44,10 @@ public enum TaskDetection {
   public static let gateInstructions = """
     Match emails that contain a concrete follow-up task: either a commitment the writer makes to do something later \
     ("I'll add this to your account", "I will send the contract tomorrow"), or a request asking the reader to do \
-    something specific ("can you send the report by Friday?"). Do not match newsletters, marketing, sales outreach, \
-    automated notifications, receipts, completed actions, or vague pleasantries like "let's catch up".
+    something specific ("can you send the report by Friday?"). A request to pay an invoice or payment, sign, \
+    approve or submit something counts even when a system sent it ("por favor realiza el pago de $4,800"). \
+    Do not match newsletters, marketing, sales outreach, informational notifications, receipts for things already \
+    paid, completed actions, or vague pleasantries like "let's catch up".
     """
 
   /// Parses the model's JSON strictly: at most 5 tasks, bounded titles, only valid dates.

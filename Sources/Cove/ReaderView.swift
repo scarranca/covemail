@@ -371,6 +371,12 @@ struct ReaderView: View {
         .buttonStyle(SecondaryButton()).disabled(store.busy || current.labels.contains("DRAFT"))
         .help("Follow-up flags sync with Gmail’s stars")
       snoozeMenu(title: "Remind me")
+      // An actionable email always offers a task here, whatever the background check concluded.
+      if (current.decision?.needsReply ?? 0) >= 0.35 || current.taskCheck?.waiting == true,
+        current.taskCheck?.createdTaskIDs == nil, !current.labels.contains("DRAFT"), !store.isSample {
+        Button { store.taskSuggestionMail = current } label: { Label("Create task", systemImage: "checklist") }
+          .buttonStyle(SecondaryButton()).help("Turn this email into a Google Task")
+      }
     }
   }
   private var evidenceActions: some View {
