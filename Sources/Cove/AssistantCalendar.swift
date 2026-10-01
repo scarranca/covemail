@@ -11,6 +11,8 @@ import Foundation
   var sample = false
   /// The user's Gmail labels, to validate navigation and label changes by name.
   var labels: [GmailLabel] = []
+  /// The signed-in address, so "Manuel" can resolve to the thread's other participant, not the user.
+  var accountEmail = ""
 
   struct Proposal: Equatable {
     let title: String
@@ -38,7 +40,10 @@ import Foundation
   }
   /// A calendar search for meetings with one person, over a long range.
   struct MeetingsQuery: Equatable {
+    /// What to search: an address when Cove could tell who was meant, otherwise the name as typed.
     let person: String
+    /// How to show it: "Manuel (contacto@grupo-amx.com)".
+    var label: String
     let start: Date
     let end: Date
   }
@@ -146,7 +151,12 @@ import Foundation
       if end <= start { swap(&start, &end) }
       // Google returns at most a few pages; keep the range to three years.
       start = max(start, end.addingTimeInterval(-3 * 366 * 86_400))
-      return .meetings(MeetingsQuery(person: String(person.prefix(200)), start: start, end: end))
+      let typed = String(person.prefix(200))
+      // "Manuel" with an email open means someone in that thread: search their address, and say so.
+      if !typed.contains("@"), let match = ContactDirectory.participant(named: typed, in: mails, accountEmail: accountEmail) {
+        return .meetings(MeetingsQuery(person: match.email, label: "\(typed.capitalized) (\(match.email))", start: start, end: end))
+      }
+      return .meetings(MeetingsQuery(person: typed, label: typed, start: start, end: end))
     case .task:
       guard let title = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
         return .clarification("What should the task say?")

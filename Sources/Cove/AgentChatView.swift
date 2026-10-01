@@ -36,11 +36,16 @@ struct AssistantView: View {
   /// Embedded in the reader: the conversation is about this email and closes in place.
   var pinnedMailID: String?
   var onClose: (() -> Void)?
+  /// Embedded only: grow the panel to the reader's height, or back.
+  var onExpand: (() -> Void)?
+  var expanded = false
   private var embedded: Bool { pinnedMailID != nil }
   init(store: AppStore, availableSize: CGSize, settings: AIProviderSettings = .shared,
        initialExchanges: [ChatExchange] = [], initialQuery: String = "",
-       pinnedMailID: String? = nil, onClose: (() -> Void)? = nil) {
+       pinnedMailID: String? = nil, onClose: (() -> Void)? = nil, onExpand: (() -> Void)? = nil, expanded: Bool = false) {
     self.store = store
+    self.onExpand = onExpand
+    self.expanded = expanded
     self.pinnedMailID = pinnedMailID
     self.onClose = onClose
     self.availableSize = availableSize
@@ -300,6 +305,13 @@ struct AssistantView: View {
         Button("New") {
           exchanges = []; expandedSources = []; query = ""; actionNotice = nil; researchedIDs = []; composerFocused = true
         }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).disabled(working)
+      }
+      if let onExpand {
+        Button(action: onExpand) {
+          Image(systemName: expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+            .font(.cove(size: 11)).frame(width: 24, height: 24)
+        }.buttonStyle(.plain).foregroundStyle(Palette.body)
+          .help(expanded ? "Make smaller" : "Make bigger").accessibilityLabel(expanded ? "Make Ask Cove smaller" : "Make Ask Cove bigger")
       }
       Button { close() } label: { Image(systemName: "xmark").font(.cove(size: 12)).frame(width: 24, height: 24) }
         .buttonStyle(.plain).foregroundStyle(Palette.body).help("Close").accessibilityLabel("Close Ask Cove")
@@ -968,7 +980,7 @@ struct AssistantView: View {
             try await aiSettings.complete(prompt, provider: provider, model: model)
           }, calendar: { from, to in
             try await store.writingCalendar(from: from, to: to)
-          }, calendarAvailable: store.calendarConnected || store.isSample, sample: store.isSample, labels: store.gmailLabels)
+          }, calendarAvailable: store.calendarConnected || store.isSample, sample: store.isSample, labels: store.gmailLabels, accountEmail: store.accountEmail)
           let result = try await router.respond(question, mails: selectedMails, history: conversationHistory,
                                                 previousSources: !previousSources.isEmpty, screen: screenContext) { progress in
             if let index = exchanges.firstIndex(where: { $0.id == exchange.id }) {
@@ -1011,21 +1023,21 @@ struct AssistantView: View {
             return
           case .meetings(let query):
             exchanges[index].isCalendar = true
-            exchanges[index].progress = "Searching your calendar for \(query.person)…"
+            exchanges[index].progress = "Searching your calendar for \(query.label)…"
             let found = try await store.meetings(with: query.person, from: query.start, to: query.end)
             guard !Task.isCancelled, store.accountEmail == account,
               let index = exchanges.firstIndex(where: { $0.id == exchange.id }) else { return }
             let past = found.events.filter { $0.start < Date() }
             var agenda = AssistantAgenda(start: query.start, end: query.end, events: Array(found.events.suffix(40)),
               totalCount: found.events.count, now: Date(), timeZone: .current, sample: store.isSample)
-            agenda.heading = "Meetings with \(query.person)"
+            agenda.heading = "Meetings with \(query.label)"
             agenda.coverageNote = (store.isSample ? "Sample calendar · on this Mac" : "Searched your primary Google Calendar and events saved in Cove.")
               + (found.complete ? "" : " Google returned only the first results; ask about a shorter range to see more.")
             exchanges[index].agenda = agenda
             let range = agenda.dateLabel
             exchanges[index].answer = found.events.isEmpty
-              ? "I didn’t find meetings with \(query.person) between \(range)."
-              : "\(past.count) past meeting\(past.count == 1 ? "" : "s") with \(query.person)"
+              ? "I didn’t find meetings with \(query.label) between \(range)."
+              : "\(past.count) past meeting\(past.count == 1 ? "" : "s") with \(query.label)"
                 + (past.last.map { ", most recently " + $0.start.formatted(.dateTime.month(.abbreviated).day().year()) } ?? "")
                 + (found.events.count > past.count ? ", and \(found.events.count - past.count) upcoming." : ".")
                 + "\n\n" + agenda.plainText

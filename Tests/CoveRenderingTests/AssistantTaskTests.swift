@@ -93,4 +93,19 @@ import XCTest
     host.cacheDisplay(in: host.bounds, to: rep)
     try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-meetings-agenda.png"))
   }
+
+  func testANameResolvesToTheOpenThreadsParticipant() async throws {
+    var mail = Mail(id: "amx", sender: "Yidem Oviedo", senderEmail: "yidem@gigstack.io", subject: "Grupo AMX: tu cuenta Business", body: "Hola")
+    mail.to = "AMX <contacto@grupo-amx.com>"
+    mail.cc = "Santiago <santiago.carranca@gigstack.io>"
+    let router = AssistantCalendar(complete: { _ in #"{"action":"meetings","person":"manuel"}"# }, calendar: { _, _ in [] },
+                                   calendarAvailable: true, accountEmail: "santiago.carranca@gigstack.io")
+    guard case .meetings(let query) = try await router.respond("i had meetings with manuel?", mails: [mail], progress: { _ in }) else { return XCTFail() }
+    XCTAssertEqual(query.person, "contacto@grupo-amx.com", "the only participant outside the user's company")
+    XCTAssertEqual(query.label, "Manuel (contacto@grupo-amx.com)")
+    // A name that matches someone in the thread wins; nothing open means the name is searched as typed.
+    XCTAssertEqual(ContactDirectory.participant(named: "Yidem", in: [mail], accountEmail: "santiago.carranca@gigstack.io")?.email, "yidem@gigstack.io")
+    guard case .meetings(let loose) = try await router.respond("meetings with manuel?", progress: { _ in }) else { return XCTFail() }
+    XCTAssertEqual(loose.person, "manuel")
+  }
 }

@@ -13,6 +13,8 @@ struct ReaderView: View {
   /// What this reader last wrote, so its own delayed save isn't mistaken for a reply written elsewhere.
   @State private var savedReply = ""
   @State private var confirmUnsubscribe = false
+  @AppStorage("askPanelHeight") private var askPanelHeight: Double = 0
+  @State private var askDrag: CGFloat = 0
   @State var askingCove = false
   @State private var unsubscribing = false
   @State private var unsubscribeNote: (text: String, failed: Bool)?
@@ -437,18 +439,52 @@ struct ReaderView: View {
           Spacer(minLength: 0)
           AssistantView(store: store, availableSize: CGSize(width: geometry.size.width, height: geometry.size.height),
                         pinnedMailID: current.id,
-                        onClose: { withAnimation(.easeOut(duration: 0.2)) { askingCove = false } })
-            .frame(height: min(460, max(260, geometry.size.height * 0.5)))
+                        onClose: { withAnimation(.easeOut(duration: 0.2)) { askingCove = false } },
+                        onExpand: { toggleAskSize(maxHeight: geometry.size.height - 28) },
+                        expanded: askHeight(in: geometry.size.height) >= geometry.size.height - 68)
+            .frame(height: askHeight(in: geometry.size.height))
+            .overlay(alignment: .top) { askResizeHandle(maxHeight: geometry.size.height - 28) }
             .background(Palette.canvas)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Palette.line))
             .shadow(color: .black.opacity(0.10), radius: 18, y: 6)
-            .frame(maxWidth: 760)
+            // Tall means "give me room": it also widens to the reader.
+            .frame(maxWidth: askHeight(in: geometry.size.height) >= geometry.size.height - 68 ? .infinity : 760)
             .padding(.horizontal, 20).padding(.bottom, 14)
             .frame(maxWidth: .infinity)
         }
       }.transition(.move(edge: .bottom).combined(with: .opacity))
     }
+  }
+  /// The chat's height: dragged or toggled by the user and remembered, never taller than the reader.
+  private func askHeight(in available: CGFloat) -> CGFloat {
+    let preferred = askPanelHeight > 0 ? askPanelHeight + askDrag : min(460, max(260, available * 0.5))
+    return min(max(220, preferred), max(220, available - 28))
+  }
+  private func toggleAskSize(maxHeight: CGFloat) {
+    withAnimation(.easeOut(duration: 0.2)) {
+      askPanelHeight = askHeight(in: maxHeight + 28) >= maxHeight - 40 ? 460 : maxHeight
+    }
+  }
+  /// A grabber on the top edge: drag to resize, double-click to switch between tall and compact.
+  private func askResizeHandle(maxHeight: CGFloat) -> some View {
+    Capsule().fill(Palette.line).frame(width: 36, height: 4)
+      .frame(width: 120, height: 14).contentShape(Rectangle())
+      .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+      .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+        .onChanged { value in
+          if askPanelHeight <= 0 { askPanelHeight = askHeight(in: maxHeight + 28) }
+          askDrag = -value.translation.height
+        }
+        .onEnded { _ in
+          askPanelHeight = min(max(220, askPanelHeight + askDrag), max(220, maxHeight))
+          askDrag = 0
+        })
+      .onTapGesture(count: 2) { toggleAskSize(maxHeight: maxHeight) }
+      .help("Drag to resize · double-click to expand")
+      .accessibilityLabel("Resize Ask Cove")
+      .accessibilityAction(named: "Expand") { askPanelHeight = maxHeight }
+      .accessibilityAction(named: "Shrink") { askPanelHeight = 300 }
   }
   var replyEditor: some View {
     VStack(alignment: .leading, spacing: 0) {

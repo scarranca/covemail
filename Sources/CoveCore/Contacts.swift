@@ -117,7 +117,7 @@ public enum ContactDirectory {
   }
 
   /// Split recipient lists without treating a comma inside a quoted display name as a separator.
-  static func addresses(_ header: String) -> [(name: String, email: String)] {
+  public static func addresses(_ header: String) -> [(name: String, email: String)] {
     var chunks: [String] = []
     var current = ""
     var quoted = false
@@ -157,5 +157,34 @@ public enum ContactDirectory {
       }
       return (text, text)
     }
+  }
+}
+
+extension ContactDirectory {
+  /// Who a name refers to in the open thread: a participant whose name or address matches it, otherwise
+  /// the only participant outside the user's own domain ("Manuel" in a thread with one customer).
+  /// nil when that isn't clear, so Cove searches the name as typed instead of guessing.
+  public static func participant(named name: String, in mails: [Mail], accountEmail: String) -> (name: String, email: String)? {
+    let me = accountEmail.lowercased()
+    let myDomain = me.split(separator: "@").last.map(String.init) ?? ""
+    var people: [(name: String, email: String)] = []
+    for mail in mails {
+      for person in [(name: mail.sender, email: mail.senderEmail)] + addresses(mail.to) + addresses(mail.cc ?? "") {
+        let email = person.email.lowercased()
+        guard email.contains("@"), email != me, !people.contains(where: { $0.email == email }) else { continue }
+        people.append((person.name, email))
+      }
+    }
+    let terms = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+      .split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count >= 2 }
+    guard !terms.isEmpty else { return nil }
+    let matches = people.filter { person in
+      let text = (person.name + " " + person.email).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+      return terms.allSatisfy { text.contains($0) }
+    }
+    if matches.count == 1 { return matches[0] }
+    if !matches.isEmpty { return nil }
+    let outside = people.filter { !myDomain.isEmpty && !$0.email.hasSuffix("@" + myDomain) }
+    return outside.count == 1 ? outside[0] : nil
   }
 }
