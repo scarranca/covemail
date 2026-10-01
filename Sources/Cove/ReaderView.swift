@@ -36,6 +36,8 @@ struct ReaderView: View {
     replyingToAll ? replyAllRecipients!.to : MailConversation.replyRecipient(for: replySource, accountEmail: store.accountEmail)
   }
   private var replyCc: String { replyingToAll ? replyAllRecipients!.cc : "" }
+  /// The reply box is on screen (being written, or a saved draft).
+  private var replying: Bool { !localDraft && (showReply || !replySource.draft.isEmpty) }
   private func updateReply(_ value: String) {
     reply = value
     let id = replySource.id
@@ -117,6 +119,8 @@ struct ReaderView: View {
             .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity)
         }
         .overlay(alignment: .bottom) { askPanel }
+        // While a reply is open, its own box has Send and ✦; repeating Reply/Forward/✦ below is noise.
+        if !replying {
         Divider()
         responseBar { all in
           replyAll = all
@@ -131,6 +135,7 @@ struct ReaderView: View {
               replyFocusRequest += 1
             }
           }
+        }
         }
       }
     }.background(Palette.canvas).foregroundStyle(Palette.ink)

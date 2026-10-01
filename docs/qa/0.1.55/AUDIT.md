@@ -77,3 +77,4 @@
   - Without Undo: nothing is sent at 1 s; it is sent after the window.
 
 Full `swift test`: CoveCoreTests 264, CoveRenderingTests 353, 0 failures.
+- **Reply buttons (user: "4 buttons when replying"):** while the reply box is open (being written or holding a saved draft), the reader hides its bottom bar (Continue reply / Forward / ✦ Ask Cove). It repeated actions next to the box's own Send, Template, Discard and ✦. The bar returns after Send or Discard. Render `/tmp/cove-reader-assistant-reply.png` inspected.
