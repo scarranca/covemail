@@ -45,3 +45,15 @@ The user tested this work in QA builds 0.1.55-d through 0.1.55-s, which use the 
 - Full offline suite: CoveCoreTests 278 (1 skipped), CoveRenderingTests 367 (7 skipped), 0 failures.
 - Rendered and inspected: task card, day picker, inbox dusk, meetings agenda, linked-task strip, event editor (guests, describe line).
 - Not run live: real Google Tasks/Calendar writes, guest invitations, real-model parsing of event descriptions.
+
+## Release
+
+- **App notarization:** `16cf4951-4e2f-4076-bb94-f2465c523cfe`, Accepted and stapled.
+- **DMG notarization:** `14f7e625-c1f4-49e0-a1b2-2e45dabb44d7`, Accepted and stapled.
+- **DMG:** 22,521,792 bytes, SHA-256 `116751f2f32629cc374457a0dc1ed0a191987a11797186b52e2c7d8d2cb4ccc2`.
+- **Feed and site:** signed feed with 35 verified releases; Cloudflare Pages deployment `bf472c84`.
+- **Public checks:**
+  - `/release.json` reports 0.1.56 (build 58); the appcast and `/download/latest` serve 0.1.56; the beta page says "Download Cove 0.1.56".
+  - The downloaded DMG matches the bytes and SHA-256 above.
+  - The Ed25519 signature verifies with the bundled key, and tampering is rejected.
+- **Not run:** the headless previous→current update probe.

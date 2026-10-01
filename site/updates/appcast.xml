@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.56</title>
+            <pubDate>Thu, 01 Oct 2026 10:30:20 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>58</sparkle:version>
+            <sparkle:shortVersionString>0.1.56</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.56</title></head><body><h1>Tasks, calendar and Ask Cove, smoother</h1><ul><li>Ask Cove creates Google Tasks from an email ("create a task and archive this"), finds your meetings with someone over the past year, and knows who "Manuel" is in the email you're reading.</li><li>Emails show the tasks made from them, payment requests get a Create task button, and a new date picker sets due dates.</li><li>New events: invite guests with a Google Meet link, or press + and describe it ("30 min with Manuel, first open spot") — Cove finds the time in your real calendar.</li><li>Meetings link their Gemini notes and transcripts, and ⌘Delete deletes the selected event after asking.</li><li>An empty inbox tab shows a quiet dotted sunset, the Inbox count now means unread Important mail, and broken accents like "botÃ³n" read correctly.</li></ul><p>Nothing is sent, created or deleted without you.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.56.dmg" length="22521792" type="application/octet-stream" sparkle:edSignature="Y28P7htTHSJGGnIu4G3/D/9j03+LHfCGgHAlW46Z8XQJcDomVYdJiDqAWuzZLhrT6EQqftNpRREOmEeYsY0OBA=="/>
+        </item>
+        <item>
             <title>0.1.55</title>
             <pubDate>Wed, 30 Sep 2026 21:38:29 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.54.dmg" length="21617682" type="application/octet-stream" sparkle:edSignature="3YPIiUPqDZJk1KZeyt0aOsI/ilhu9nfkckH3GfEVPvEhK5qxppqq11pniOCuxH4MM0qQtpdrcnlOsWOqqs/CDg=="/>
         </item>
-        <item>
-            <title>0.1.53</title>
-            <pubDate>Wed, 30 Sep 2026 19:50:29 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>55</sparkle:version>
-            <sparkle:shortVersionString>0.1.53</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.53</title></head><body><h1>A calmer way in</h1><ul><li>The installer window is redesigned: open the disk image and a trail of dots shows the way from Cove into Applications.</li><li>Everything from 0.1.52 is included: agents you describe in a sentence, tasks from your email, Ask Cove inside the email, Spam and one-click Unsubscribe.</li></ul><p>Nothing is sent, archived or deleted without you.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.53.dmg" length="21572358" type="application/octet-stream" sparkle:edSignature="6+C+wUdF9sGjQX+h3V54AMrtKF4BIGQwqCtYfxamhtClDbiMM0Zs26cYQnQAELWReqC4PCUdvMm4akipN9XUAg=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: FP0z+MYRmrS1bn78STj6qXK/CKNEpsLWsq518ESilxn6N9xn0YLlAQxJHSrH8lk1JsrR7crYVICq8PdTK32vDA==
-length: 4528
+edSignature: BN0UVoakycY6yt3x+sMKZ0T46laBKF5DSdnsTANURhGvxrXs6LBccOPofZ2fWMW0bTjqEOXkvxwFJ9ZQxmO5DA==
+length: 5027
 -->
