@@ -280,3 +280,45 @@
 .sheen{animation:none;background-position:0 0}
 .demo-cursor,.drag-cursor{display:none}
 }
+
+/* Agents (0.1.52): the dot portrait and "describe it, Cove builds the steps". */
+.agents-new{background:var(--pale);padding-block:85px}
+.agents-hero{display:grid;grid-template-columns:1fr 1.05fr;gap:48px;align-items:center;padding:52px;border-radius:14px;background:#1d2029;color:#f4f5f8;overflow:hidden}
+.agents-hero h2{color:#f6f7fa}
+.agents-hero .eyebrow{color:#c9c2e0}
+.agents-copy>p:not(.eyebrow){color:#d3d6de;font-size:18px;line-height:1.6;margin-top:22px;max-width:470px}
+.agents-ideas{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:28px 0 0;padding:0}
+.agents-ideas li{padding:6px 11px;border-radius:6px;background:#ffffff12;color:#e2e4ea;font-size:13px}
+.agents-portrait{position:relative;margin:0;height:400px}
+.portrait-canvas{display:block;width:100%;height:100%}
+.portrait-captions{position:absolute;left:0;bottom:6px;display:grid;gap:4px;padding:10px 12px;border-radius:8px;background:#1d2029b8;max-width:100%}
+.portrait-captions small{font-size:11px;color:#9da1ab}
+.cap-now{font-weight:500;font-size:15px;color:#ee8a74;transition:opacity .5s ease,transform .5s ease}
+.cap-next{font-size:13px;color:#9da1ab;transition:opacity .5s ease}
+.portrait-captions.is-changing .cap-now{opacity:0;transform:translateY(6px)}
+.portrait-captions.is-changing .cap-next{opacity:0}
+.agents-build{display:grid;grid-template-columns:490fr 670fr;gap:80px;align-items:center;margin-top:72px}
+.agents-build h3{font-size:clamp(26px,2.4vw,34px);font-weight:500;line-height:1.2;letter-spacing:-.03em}
+.plan-mock{border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:0 18px 38px #1d263011;padding:20px;display:grid;gap:12px;font-size:13px;line-height:1.5}
+.pm-ask{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1px solid #c9ccd2;border-radius:10px;color:#303030;min-height:66px}
+.pm-spark{color:var(--violet)}
+.pm-typed{overflow:hidden}
+.pm-head{display:flex;align-items:baseline;justify-content:space-between;margin-top:6px}
+.pm-head b{font-size:20px;font-weight:500;letter-spacing:-.01em}
+.pm-head span{font-size:12px;color:#737373}
+.pm-card{display:grid;grid-template-columns:22px 1fr;gap:12px;padding:14px;border:1px solid #e3e5e9;border-radius:10px;transition:opacity .45s ease,transform .45s ease}
+.pm-num{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#f0f0f0;font-size:11px;color:#4b4b4b}
+.pm-card p{display:grid;grid-template-columns:42px 1fr;color:#303030}
+.pm-card p+p{margin-top:4px}
+.pm-card i{font-style:normal;font-size:11px;color:#8a8f98;padding-top:2px}
+.pm-card b{font-weight:500}
+.pm-card p:last-child:not(:nth-child(2)){color:#5d626b}
+.pm-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px;transition:opacity .45s ease}
+.pm-try{font-size:12px;color:#5d626b}
+.plan-mock .btn{padding:9px 14px;border-radius:6px;font-size:12px;font-weight:500}
+.plan-mock .btn.dark{background:#292d35;color:#fff}
+.plan-mock.is-live .pm-card,.plan-mock.is-live .pm-foot{opacity:0;transform:translateY(8px)}
+.plan-mock.is-live .pm-card.is-in,.plan-mock.is-live .pm-foot.is-in{opacity:1;transform:none}
+@media(max-width:1050px){.agents-hero{grid-template-columns:1fr;padding:36px}.agents-portrait{height:340px}.agents-build{grid-template-columns:1fr;gap:40px}}
+@media(max-width:700px){.agents-new{padding-block:55px}.agents-hero{padding:26px 20px;gap:24px}.agents-copy>p:not(.eyebrow){font-size:16px}.agents-portrait{height:280px}.cap-now{font-size:13px}.agents-build{margin-top:48px}}
+@media(prefers-reduced-motion:reduce){.cap-now,.cap-next,.pm-card,.pm-foot{transition:none}}

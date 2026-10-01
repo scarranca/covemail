@@ -269,4 +269,117 @@ document.documentElement.classList.add('js');
       finish: () => steps.forEach(step => step.classList.remove('is-current', 'is-done'))
     });
   }
+
+  // Agents portrait: a real photo as dots on the dark card. Dot size follows the light, so the lit side
+  // is drawn and the shadow side fades into the dark; a soft line sweeps down as if reading.
+  const portrait = document.querySelector('.portrait-canvas');
+  if (portrait) {
+    const context = portrait.getContext('2d');
+    const image = new Image();
+    let dots = [];
+    let height = 0;
+    let visible = false;
+    let frame = 0;
+    let last = 0;
+    const tones = 8;
+    const layout = () => {
+      const box = portrait.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.round(box.width));
+      height = Math.max(1, Math.round(box.height));
+      portrait.width = width * ratio; portrait.height = height * ratio;
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      if (!image.naturalWidth) return;
+      const sample = document.createElement('canvas');
+      sample.width = width; sample.height = height;
+      const pen = sample.getContext('2d', { willReadFrequently: true });
+      pen.fillStyle = '#000'; pen.fillRect(0, 0, width, height);
+      const drawnWidth = height * image.naturalWidth / image.naturalHeight;
+      pen.drawImage(image, (width - drawnWidth) / 2, 0, drawnWidth, height);
+      const pixels = pen.getImageData(0, 0, width, height).data;
+      const spacing = Math.max(3.4, height / 72);
+      const reach = Math.max(1, Math.floor(spacing / 2));
+      dots = [];
+      for (let y = spacing / 2, row = 0; y < height; y += spacing * .9, row++) {
+        for (let x = spacing / 2 + (row % 2 ? spacing / 2 : 0); x < width; x += spacing) {
+          let total = 0, count = 0;
+          for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) {
+            const sx = Math.round(x) + dx, sy = Math.round(y) + dy;
+            if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
+            total += pixels[(sy * width + sx) * 4] / 255; count++;
+          }
+          const ink = Math.pow(Math.min(1, Math.max(0, ((count ? total / count : 0) - .16) / .72)), 1.9);
+          if (ink > .07) dots.push([x, y, ink]);
+        }
+      }
+      draw(0);
+    };
+    const draw = time => {
+      context.clearRect(0, 0, portrait.width, portrait.height);
+      const scan = ((time / 1000) % 9) / 9 * height * 1.4 - height * .2;
+      const paths = Array.from({ length: tones }, () => new Path2D());
+      for (const [x, y, ink] of dots) {
+        const near = Math.exp(-Math.pow((y - scan) / 16, 2));
+        const lit = Math.min(1, ink + (time ? near * .22 : 0));
+        const radius = .5 + 1.05 * lit;
+        const path = paths[Math.min(tones - 1, Math.floor(lit * tones))];
+        path.moveTo(x + radius, y); path.arc(x, y, radius, 0, Math.PI * 2);
+      }
+      paths.forEach((path, index) => {
+        const shade = Math.round(255 * (.72 + .03 * index));
+        context.fillStyle = `rgba(${shade},${shade},${Math.min(255, shade + 4)},${.18 + .1 * index})`;
+        context.fill(path);
+      });
+    };
+    const loop = time => {
+      frame = 0;
+      if (!visible || document.hidden || reduced.matches) return;
+      if (time - last > 66) { last = time; draw(time); }
+      frame = requestAnimationFrame(loop);
+    };
+    const sync = () => { if (!frame && visible && !document.hidden && !reduced.matches) frame = requestAnimationFrame(loop); };
+    image.addEventListener('load', layout);
+    image.src = '/assets/agent-portrait.jpg';
+    addEventListener('resize', () => { layout(); });
+    new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; sync(); }).observe(portrait);
+    document.addEventListener('visibilitychange', sync);
+
+    // Captions: what agents do, one at a time, the newest in the accent color.
+    const captions = document.querySelector('.portrait-captions');
+    if (captions) {
+      const lines = ['Invoice #2048 from Acme → Finance / Invoices', 'Client asks about next week’s delivery → reply drafted',
+        '“Can we find 30 minutes?” → reply drafted', 'Flight confirmation → Travel', 'New application for Designer → Hiring'];
+      const now = captions.querySelector('.cap-now');
+      const next = captions.querySelector('.cap-next');
+      let index = 0;
+      setInterval(() => {
+        if (!visible || document.hidden || reduced.matches) return;
+        captions.classList.add('is-changing');
+        setTimeout(() => {
+          index = (index + 1) % lines.length;
+          now.textContent = lines[index];
+          next.textContent = lines[(index + 1) % lines.length];
+          captions.classList.remove('is-changing');
+        }, 450);
+      }, 3600);
+    }
+  }
+
+  // Describe it: the sentence is typed, then the steps and the try-it result appear in order.
+  const planMock = document.querySelector('.plan-mock');
+  if (planMock) {
+    const typed = planMock.querySelector('.pm-typed');
+    const full = typed.textContent;
+    const parts = [...planMock.querySelectorAll('.pm-card, .pm-foot')];
+    const show = on => parts.forEach(part => part.classList.toggle('is-in', on));
+    demo(planMock, {
+      build: () => {
+        const steps = [[0, () => { typed.textContent = ''; show(false); }]];
+        for (let i = 4; i <= full.length + 3; i += 4) steps.push([45, () => { typed.textContent = full.slice(0, i); }]);
+        parts.forEach((part, i) => steps.push([i ? 520 : 700, () => part.classList.add('is-in')]));
+        return steps;
+      },
+      finish: () => { typed.textContent = full; show(true); }
+    });
+  }
 })();
