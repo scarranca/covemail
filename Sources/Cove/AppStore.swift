@@ -197,6 +197,9 @@ import SwiftUI
   var tasksConnected = UserDefaults.standard.bool(forKey: "tasksConnected")
   var tasksConnectError: String?
   var googleTasks: [GoogleTask] = []
+  /// A task to open when the Tasks screen appears (from an email's linked-task strip).
+  var openTaskID: String?
+  @ObservationIgnored private var tasksLoadedOnce = false
   var tasksLoading = false
   /// Emails whose task check is running, so each is sent to Jev at most once at a time.
   var taskChecksRunning: Set<String> = []
@@ -3614,6 +3617,22 @@ extension AppStore {
       guard generation == mailboxGeneration, let index = googleTasks.firstIndex(where: { $0.id == task.id }) else { return }
       googleTasks[index] = updated
     } catch { self.error = error.localizedDescription }
+  }
+
+  /// Tasks made from this email or its conversation: recorded on the email, or linked from the task's notes.
+  func tasks(for mail: Mail) -> [GoogleTask] {
+    let created = Set(mails.filter { $0.threadID == mail.threadID || $0.id == mail.id }
+      .flatMap { $0.taskCheck?.createdTaskIDs ?? [] })
+    return googleTasks.filter { task in
+      task.parent == nil && (created.contains(task.id)
+        || (!mail.threadID.isEmpty && TaskDetection.threadID(inNotes: task.notes) == mail.threadID))
+    }
+  }
+  /// The reader needs tasks before the Tasks screen was ever opened: load them once per session.
+  func loadTasksIfNeeded() async {
+    guard !tasksLoadedOnce, entered, !isSample, tasksConnected else { return }
+    tasksLoadedOnce = true
+    await refreshTasks()
   }
 
   /// The downloaded email a task came from, via the Gmail link in its notes.

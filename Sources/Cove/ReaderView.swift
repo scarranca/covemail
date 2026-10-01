@@ -95,6 +95,7 @@ struct ReaderView: View {
         ScrollView {
           VStack(alignment: .leading, spacing: 22) {
             identity
+            LinkedTasksStrip(store: store, mail: current)
             if let decision = current.decision, !assessmentHidden {
               assessment(decision)
             }
@@ -149,6 +150,7 @@ struct ReaderView: View {
       Task { await store.checkForTasks(opened) }
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
+    .task { await store.loadTasksIfNeeded() }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
     .onChange(of: current.id) { _, _ in askingCove = false; flushReply() }
     .onDisappear { flushReply() }
@@ -373,7 +375,7 @@ struct ReaderView: View {
       snoozeMenu(title: "Remind me")
       // An actionable email always offers a task here, whatever the background check concluded.
       if (current.decision?.needsReply ?? 0) >= 0.35 || current.taskCheck?.waiting == true,
-        current.taskCheck?.createdTaskIDs == nil, !current.labels.contains("DRAFT"), !store.isSample {
+        current.taskCheck?.createdTaskIDs == nil, store.tasks(for: current).isEmpty, !current.labels.contains("DRAFT"), !store.isSample {
         Button { store.taskSuggestionMail = current } label: { Label("Create task", systemImage: "checklist") }
           .buttonStyle(SecondaryButton()).help("Turn this email into a Google Task")
       }

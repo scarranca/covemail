@@ -230,6 +230,8 @@ struct TasksView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(Palette.canvas)
     .task { await store.refreshTasks() }
+    .onAppear { if let id = store.openTaskID { selectedID = id; store.openTaskID = nil } }
+    .onChange(of: store.openTaskID) { _, id in if let id { selectedID = id; store.openTaskID = nil } }
     .onChange(of: store.googleTasks) { _, tasks in
       if let selectedID, !tasks.contains(where: { $0.id == selectedID }) { self.selectedID = nil }
     }
@@ -905,5 +907,47 @@ struct TaskMomentumView: View {
         }
       }
     }.accessibilityElement().accessibilityLabel("\(counts.reduce(0, +)) tasks finished in the last two weeks")
+  }
+}
+
+/// In the reader: the Google Tasks made from this email, with Done and a jump to Tasks.
+struct LinkedTasksStrip: View {
+  @Bindable var store: AppStore
+  let mail: Mail
+  var body: some View {
+    let tasks = store.tasks(for: mail)
+    if !tasks.isEmpty {
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
+          if index > 0 { Divider().padding(.leading, 44) }
+          HStack(spacing: 12) {
+            Button { Task { await store.setTask(task, completed: !task.isCompleted) } } label: {
+              Image(systemName: task.isCompleted ? "checkmark.circle.fill" : "circle")
+                .font(.cove(size: 16)).foregroundStyle(task.isCompleted ? Palette.ink : Palette.muted)
+                .frame(width: 20, height: 20).contentShape(Circle())
+            }.buttonStyle(.plain).help(task.isCompleted ? "Mark as not done" : "Mark as done")
+              .accessibilityLabel(task.isCompleted ? "Mark \(task.title) as not done" : "Mark \(task.title) as done")
+            VStack(alignment: .leading, spacing: 2) {
+              Text(task.title).font(.coveLabel).foregroundStyle(task.isCompleted ? Palette.muted : Palette.ink)
+                .strikethrough(task.isCompleted).lineLimit(2)
+              Text(caption(task)).font(.coveMetadata).foregroundStyle(Palette.muted)
+            }
+            Spacer(minLength: 8)
+            Button("Open") { store.openTaskID = task.id; store.screen = "tasks" }
+              .buttonStyle(SecondaryButton(compact: true)).help("Open in Tasks")
+          }.padding(.horizontal, 14).padding(.vertical, 10)
+        }
+      }
+      .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+      .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line))
+    }
+  }
+  private func caption(_ task: GoogleTask) -> String {
+    if task.isCompleted { return "Task · done" }
+    guard let due = task.dueDay else { return "Task · no due date" }
+    if Calendar.current.isDateInToday(due) { return "Task · due today" }
+    if Calendar.current.isDateInTomorrow(due) { return "Task · due tomorrow" }
+    let overdue = due < Calendar.current.startOfDay(for: Date())
+    return "Task · " + (overdue ? "overdue since " : "due ") + due.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
   }
 }
