@@ -1,4 +1,4 @@
-# Cove 0.1.55 (unreleased) — keep working while Cove syncs
+# Cove 0.1.55, build 57 — keep working while Cove syncs; fast typing; Undo Send
 
 ## User report
 
