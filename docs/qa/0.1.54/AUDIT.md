@@ -55,3 +55,15 @@
 - History fixtures now carry `labelIds` like real Gmail and assert that label-only changes trigger no reads. The deletion-safety test uses an email that isn't stored, so a read is still required and still fails safely.
 - Full `swift test`: CoveCoreTests 264, CoveRenderingTests 344, 0 failures.
 - Not verified live yet: a real rate-limited catch-up.
+
+## Release
+
+- App notarization `7909a66a-ccbe-459d-8d9d-f11efa7e9eb6`: Accepted, stapled. The DMG uses the designed installer window.
+- DMG notarization `813fbeb3-3deb-413a-a9f5-c18808c53865`: Accepted, stapled (Notarized Developer ID). 21,617,682 bytes, SHA-256 `e7cc47746d29169a6a1c6aa8d8364cd8fe9df094c89443623676876b2122cd53`.
+- The feed is signed (33 verified releases). Cloudflare Pages deployment `6646faf7`.
+- Public checks:
+  - `/release.json`, the appcast and `/download/latest` all serve 0.1.54, and the beta page says "Download Cove 0.1.54".
+  - The downloaded DMG matches the bytes and SHA-256 above.
+  - The Ed25519 signature verifies, and tampering is rejected.
+- Not run: the headless previous→current update probe.
+- Not yet verified live: a real catch-up after a long gap on the user's account.

@@ -13,7 +13,8 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 30, 2026
 
-- **Cove 0.1.53, build 55**, is published (Pages deployment `ace91a3e`): the 0.1.52 app in the designed installer window (`scripts/dmg/`, dmgbuild in `.local/dmg-venv`; see `docs/DISTRIBUTION.md`). Evidence: `docs/qa/0.1.53/AUDIT.md`.
+- **Cove 0.1.54, build 56**, is published (Pages deployment `6646faf7`): Gmail sync within Google's real per-user budget and continuing quietly after rate limits; Calendar and Tasks connect after a running sync. Evidence: `docs/qa/0.1.54/AUDIT.md`.
+- **Cove 0.1.53, build 55**, was published (Pages deployment `ace91a3e`): the 0.1.52 app in the designed installer window (`scripts/dmg/`, dmgbuild in `.local/dmg-venv`; see `docs/DISTRIBUTION.md`). Evidence: `docs/qa/0.1.53/AUDIT.md`.
 - **Cove 0.1.52, build 54**, was published (Pages deployment `83d56e1c` adds the animated install demo on /beta/; earlier `a7d30c6b`, first `1391114e`). It includes the unshipped 0.1.51 work:
   - agents built from a description, with templates, Try it and the dot-portrait header;
   - Google Tasks from email (overview, Done, side column);
