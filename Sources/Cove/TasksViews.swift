@@ -48,6 +48,9 @@ struct TaskSuggestionsView: View {
   @State private var adding = false
   @State private var message: String?
   @State private var added: [GoogleTask] = []
+  /// The model found nothing specific, so the list holds one editable to-do Cove suggested instead.
+  @State private var fallback = false
+  @State private var failed = false
   private var sent: Bool { mail.labels.contains("SENT") || mail.senderEmail.caseInsensitiveCompare(store.accountEmail) == .orderedSame }
 
   var body: some View {
@@ -70,6 +73,10 @@ struct TaskSuggestionsView: View {
       } else if suggestions.isEmpty {
         Text(message ?? "No follow-up tasks in this email.").font(.coveBody).foregroundStyle(Palette.body)
       } else {
+        if fallback {
+          Text("Cove didn’t find a specific to-do in this email. You can still add one to keep track of it:")
+            .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+        }
         VStack(spacing: 0) {
           ForEach($suggestions) { $suggestion in
             HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -106,7 +113,13 @@ struct TaskSuggestionsView: View {
             Button("Connect Google Tasks") { Task { await store.connectTasks() } }
               .buttonStyle(PrimaryButton(compact: true)).disabled(store.connectingStep != nil)
           }
-          Button("Not now") { dismiss() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+          Button(fallback ? "Nothing to do here" : "Not now") {
+            // Saying there's nothing to do takes the email off "Found in your email".
+            if fallback { store.dismissTaskSuggestion(mail) }
+            dismiss()
+          }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+        } else if !working && failed {
+          Button("Try again") { Task { await load() } }.buttonStyle(PrimaryButton(compact: true))
         }
         if adding { ProgressView().controlSize(.small) }
         Spacer(minLength: 0)
@@ -126,10 +139,16 @@ struct TaskSuggestionsView: View {
       message = "Connect a writing model in Integrations to turn emails into tasks."
       return
     }
+    message = nil; failed = false; fallback = false
     do {
       suggestions = try await store.suggestTasks(for: mail) { try await AIProviderSettings.shared.complete($0) }
+      // Jev flagged this email, so an empty answer would be a dead end: offer a to-do the user can edit.
+      if suggestions.isEmpty {
+        suggestions = [TaskDetection.fallback(for: mail, accountEmail: store.accountEmail)]
+        fallback = true
+      }
       chosen = Set(suggestions.map(\.id))
-    } catch is CancellationError {} catch { message = error.localizedDescription }
+    } catch is CancellationError {} catch { message = error.localizedDescription; failed = true }
   }
   private func add() {
     let picked = suggestions.filter { chosen.contains($0.id) && !$0.title.trimmingCharacters(in: .whitespaces).isEmpty }

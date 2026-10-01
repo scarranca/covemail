@@ -3519,7 +3519,10 @@ extension AppStore {
     let reply = try await complete(prompt)
     try Task.checkCancellation()
     guard generation == mailboxGeneration else { throw CancellationError() }
-    return TaskDetection.suggestions(from: reply)
+    guard let suggestions = TaskDetection.parsedSuggestions(from: reply) else {
+      throw CoveError.message("The writing model’s answer couldn’t be read. Try again.")
+    }
+    return suggestions
   }
 
   /// Creates the approved suggestions in Google Tasks and remembers them on the email.

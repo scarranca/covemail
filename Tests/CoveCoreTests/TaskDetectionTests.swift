@@ -102,4 +102,14 @@ actor TasksHTTP: HTTPTransport {
     if let due = body["due"] { task["due"] = due }
     return (try JSONSerialization.data(withJSONObject: task), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
   }
+
+  func testEmptyAnswerOffersAnEditableFallbackAndBadAnswersAreNotNone() {
+    XCTAssertEqual(TaskDetection.parsedSuggestions(from: #"{"tasks":[]}"#)?.count, 0)
+    XCTAssertNil(TaskDetection.parsedSuggestions(from: "Sure! Here are your tasks: none"), "prose is a failure, not 'no tasks'")
+    var sent = Mail(id: "s", sender: "Me", senderEmail: "me@example.com", subject: "Re: Fwd: Prueba Trycherry.ai", body: "x")
+    sent.to = "Martha Ruiz <martha@example.com>, ana@example.com"
+    XCTAssertEqual(TaskDetection.fallback(for: sent, accountEmail: "me@example.com").title, "Follow up with Martha Ruiz: Re: Fwd: Prueba Trycherry.ai")
+    let received = Mail(id: "r", sender: "Ana", senderEmail: "ana@example.com", subject: "Contract", body: "x")
+    XCTAssertEqual(TaskDetection.fallback(for: received, accountEmail: "me@example.com").title, "Reply to Ana: Contract")
+  }
 }

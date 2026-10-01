@@ -47,6 +47,33 @@ public enum TaskDetection {
     """
 
   /// Parses the model's JSON strictly: at most 5 tasks, bounded titles, only valid dates.
+  /// A to-do to offer when the model found nothing specific in an email Jev flagged: the user can still
+  /// keep track of it, and edit the title first.
+  public static func fallback(for mail: Mail, accountEmail: String) -> TaskSuggestion {
+    let sent = mail.labels.contains("SENT") || mail.senderEmail.caseInsensitiveCompare(accountEmail) == .orderedSame
+    let subject = mail.subject.isEmpty ? "(No subject)" : mail.subject
+    let recipient = mail.to.split(separator: ",").first.map {
+      let value = $0.trimmingCharacters(in: .whitespaces)
+      if let open = value.firstIndex(of: "<"), open > value.startIndex {
+        return value[..<open].trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+      }
+      return value.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+    } ?? ""
+    let person = sent ? recipient : (mail.sender.isEmpty ? mail.senderEmail : mail.sender)
+    let title = person.isEmpty ? "Follow up: \(subject)" : (sent ? "Follow up with \(person): \(subject)" : "Reply to \(person): \(subject)")
+    return TaskSuggestion(title: String(title.prefix(120)))
+  }
+
+  /// nil when the reply isn't the JSON asked for (so the caller can say so), [] when it found no tasks.
+  public static func parsedSuggestions(from reply: String, calendar: Calendar = .current) -> [TaskSuggestion]? {
+    let cleaned = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
+    guard let start = cleaned.firstIndex(of: "{"), let end = cleaned.lastIndex(of: "}"), start < end,
+      (try? JSONSerialization.jsonObject(with: Data(cleaned[start...end].utf8))) is [String: Any]
+    else { return nil }
+    return suggestions(from: reply, calendar: calendar)
+  }
+
   public static func suggestions(from reply: String, calendar: Calendar = .current) -> [TaskSuggestion] {
     let cleaned = reply.trimmingCharacters(in: .whitespacesAndNewlines)
       .replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
