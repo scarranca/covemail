@@ -74,7 +74,11 @@ struct MailboxView: View {
             Text(error).font(.coveMetadata).foregroundStyle(Palette.danger)
               .fixedSize(horizontal: false, vertical: true).padding(12)
           }
-          if store.visible.isEmpty {
+          if store.visible.isEmpty, store.effectiveInboxTab == .important {
+            InboxDuskView(title: "All caught up",
+                          detail: store.labelUnreadOnly ? "Nothing unread in Important." : "Nothing in Important right now.")
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else if store.visible.isEmpty {
             VStack(spacing: 12) {
               ContentUnavailableView(
                 store.search.isEmpty ? (store.isFocusedMailView ? "No emails in this view" : "A little breathing room") : "No matching mail",
