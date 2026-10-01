@@ -181,33 +181,21 @@ struct TasksView: View {
       } else if !store.tasksConnected {
         connect
       } else {
+        GeometryReader { geometry in
         HStack(spacing: 0) {
           ScrollView {
+            let wide = selected == nil && geometry.size.width >= 1080
             VStack(alignment: .leading, spacing: 18) {
               overview
-              quickAddBar
-              if planning || plan != nil || planError != nil { planCard }
-              waitingInMail
-              ForEach(Group.allCases, id: \.self) { section in
-                let tasks = topLevel.filter { !$0.isCompleted && group($0) == section }
-                if !tasks.isEmpty {
-                  VStack(alignment: .leading, spacing: 2) {
-                    Text(section.rawValue).font(.coveLabel).foregroundStyle(section == .overdue ? Palette.danger : Palette.body)
-                      .padding(.horizontal, 12).padding(.bottom, 4)
-                    ForEach(tasks) { task in
-                      row(task)
-                      ForEach(children(of: task)) { child in row(child).padding(.leading, 30) }
-                    }
-                  }
+              if wide {
+                HStack(alignment: .top, spacing: 28) {
+                  taskList(wide: true).frame(maxWidth: .infinity, alignment: .topLeading)
+                  VStack(alignment: .leading, spacing: 24) { waitingInMail; todayOnCalendar }.frame(width: 380)
                 }
+              } else {
+                taskList(wide: false)
               }
-              let done = topLevel.filter(\.isCompleted).sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
-              if !done.isEmpty {
-                DisclosureGroup("Done · \(done.count) in the last 30 days", isExpanded: $showDone) {
-                  VStack(spacing: 2) { ForEach(done) { row($0) } }.padding(.top, 6)
-                }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle()).padding(.horizontal, 12)
-              }
-            }.padding(20).frame(maxWidth: 720, alignment: .leading)
+            }.padding(20).frame(maxWidth: wide ? 1320 : 720, alignment: .leading)
               .frame(maxWidth: .infinity, alignment: .leading)
           }.frame(minWidth: 340, maxWidth: selected == nil ? .infinity : 480)
           if let selected {
@@ -217,6 +205,7 @@ struct TasksView: View {
               .transition(.move(edge: .trailing).combined(with: .opacity))
           }
         }.animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedID)
+        }
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -243,13 +232,71 @@ struct TasksView: View {
     }.padding(.horizontal, 32).padding(.vertical, 22)
   }
 
+  /// Quick add, the plan, open tasks by when they're due, then Done. Narrow windows also list email finds here.
+  @ViewBuilder private func taskList(wide: Bool) -> some View {
+    VStack(alignment: .leading, spacing: 18) {
+      quickAddBar
+      if planning || plan != nil || planError != nil { planCard }
+      if !wide { waitingInMail }
+      ForEach(Group.allCases, id: \.self) { section in
+        let tasks = topLevel.filter { !$0.isCompleted && group($0) == section }
+        if !tasks.isEmpty {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(section.rawValue).font(.coveLabel).foregroundStyle(section == .overdue ? Palette.danger : Palette.body)
+              .padding(.horizontal, 12).padding(.bottom, 4)
+            ForEach(tasks) { task in
+              row(task)
+              ForEach(children(of: task)) { child in row(child).padding(.leading, 30) }
+            }
+          }
+        }
+      }
+      let done = topLevel.filter(\.isCompleted).sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+      if !done.isEmpty {
+        DisclosureGroup("Done · \(done.count) in the last 30 days", isExpanded: $showDone) {
+          VStack(spacing: 2) { ForEach(done) { row($0) } }.padding(.top, 6)
+        }.font(.coveLabel).disclosureGroupStyle(CoveDisclosureStyle()).padding(.horizontal, 12)
+      }
+    }
+  }
+
+  /// What's left on today's calendar, to see where tasks can fit.
+  @ViewBuilder private var todayOnCalendar: some View {
+    if store.calendarConnected || store.isSample {
+      let now = Date()
+      let events = store.events.filter { Calendar.current.isDateInToday($0.start) && $0.allDay != true && $0.end > now }
+        .sorted { $0.start < $1.start }
+      VStack(alignment: .leading, spacing: 8) {
+        Label("Today on your calendar", systemImage: "calendar").font(.coveLabel).foregroundStyle(Palette.body).padding(.horizontal, 12)
+        VStack(alignment: .leading, spacing: 0) {
+          if events.isEmpty {
+            Text("Nothing else today. A good stretch for your tasks.").font(.coveSecondary).foregroundStyle(Palette.body)
+              .padding(14)
+          } else {
+            ForEach(Array(events.prefix(6).enumerated()), id: \.element.id) { index, event in
+              if index > 0 { Divider() }
+              HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(event.start, format: .dateTime.hour().minute()).font(.coveMetadata).foregroundStyle(Palette.body)
+                  .frame(width: 62, alignment: .leading)
+                Text(event.title.isEmpty ? "Busy" : event.title).font(.coveSecondary).lineLimit(1)
+                Spacer(minLength: 0)
+              }.padding(.horizontal, 14).padding(.vertical, 10).contentShape(Rectangle())
+                .onTapGesture { store.selectCalendarDay(event.start); store.calendarEventID = event.id; store.screen = "calendar" }
+            }
+          }
+        }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
+          .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
+      }
+    }
+  }
+
   /// The day at a glance, like Home: what's due, what got done, and two weeks of finished tasks as dots.
   private var overview: some View {
     let open = topLevel.filter { !$0.isCompleted }
     let overdue = open.filter { group($0) == .overdue }.count
     let dueToday = open.filter { group($0) == .today }.count
     let done = topLevel.filter(\.isCompleted).count
-    let counts = TaskMomentum.daily(store.googleTasks)
+    let counts = TaskMomentum.daily(topLevel)
     let headline = overdue > 0 ? "\(overdue) overdue" : dueToday > 0 ? "\(dueToday) due today"
       : open.isEmpty ? "All clear" : "Nothing due today"
     let detail = open.isEmpty
@@ -293,21 +340,40 @@ struct TasksView: View {
         VStack(spacing: 0) {
           ForEach(Array(waiting.enumerated()), id: \.element.id) { index, mail in
             if index > 0 { Divider() }
-            HStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
               VStack(alignment: .leading, spacing: 2) {
-                Text(mail.sender.isEmpty ? mail.senderEmail : mail.sender).font(.coveLabel).lineLimit(1)
+                Text(waitingTitle(mail)).font(.coveLabel).lineLimit(1)
                 Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(1)
+                Text(mail.date, format: .dateTime.month(.abbreviated).day()).font(.coveMetadata).foregroundStyle(Palette.muted)
               }
-              Spacer(minLength: 8)
-              Text(mail.date, format: .dateTime.month(.abbreviated).day()).font(.coveMetadata).foregroundStyle(Palette.muted)
-              Button { store.taskSuggestionMail = mail } label: { Label("Create task", systemImage: "plus") }
-                .buttonStyle(SecondaryButton(compact: true))
+              Spacer(minLength: 6)
+              Button { store.taskSuggestionMail = mail } label: {
+                Label("Task", systemImage: "plus").font(.coveControl).padding(.horizontal, 10).frame(height: 30)
+                  .background(Palette.surface, in: RoundedRectangle(cornerRadius: 7))
+                  .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Palette.line))
+              }.buttonStyle(.plain).fixedSize().help("Create a task from this email")
+                .accessibilityLabel("Create a task from \(mail.subject)")
+              Button { withAnimation(.easeOut(duration: 0.2)) { store.dismissTaskSuggestion(mail) } } label: {
+                Image(systemName: "xmark").font(.cove(size: 11)).frame(width: 26, height: 26)
+              }.buttonStyle(.plain).foregroundStyle(Palette.body)
+                .help("No task needed").accessibilityLabel("Ignore: no task needed for \(mail.subject)")
             }.padding(.horizontal, 14).padding(.vertical, 10)
           }
         }.background(Palette.canvas, in: RoundedRectangle(cornerRadius: 10))
           .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
       }
     }
+  }
+
+  /// Who the promise involves: the sender, or for mail the user sent, who it went to.
+  private func waitingTitle(_ mail: Mail) -> String {
+    let fromMe = mail.labels.contains("SENT") || mail.senderEmail.caseInsensitiveCompare(store.accountEmail) == .orderedSame
+    guard fromMe else { return mail.sender.isEmpty ? mail.senderEmail : mail.sender }
+    let first = mail.to.split(separator: ",").first.map(String.init) ?? ""
+    let name = first.split(separator: "<").first.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"")) } ?? ""
+    let address = first.split(separator: "<").last.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " >")) } ?? ""
+    let who = name.isEmpty || name.contains("@") ? address : name
+    return who.isEmpty ? "You promised" : "You → \(who)"
   }
 
   private var connect: some View {

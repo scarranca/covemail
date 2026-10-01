@@ -3599,3 +3599,12 @@ extension AppStore {
     }
   }
 }
+
+extension AppStore {
+  /// "No task needed": the suggestion leaves Tasks and the reader. Kept on the email across syncs.
+  func dismissTaskSuggestion(_ mail: Mail) {
+    guard let index = mails.firstIndex(where: { $0.id == mail.id }), mails[index].taskCheck != nil else { return }
+    mails[index].taskCheck?.dismissed = true
+    persistMessage(mails[index])
+  }
+}

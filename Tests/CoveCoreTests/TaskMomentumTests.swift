@@ -25,6 +25,7 @@ final class TaskMomentumTests: XCTestCase {
     var created = found; created.id = "c"; created.taskCheck?.createdTaskIDs = ["t"]
     var spam = found; spam.id = "s"; spam.labels = ["SPAM"]
     var old = found; old.id = "o"; old.date = now.addingTimeInterval(-40 * 86_400)
-    XCTAssertEqual(TaskMomentum.waitingInMail([found, created, spam, old], now: now).map(\.id), ["f"])
+    var ignored = found; ignored.id = "i"; ignored.taskCheck?.dismissed = true
+    XCTAssertEqual(TaskMomentum.waitingInMail([found, created, spam, old, ignored], now: now).map(\.id), ["f"])
   }
 }

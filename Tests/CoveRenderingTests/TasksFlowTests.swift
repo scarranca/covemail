@@ -123,7 +123,15 @@ private actor TasksFlowHTTP: HTTPTransport {
                        body: "Could you send it by Friday?", date: Date().addingTimeInterval(-3_600), labels: ["INBOX"])
     promise.taskCheck = MailTaskCheck(found: true, confidence: 0.9)
     store.mails.append(promise)
-    try await render(TasksView(store: store), size: CGSize(width: 1100, height: 900), name: "tasks-overview")
+    var sent = Mail(id: "m4", sender: "me@example.com", senderEmail: "me@example.com", to: "Millet Soto <millet@uisr.io>",
+                    subject: "Re: Plan for our account", body: "I'll add it today.", date: Date().addingTimeInterval(-7_200), labels: ["SENT"])
+    sent.taskCheck = MailTaskCheck(found: true, confidence: 0.9)
+    store.mails.append(sent)
+    store.calendarConnected = true
+    store.events = [LocalEvent(title: "Design review", start: Date().addingTimeInterval(1_800), end: Date().addingTimeInterval(5_400))]
+    try await render(TasksView(store: store), size: CGSize(width: 1400, height: 900), name: "tasks-overview")
+    store.dismissTaskSuggestion(sent)
+    XCTAssertEqual(TaskMomentum.waitingInMail(store.mails).map(\.id), ["m3"], "ignored suggestions leave the list")
   }
 
   private func render<V: View>(_ view: V, size: CGSize, name: String) async throws {

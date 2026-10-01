@@ -160,7 +160,7 @@ struct ReaderView: View {
         }
       }
       moreMenu(compact: compact)
-      if current.taskCheck?.found == true && current.taskCheck?.createdTaskIDs == nil {
+      if current.taskCheck?.waiting == true {
         Button { store.taskSuggestionMail = current } label: {
           actionLabel("Create tasks", icon: "checklist", compact: compact)
         }.help("Jev found a follow-up task in this email").accessibilityLabel("Create tasks from this email")

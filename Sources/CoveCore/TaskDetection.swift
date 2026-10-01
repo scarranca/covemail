@@ -7,6 +7,10 @@ public struct MailTaskCheck: Codable, Equatable, Sendable {
   public var checkedAt: Date
   /// Google Task ids already created from this email.
   public var createdTaskIDs: [String]?
+  /// The user said this email needs no task.
+  public var dismissed: Bool?
+  /// Found, and the user hasn't made a task from it or dismissed it yet.
+  public var waiting: Bool { found && createdTaskIDs == nil && dismissed != true }
   public init(found: Bool, confidence: Double, checkedAt: Date = Date(), createdTaskIDs: [String]? = nil) {
     self.found = found; self.confidence = confidence; self.checkedAt = checkedAt; self.createdTaskIDs = createdTaskIDs
   }
@@ -241,7 +245,7 @@ public enum TaskMomentum {
   public static func waitingInMail(_ mails: [Mail], now: Date = Date(), within days: Int = 21) -> [Mail] {
     let since = now.addingTimeInterval(-Double(days) * 86_400)
     return mails.filter {
-      $0.taskCheck?.found == true && $0.taskCheck?.createdTaskIDs == nil && $0.date >= since
+      $0.taskCheck?.waiting == true && $0.date >= since
         && $0.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"])
     }.sorted { $0.date > $1.date }
   }
