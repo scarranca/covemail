@@ -107,7 +107,7 @@ struct SettingsView: View {
         Spacer(minLength: 0)
         if store.auth.isConnected && !store.isSample && !store.calendarConnected {
           Button("Connect Calendar") { Task { await store.connectCalendar() } }
-            .buttonStyle(SecondaryButton()).disabled(store.busy)
+            .buttonStyle(SecondaryButton()).disabled(store.connectingStep != nil)
             .help("Adds Calendar to your Google sign-in. Your mail stays as it is.")
         }
       }

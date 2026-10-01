@@ -24,7 +24,7 @@ struct HomeCalendarView: View {
             await store.connectCalendar()
             if store.calendarConnected { await store.refreshHomeCalendar() }
           }
-        }.buttonStyle(SecondaryButton()).disabled(store.busy)
+        }.buttonStyle(SecondaryButton()).disabled(store.connectingStep != nil)
         if let error = store.calendarConnectError {
           Text(error).font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
         }

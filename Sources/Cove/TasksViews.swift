@@ -104,7 +104,7 @@ struct TaskSuggestionsView: View {
               .buttonStyle(PrimaryButton(compact: true)).disabled(chosen.isEmpty || adding)
           } else {
             Button("Connect Google Tasks") { Task { await store.connectTasks() } }
-              .buttonStyle(PrimaryButton(compact: true)).disabled(store.busy)
+              .buttonStyle(PrimaryButton(compact: true)).disabled(store.connectingStep != nil)
           }
           Button("Not now") { dismiss() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
         }
@@ -381,7 +381,7 @@ struct TasksView: View {
       Text("Keep the promises in your email.").font(.coveSection)
       Text("Cove finds commitments and requests in your mail and adds them to Google Tasks when you approve, so they’re on your phone too.")
         .font(.coveBody).foregroundStyle(Palette.body).frame(maxWidth: 520, alignment: .leading)
-      Button("Connect Google Tasks") { Task { await store.connectTasks() } }.buttonStyle(PrimaryButton()).disabled(store.busy)
+      Button("Connect Google Tasks") { Task { await store.connectTasks() } }.buttonStyle(PrimaryButton()).disabled(store.connectingStep != nil)
       if let error = store.tasksConnectError { Text(error).font(.coveMetadata).foregroundStyle(Palette.body) }
       Spacer()
     }.padding(32)

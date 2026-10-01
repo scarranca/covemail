@@ -33,6 +33,8 @@ struct ConnectionIssue: Identifiable {
 
 extension AppStore {
   func reportFailure(_ failure: Error, operation: String, message: String? = nil) {
+    // Gmail slowing Cove down is temporary and not the user's doing: a quiet status, never an alert.
+    if let http = failure as? HTTPFailure, http.isRateLimited { return }
     if let issue = ConnectionIssue(failure, operation: operation) {
       connectionIssue = issue
     } else {

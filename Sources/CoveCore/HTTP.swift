@@ -1,6 +1,8 @@
 import Foundation
 
 public struct HTTPFailure: LocalizedError {
+  /// What a Gmail rate limit says; Cove shows it as a quiet status, never as an alert.
+  public static let gmailRateLimitMessage = "Gmail is limiting how fast Cove can read mail right now. Wait a minute and try again."
   public let statusCode: Int
   public let message: String
   /// The provider's machine-readable reason (for example Gmail's `rateLimitExceeded`), never its text.
@@ -87,7 +89,7 @@ public func checked(_ request: URLRequest, transport: HTTPTransport) async throw
     let message: String
     if failure.isRateLimited {
       message = host == "gmail.googleapis.com"
-        ? "Gmail is limiting how fast Cove can read mail right now. Wait a minute and try again."
+        ? HTTPFailure.gmailRateLimitMessage
         : "\(host) is busy. Please retry in a moment."
     } else if failure.isMissingPermission {
       message = "\(host) needs access you haven’t granted. Reconnect your Google account in Settings."

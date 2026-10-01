@@ -11,6 +11,9 @@ public struct GmailSyncResult {
   public var historyID: String
   public var nextPage: String?
   public var resetsPagination = false
+  /// Emails this sync didn't get to because Gmail asked Cove to slow down. They are saved and
+  /// checked first on the next sync, so a long catch-up continues in batches instead of failing.
+  public var pendingIDs: Set<String> = []
 
   public init(
     messages: [Mail] = [], labels: [String: Set<String>] = [:],
@@ -195,9 +198,12 @@ extension GmailClient {
   ) async throws -> GmailSyncResult {
     var result = result
     let ids = ids.sorted()
-    for start in stride(from: 0, to: ids.count, by: 5) {
-      let batch = Array(ids[start..<min(start + 5, ids.count)])
-      let updates = try await withThrowingTaskGroup(of: MessageUpdate.self) { group in
+    // Three at a time, paced: a long catch-up stays under Gmail's per-user limits.
+    for start in stride(from: 0, to: ids.count, by: 3) {
+      let batch = Array(ids[start..<min(start + 3, ids.count)])
+      let updates: [MessageUpdate]
+      do {
+        updates = try await withThrowingTaskGroup(of: MessageUpdate.self) { group in
         for id in batch {
           group.addTask {
             try await pacedBulk()
@@ -207,6 +213,12 @@ extension GmailClient {
         var values: [MessageUpdate] = []
         for try await update in group { values.append(update) }
         return values
+        }
+      } catch let failure as HTTPFailure where failure.isRateLimited && start > 0 {
+        // Keep what arrived; the rest is checked on the next sync. (A limit on the very first batch
+        // still fails, so a sync that made no progress is reported rather than looping quietly.)
+        result.pendingIDs = Set(ids[start...])
+        return result
       }
       for update in updates {
         switch update {
@@ -220,7 +232,7 @@ extension GmailClient {
   }
   public func synchronize(
     token: String, cached: [Mail], historyID: String?, refreshContent: Bool = false,
-    storedIDs: Set<String> = []
+    storedIDs: Set<String> = [], pendingIDs: Set<String> = []
   ) async throws
     -> GmailSyncResult
   {
@@ -234,7 +246,7 @@ extension GmailClient {
       { delta = nil }
       if let delta {
         return try await fetchUpdates(
-          ids: delta.changed, cachedIDs: storedIDs, token: token,
+          ids: delta.changed.union(pendingIDs).subtracting(delta.deleted), cachedIDs: storedIDs, token: token,
           into: GmailSyncResult(deletedIDs: delta.deleted, historyID: delta.cursor))
       }
     }
@@ -251,7 +263,7 @@ extension GmailClient {
       historyID: baseline.historyId, nextPage: page.next, resetsPagination: true)
     // Missing from a single page is not deletion: verify every previously cached remote ID.
     return try await fetchUpdates(
-      ids: cachedIDs.subtracting(fetchedIDs), cachedIDs: knownIDs,
+      ids: cachedIDs.union(pendingIDs).subtracting(fetchedIDs), cachedIDs: knownIDs,
       token: token, into: result)
   }
 }

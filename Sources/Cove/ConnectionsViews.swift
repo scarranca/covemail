@@ -250,8 +250,17 @@ struct SetupChecklistCard: View {
                 Text(step.powers).font(.coveMetadata).foregroundStyle(Palette.body)
               }
               Spacer(minLength: 8)
-              Button(index == 0 ? "Set up" : "Set up") { open(step) }
-                .buttonStyle(index == 0 ? AnyButtonStyle(PrimaryButton(compact: true)) : AnyButtonStyle(SecondaryButton(compact: true)))
+              if store.connectingStep == step {
+                HStack(spacing: 8) {
+                  ProgressView().controlSize(.small)
+                  Text(store.busy && !store.status.hasPrefix("Connecting") ? "After sync…" : "Connecting…")
+                    .font(.coveControl).foregroundStyle(Palette.body)
+                }.frame(height: 32).help("Cove connects as soon as the current sync finishes")
+              } else {
+                Button("Set up") { open(step) }
+                  .buttonStyle(index == 0 ? AnyButtonStyle(PrimaryButton(compact: true)) : AnyButtonStyle(SecondaryButton(compact: true)))
+                  .disabled(store.connectingStep != nil)
+              }
             }.padding(.vertical, 10)
           }
         }

@@ -142,7 +142,15 @@ import SwiftUI
   var busy = false
   var now = Date()
   var status = ""
-  var error: String?
+  var error: String? {
+    didSet {
+      // A Gmail rate limit is temporary: show it in the status line, never as an alert.
+      if let error, error == HTTPFailure.gmailRateLimitMessage {
+        self.error = nil
+        status = "Gmail asked Cove to slow down · try again in a minute"
+      }
+    }
+  }
   var connectionIssue: ConnectionIssue?
   var removedMemory: (index: Int, text: String)?
   var settingsSection = "Settings"
@@ -167,6 +175,9 @@ import SwiftUI
   var composeID: String?
   var nextPage: String?
   private var gmailHistoryID: String?
+  /// Emails a rate-limited sync didn't reach; the next sync checks them first.
+  private var gmailPendingIDs: Set<String> = []
+  private var syncContinuation: Task<Void, Never>?
   private var mailDecodingVersion = 0
   var lastSync: Date?
   var calendarConnected = UserDefaults.standard.bool(forKey: "calendarConnected")
@@ -187,6 +198,8 @@ import SwiftUI
   var taskSuggestionMail: Mail?
   /// Integrations opens with this connection expanded (from the setup checklist or a gate).
   var integrationsFocus: SetupStep?
+  /// A Calendar or Tasks connection the user asked for; it may be waiting for a sync to finish.
+  var connectingStep: SetupStep?
   /// After a send: Jev looks for promises in what was just sent.
   var postSend: PostSendTaskCheck?
   let auth = GoogleAuth()
@@ -513,6 +526,8 @@ import SwiftUI
     contactRecords = snapshot.contacts
     lastSync = snapshot.lastSync
     gmailHistoryID = snapshot.gmailHistoryID
+    gmailPendingIDs = (try? snapshot.database.load(Set<String>.self, key: "gmailPendingIDs")) ?? []
+    syncContinuation?.cancel(); syncContinuation = nil
     mailDecodingVersion = snapshot.mailDecodingVersion
     resetMailboxPresentation()
     nextPage = snapshot.nextPage
@@ -959,7 +974,11 @@ import SwiftUI
   /// Adds Calendar to the current Google sign-in. The mailbox, screen and selection stay as they are;
   /// a different Google account or a declined Calendar permission changes nothing.
   func connectCalendar() async {
-    guard entered, !isSample, !busy, !calendarConnected else { return }
+    guard entered, !isSample, !calendarConnected, connectingStep == nil else { return }
+    connectingStep = .calendar
+    defer { connectingStep = nil }
+    // A click during a sync used to do nothing; wait for the sync, then connect.
+    guard await waitUntilIdle() else { return }
     calendarConnectError = nil
     let email = accountEmail
     let generation = mailboxGeneration
@@ -1038,7 +1057,11 @@ import SwiftUI
       status = "Operation cancelled"
     } catch {
       reportFailure(error, operation: label)
-      status = connectionIssue == nil ? "Couldn’t finish · retry when ready" : "Connection issue · showing downloaded mail"
+      if let http = error as? HTTPFailure, http.isRateLimited {
+        status = "Gmail asked Cove to slow down · try again in a minute"
+      } else {
+        status = connectionIssue == nil ? "Couldn’t finish · retry when ready" : "Connection issue · showing downloaded mail"
+      }
     }
   }
   func sync(older: Bool = false) async {
@@ -1054,6 +1077,8 @@ import SwiftUI
     // Fetching an older page does not refresh the latest mail or delay the next inbox check.
     if !older { lastMailboxPoll = syncClock() }
     var synced = false
+    var slowedDown = false
+    var remaining = 0
     await run(older ? "Loading more mail…" : "Syncing Gmail…") {
       let token: String
       if let provider = self.gmailTokenProvider {
@@ -1070,11 +1095,17 @@ import SwiftUI
           messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
           historyID: self.gmailHistoryID ?? "", nextPage: page.next, resetsPagination: true)
       } else {
-        result = try await self.gmail.synchronize(
-          token: token, cached: self.mails,
-          historyID: self.gmailHistoryID,
-          refreshContent: self.mailDecodingVersion < GmailMessage.decodingVersion,
-          storedIDs: (try? self.database?.storedMessageIDs()) ?? [])
+        do {
+          result = try await self.gmail.synchronize(
+            token: token, cached: self.mails,
+            historyID: self.gmailHistoryID,
+            refreshContent: self.mailDecodingVersion < GmailMessage.decodingVersion,
+            storedIDs: (try? self.database?.storedMessageIDs()) ?? [], pendingIDs: self.gmailPendingIDs)
+        } catch let failure as HTTPFailure where failure.isRateLimited {
+          // Gmail asked Cove to slow down before anything arrived: no alert, just try again shortly.
+          slowedDown = true
+          return
+        }
       }
       try Task.checkCancellation()
       guard generation == self.mailboxGeneration, !self.isSample else { throw CancellationError() }
@@ -1109,12 +1140,24 @@ import SwiftUI
         $0.value.revision > startingReadRevision || self.pendingReadTasks[$0.key] != nil
       }
       if !older { self.mailDecodingVersion = GmailMessage.decodingVersion }
+      if !older {
+        self.gmailPendingIDs = result.pendingIDs
+        try database.save(result.pendingIDs, key: "gmailPendingIDs")
+        remaining = result.pendingIDs.count
+      }
       if !result.historyID.isEmpty { self.gmailHistoryID = result.historyID }
       if result.resetsPagination { self.nextPage = result.nextPage }
       self.lastSync = self.syncClock()
       try database.save(self.lastSync, key: "lastSync")
       self.reconcileSelection()
       synced = true
+    }
+    if slowedDown || remaining > 0 {
+      // A long catch-up continues in batches: what arrived is saved, the rest follows in a minute.
+      status = remaining > 0
+        ? "Caught up on part of your mail · \(remaining) more in a minute"
+        : "Gmail asked Cove to slow down · continuing in a minute"
+      scheduleSyncContinuation(generation: generation)
     }
     if synced && !older && preferences.autoClassify { await organizeMail(automatically: true) }
     if synced && !older && generation == mailboxGeneration {
@@ -3250,7 +3293,10 @@ extension AppStore {
 // check (never on marketing, sales or automated mail); the writing model runs only when asked.
 extension AppStore {
   func connectTasks() async {
-    guard entered, !isSample, !busy, !tasksConnected else { return }
+    guard entered, !isSample, !tasksConnected, connectingStep == nil else { return }
+    connectingStep = .tasks
+    defer { connectingStep = nil }
+    guard await waitUntilIdle() else { return }
     tasksConnectError = nil
     let email = accountEmail
     let generation = mailboxGeneration
@@ -3606,5 +3652,33 @@ extension AppStore {
     guard let index = mails.firstIndex(where: { $0.id == mail.id }), mails[index].taskCheck != nil else { return }
     mails[index].taskCheck?.dismissed = true
     persistMessage(mails[index])
+  }
+}
+
+extension AppStore {
+  /// Waits (up to two minutes) for a running sync or other mailbox work to finish. False if the mailbox
+  /// changed or it never finished, so the caller does nothing rather than act on another account.
+  func waitUntilIdle(timeout: Duration = .seconds(120)) async -> Bool {
+    let generation = mailboxGeneration
+    let deadline = ContinuousClock.now + timeout
+    while busy {
+      guard ContinuousClock.now < deadline, !Task.isCancelled else { return false }
+      try? await Task.sleep(for: .milliseconds(250))
+    }
+    return generation == mailboxGeneration && entered
+  }
+}
+
+extension AppStore {
+  /// Picks a rate-limited sync back up after a pause, once, unless something else syncs first.
+  fileprivate func scheduleSyncContinuation(generation: UUID) {
+    syncContinuation?.cancel()
+    syncContinuation = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(60))
+      guard let self, !Task.isCancelled, generation == self.mailboxGeneration else { return }
+      self.syncContinuation = nil
+      if self.busy { _ = await self.waitUntilIdle() }
+      await self.sync()
+    }
   }
 }

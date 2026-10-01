@@ -299,6 +299,52 @@ final class GmailSyncTests: XCTestCase {
     XCTAssertEqual(paths.filter { $0 == "vanished" }.count, 1)
   }
 
+  func testRateLimitPartwayKeepsWhatArrivedAndRemembersTheRest() async throws {
+    let ids = (1...9).map { "m\($0)" }
+    let limited = SyncFixtureHTTP { request in
+      let name = request.url!.lastPathComponent
+      switch name {
+      case "history":
+        return (200, ["historyId": "200", "history": ids.map { ["messagesAdded": [["message": ["id": $0]]]] }])
+      case "m1", "m2", "m3":
+        return (200, ["id": name, "threadId": "t", "labelIds": ["INBOX"]])
+      default:
+        // Gmail's per-user limit, as a 403 with its machine-readable reason.
+        return (403, ["error": ["errors": [["reason": "userRateLimitExceeded"]]]])
+      }
+    }
+    let first = try await GmailClient(transport: limited).synchronize(token: "t", cached: [], historyID: "100")
+    XCTAssertEqual(Set(first.messages.map(\.id)), ["m1", "m2", "m3"], "the batch that arrived is kept")
+    XCTAssertEqual(first.pendingIDs, Set(ids.dropFirst(3)), "the rest waits for the next sync")
+    XCTAssertEqual(first.historyID, "200")
+
+    // Next sync: nothing new in history, but the pending emails are fetched first.
+    let calm = SyncFixtureHTTP { request in
+      let name = request.url!.lastPathComponent
+      switch name {
+      case "history": return (200, ["historyId": "201"])
+      default: return (200, ["id": name, "threadId": "t", "labelIds": ["INBOX"]])
+      }
+    }
+    let next = try await GmailClient(transport: calm).synchronize(
+      token: "t", cached: [], historyID: "200", pendingIDs: first.pendingIDs)
+    XCTAssertEqual(Set(next.messages.map(\.id)), first.pendingIDs)
+    XCTAssertTrue(next.pendingIDs.isEmpty)
+  }
+
+  func testRateLimitBeforeAnythingArrivesStillFails() async throws {
+    let limited = SyncFixtureHTTP { request in
+      switch request.url!.lastPathComponent {
+      case "history": return (200, ["historyId": "200", "history": [["messagesAdded": [["message": ["id": "m1"]]]]]])
+      default: return (429, [:])
+      }
+    }
+    do {
+      _ = try await GmailClient(transport: limited).synchronize(token: "t", cached: [], historyID: "100")
+      XCTFail("a sync that made no progress reports the limit")
+    } catch let failure as HTTPFailure { XCTAssertTrue(failure.isRateLimited) }
+  }
+
   func testOlderPageDownloadsOnlyMessagesNotAlreadyStored() async throws {
     let transport = SyncFixtureHTTP { request in
       switch request.url!.lastPathComponent {
