@@ -162,6 +162,20 @@ struct AssistantAgendaView: View {
       }
       if event.ownResponse == "needsAction" { Text("Awaiting your response").font(.coveMetadata).foregroundStyle(Palette.muted) }
       if event.ownResponse == "declined" { Text("Declined").font(.coveMetadata).foregroundStyle(Palette.muted) }
+      // Gemini notes and transcripts Google attached to the meeting.
+      let files = (event.files ?? []).filter { $0.safeURL != nil && $0.kind != .file }
+      if !files.isEmpty {
+        HStack(spacing: 8) {
+          ForEach(Array(files.enumerated()), id: \.offset) { _, file in
+            Link(destination: file.safeURL!) {
+              Label(file.kind == .transcript ? "Transcript" : file.kind == .recording ? "Recording" : "Notes",
+                    systemImage: EventFilesView.icon(file.kind))
+                .font(.coveMetadata).padding(.horizontal, 9).frame(height: 24)
+                .background(Palette.sidebar, in: Capsule()).foregroundStyle(Palette.ink)
+            }.buttonStyle(.plain).help(file.title)
+          }
+        }.padding(.top, 2)
+      }
     }
   }
 }

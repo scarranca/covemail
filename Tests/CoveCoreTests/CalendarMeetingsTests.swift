@@ -49,3 +49,21 @@ final class Locked<Value>: @unchecked Sendable {
   var value: Value { lock.lock(); defer { lock.unlock() }; return stored }
   func mutate(_ change: (inout Value) -> Void) { lock.lock(); change(&stored); lock.unlock() }
 }
+
+final class CalendarFilesTests: XCTestCase {
+  func testGeminiNotesAndTranscriptsComeThroughAsLinks() throws {
+    let json = #"""
+    {"id":"demo","summary":"Demo gigstack","start":{"dateTime":"2026-07-01T22:00:00Z"},"end":{"dateTime":"2026-07-01T22:30:00Z"},
+     "attachments":[
+      {"fileUrl":"https://docs.google.com/document/d/abc/edit","title":"Notas de Gemini","mimeType":"application/vnd.google-apps.document"},
+      {"fileUrl":"https://docs.google.com/document/d/def/edit","title":"Demo gigstack - Transcript","mimeType":"application/vnd.google-apps.document"},
+      {"fileUrl":"https://drive.google.com/file/d/ghi/view","title":"Demo gigstack - Recording","mimeType":"video/mp4"},
+      {"fileUrl":"https://evil.example.com/x","title":"Notes"}]}
+    """#
+    let event = try XCTUnwrap(JSONDecoder().decode(GoogleCalendarClient.Event.self, from: Data(json.utf8)).local())
+    let files = try XCTUnwrap(event.files)
+    XCTAssertEqual(files.map(\.kind), [.notes, .transcript, .recording, .file])
+    XCTAssertNil(files[3].safeURL, "only Google's own file links open")
+    XCTAssertNotNil(files[0].safeURL)
+  }
+}

@@ -100,6 +100,9 @@ struct CalendarView: View {
                 if let location = event.location, !location.isEmpty {
                   Label(location, systemImage: "mappin.and.ellipse").font(.coveSecondary)
                 }
+                if let files = event.files?.filter({ $0.safeURL != nil }), !files.isEmpty {
+                  EventFilesView(files: files)
+                }
                 if let details = event.details, !details.isEmpty {
                   Text(details).font(.coveText).foregroundStyle(Palette.body)
                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -1161,5 +1164,45 @@ struct EventTimeChip: View {
             }
         }
       }
+  }
+}
+
+/// Gemini notes, transcripts and recordings Google attached to a meeting, opened in Google.
+struct EventFilesView: View {
+  let files: [CalendarFile]
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("From the meeting").font(.coveLabel)
+      ForEach(Array(files.enumerated()), id: \.offset) { _, file in
+        if let url = file.safeURL {
+          Link(destination: url) {
+            HStack(spacing: 10) {
+              Image(systemName: Self.icon(file.kind)).font(.cove(size: 13)).foregroundStyle(Palette.body).frame(width: 18)
+              VStack(alignment: .leading, spacing: 1) {
+                Text(file.title).font(.coveSecondary).foregroundStyle(Palette.ink).lineLimit(1)
+                Text(Self.caption(file.kind)).font(.coveMetadata).foregroundStyle(Palette.muted)
+              }
+              Spacer(minLength: 0)
+              Image(systemName: "arrow.up.right").font(.cove(size: 10)).foregroundStyle(Palette.muted)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
+            .contentShape(Rectangle())
+          }.buttonStyle(.plain).help("Open in Google")
+        }
+      }
+    }
+  }
+  static func icon(_ kind: CalendarFile.Kind) -> String {
+    switch kind { case .notes: "sparkles"; case .transcript: "text.quote"; case .recording: "play.rectangle"; case .file: "doc" }
+  }
+  static func caption(_ kind: CalendarFile.Kind) -> String {
+    switch kind {
+    case .notes: "Meeting notes · opens in Google Docs"
+    case .transcript: "Transcript · opens in Google Docs"
+    case .recording: "Recording · opens in Google Drive"
+    case .file: "Opens in Google"
+    }
   }
 }

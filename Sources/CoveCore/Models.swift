@@ -180,6 +180,8 @@ public struct LocalEvent: Codable, Identifiable, Sendable {
   public var organizerName: String?
   public var organizerEmail: String?
   public var recurringEventID: String?
+  /// Files Google attached to the event: Gemini notes, transcripts, recordings, shared docs.
+  public var files: [CalendarFile]?
   public var ownResponse: String? { attendees?.first(where: { $0.isSelf == true })?.response }
   public var isPendingInvitation: Bool { googleID != nil && isOrganizer != true && ownResponse == "needsAction" }
   // Older local events belong to Personal; Google events keep their remote source.
@@ -199,6 +201,30 @@ public struct LocalEvent: Codable, Identifiable, Sendable {
     self.localCalendar = localCalendar
   }
 }
+/// A file on a Google Calendar event. Cove links to it; reading a Doc's text would need Google Drive access.
+public struct CalendarFile: Codable, Equatable, Sendable {
+  public enum Kind: String, Codable, Sendable { case notes, transcript, recording, file }
+  public var title: String
+  public var url: String
+  public var mimeType: String?
+  public init(title: String, url: String, mimeType: String? = nil) {
+    self.title = title; self.url = url; self.mimeType = mimeType
+  }
+  public var kind: Kind {
+    let name = title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    if mimeType?.hasPrefix("video/") == true || name.contains("recording") || name.contains("grabacion") { return .recording }
+    if name.contains("transcript") || name.contains("transcripcion") { return .transcript }
+    if name.contains("gemini") || name.contains("notes by") || name.contains("notas") { return .notes }
+    return .file
+  }
+  /// Only Google's own file links open from Cove.
+  public var safeURL: URL? {
+    guard let url = URL(string: url), url.scheme == "https", let host = url.host,
+      host == "drive.google.com" || host == "docs.google.com" else { return nil }
+    return url
+  }
+}
+
 public struct CalendarAttendee: Codable, Sendable {
   public var name: String?
   public var email: String?

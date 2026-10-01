@@ -37,6 +37,8 @@ public struct GoogleCalendarClient {
       }
     }
     public var attendees: [Attendee]?
+    public struct Attachment: Decodable { var fileUrl: String?; var title: String?; var mimeType: String? }
+    public var attachments: [Attachment]?
     public func local() -> LocalEvent? {
       func parse(_ moment: Moment?) -> Date? {
         if let time = moment?.dateTime {
@@ -71,6 +73,10 @@ public struct GoogleCalendarClient {
       event.organizerName = organizer?.displayName
       event.organizerEmail = organizer?.email
       event.recurringEventID = recurringEventId
+      event.files = attachments?.compactMap { file in
+        guard let url = file.fileUrl, !url.isEmpty else { return nil }
+        return CalendarFile(title: file.title ?? "Attachment", url: url, mimeType: file.mimeType)
+      }
       event.blocksTime = transparency != "transparent"
         && attendees?.contains(where: { $0.isSelf == true && $0.responseStatus == "declined" }) != true
       return event
