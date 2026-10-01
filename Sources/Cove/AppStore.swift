@@ -150,6 +150,9 @@ import SwiftUI
   private(set) var labelEditRevision = 0
   /// One queue per email, so its changes reach Gmail in the order the user made them.
   private var labelTasks: [String: Task<Void, Never>] = [:]
+  /// The email in its undo-send window, shown in the bottom bar.
+  var pendingSend: PendingSend?
+  fileprivate var sendTask: Task<Void, Never>?
   var now = Date()
   var status = ""
   var error: String? {
@@ -3826,4 +3829,69 @@ struct LabelEdit {
     var inFlight: Bool
   }
   var changes: [Change] = []
+}
+
+/// An email waiting out its undo window before it is sent.
+struct PendingSend: Equatable {
+  let id = UUID()
+  let to: String
+  let subject: String
+  let body: String
+  let reply: Mail?
+  let draftID: String?
+  let from: String?
+  let cc: String
+  let deadline: Date
+  var delivering = false
+}
+
+extension AppStore {
+  static let undoSendSeconds: TimeInterval = 4
+
+  /// Send with a short undo window, like Delete: nothing reaches Gmail until it ends, and Undo puts the
+  /// text back where it was written. Only one email waits at a time; a second Send delivers the first now.
+  func queueSend(to: String, subject: String, body: String, reply: Mail? = nil, draftID: String? = nil,
+                 from: String? = nil, cc: String = "") {
+    if let waiting = pendingSend, !waiting.delivering {
+      sendTask?.cancel()
+      Task { await deliver(waiting) }
+    }
+    let item = PendingSend(to: to, subject: subject, body: body, reply: reply, draftID: draftID, from: from, cc: cc,
+                           deadline: Date().addingTimeInterval(Self.undoSendSeconds))
+    pendingSend = item
+    sendTask = Task { @MainActor [weak self] in
+      try? await Task.sleep(for: .seconds(Self.undoSendSeconds))
+      guard let self, !Task.isCancelled, self.pendingSend?.id == item.id else { return }
+      await self.deliver(item)
+    }
+  }
+
+  func undoSend() {
+    guard let item = pendingSend, !item.delivering else { return }
+    sendTask?.cancel(); sendTask = nil
+    pendingSend = nil
+    restoreUnsent(item)
+  }
+
+  private func deliver(_ item: PendingSend) async {
+    if pendingSend?.id == item.id { pendingSend?.delivering = true }
+    let generation = mailboxGeneration
+    _ = await waitUntilIdle()
+    guard generation == mailboxGeneration else { if pendingSend?.id == item.id { pendingSend = nil }; return }
+    let sent = await send(to: item.to, subject: item.subject, body: item.body, reply: item.reply,
+                          draftID: item.draftID, from: item.from, cc: item.cc)
+    if pendingSend?.id == item.id { pendingSend = nil }
+    if !sent { restoreUnsent(item) }
+  }
+
+  /// Puts an unsent email back where it was written: the reply box, or the composer with its draft.
+  private func restoreUnsent(_ item: PendingSend) {
+    if let reply = item.reply {
+      saveReply(id: reply.id, text: item.body)
+      if let mail = mails.first(where: { $0.id == reply.id }) { screen = "mail"; select(mail) }
+    } else if let draftID = item.draftID, mails.contains(where: { $0.id == draftID }) {
+      composeID = draftID
+      showComposer = true
+    }
+  }
 }

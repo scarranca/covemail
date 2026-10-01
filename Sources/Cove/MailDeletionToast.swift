@@ -103,3 +103,51 @@ struct MailRowPointerTarget: NSViewRepresentable {
     return window.contentView.flatMap { find(in: $0) }
   }
 }
+
+/// "Sending to … · Undo": the same bar as Delete, counting down before the email goes to Gmail.
+struct SendUndoToast: View {
+  @Bindable var store: AppStore
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var body: some View {
+    Group {
+      if let item = store.pendingSend {
+        TimelineView(.periodic(from: .now, by: 0.1)) { context in
+          let left = item.deadline.timeIntervalSince(context.date)
+          let remaining = max(0, Int(ceil(left)))
+          HStack(spacing: 13) {
+            Image(systemName: "paperplane").accessibilityHidden(true)
+            Text(item.delivering || remaining == 0 ? "Sending…" : "Sending to \(Self.firstRecipient(item.to))")
+              .font(.coveControl).lineLimit(1)
+            if !item.delivering && remaining > 0 {
+              ZStack {
+                Circle().stroke(.white.opacity(0.25), lineWidth: 2)
+                Circle().trim(from: 0, to: min(1, max(0, left / AppStore.undoSendSeconds)))
+                  .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round)).rotationEffect(.degrees(-90))
+                Text("\(remaining)").font(.coveCaption).monospacedDigit()
+              }.frame(width: 25, height: 25).accessibilityLabel("\(remaining) seconds to undo")
+              Button("Undo") { store.undoSend() }
+                .buttonStyle(.plain).font(.coveControl).padding(.horizontal, 10).padding(.vertical, 6)
+                .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 5))
+                .keyboardShortcut("z", modifiers: .command)
+            } else {
+              ProgressView().controlSize(.small).colorScheme(.dark)
+            }
+          }.foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 11)
+            .background(Palette.ink, in: RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+        }
+        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+      }
+    }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.pendingSend?.id)
+  }
+  /// "Mariana Barreto" from "Mariana Barreto <mariana@…>, …", or the address.
+  static func firstRecipient(_ to: String) -> String {
+    let first = to.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? to
+    if let open = first.firstIndex(of: "<") {
+      let name = first[..<open].trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+      if !name.isEmpty { return name }
+      return String(first[first.index(after: open)...].prefix { $0 != ">" })
+    }
+    return first
+  }
+}

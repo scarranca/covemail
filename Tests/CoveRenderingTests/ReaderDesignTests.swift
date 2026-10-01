@@ -124,6 +124,33 @@ import XCTest
     try await render(ReaderView(store: store, mail: plain, askingCove: true).defaultAppStorage(defaults), width: 824, name: "ask-inline")
     XCTAssertFalse(store.showAssistant, "the separate assistant window stays closed")
   }
+  func testTypingAReplyDoesntTouchTheMailboxOnEveryKeystroke() async throws {
+    _ = NSApplication.shared
+    let store = try fixture()
+    var mail = message; mail.htmlBody = nil; mail.draft = "Hi"
+    store.mails = [mail]; store.selectedID = mail.id
+    let host = NSHostingView(rootView: ReaderView(store: store, mail: mail))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 824, height: 1200), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    defer { window.close() }
+    for _ in 0..<10 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    func find(_ view: NSView) -> NSTextView? {
+      if let editor = view as? NSTextView, editor.isEditable { return editor }
+      for child in view.subviews { if let found = find(child) { return found } }
+      return nil
+    }
+    let editor = try XCTUnwrap(find(host))
+    editor.setSelectedRange(NSRange(location: 2, length: 0))
+    let before = store.mailsRevision
+    for character in " Mariana, thanks a lot!" {
+      editor.insertText(String(character), replacementRange: NSRange(location: NSNotFound, length: 0))
+      host.layoutSubtreeIfNeeded()
+    }
+    XCTAssertEqual(store.mailsRevision, before, "typing stays in the editor; the mail list isn't recomputed per key")
+    try await Task.sleep(for: .milliseconds(900))
+    XCTAssertEqual(store.mails.first?.draft, "Hi Mariana, thanks a lot!", "saved once after the pause")
+    XCTAssertEqual(store.mailsRevision, before + 1)
+  }
   private func render<V: View>(_ view: V, width: CGFloat, name: String) async throws {
     let host = NSHostingView(rootView: view.font(.coveBody).foregroundStyle(Palette.ink).background(Palette.canvas))
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 960), styleMask: [.borderless], backing: .buffered, defer: false)

@@ -98,7 +98,7 @@ struct ComposerView: View {
   }
   @FocusState private var recipientFocused: Bool
   @State private var loaded = false
-  @State private var confirmSend = false
+  @State private var saveTask: Task<Void, Never>?
   @State private var confirmDiscard = false
   @State private var undoSuggestion: String?
   @State private var appliedSuggestion: String?
@@ -137,17 +137,13 @@ struct ComposerView: View {
         loaded = true
       }
       .task { await loadSenders() }
-      .onChange(of: sender) { _, _ in save() }
-      .onChange(of: to) { _, _ in save() }
-      .onChange(of: subject) { _, _ in save() }
-      .onChange(of: text) { _, _ in save() }
+      // Saved after a short pause, not on every keystroke (that re-sorted the whole mailbox each time).
+      .onChange(of: sender) { _, _ in scheduleSave() }
+      .onChange(of: to) { _, _ in scheduleSave() }
+      .onChange(of: subject) { _, _ in scheduleSave() }
+      .onChange(of: text) { _, _ in scheduleSave() }
+      .onDisappear { save() }
       .interactiveDismissDisabled(store.busy)
-      .confirmationDialog(store.isSample ? "Save this sample message?" : "Send this email?", isPresented: $confirmSend, titleVisibility: .visible) {
-        Button(store.isSample ? "Save sample message" : "Send email") { send() }
-        Button("Keep editing", role: .cancel) {}
-      } message: {
-        Text("From: \(sender)\nTo: \(to)\nSubject: \(subject.isEmpty ? "(No subject)" : subject)")
-      }
       .confirmationDialog("Move this draft to Trash?", isPresented: $confirmDiscard, titleVisibility: .visible) {
         Button("Move to Trash", role: .destructive) {
           save()
@@ -264,7 +260,7 @@ struct ComposerView: View {
       Divider()
       HStack(spacing: 12) {
         Button(store.isSample ? "Save sample" : "Send", systemImage: "paperplane") {
-          save(); confirmSend = true
+          send()
         }.buttonStyle(PrimaryButton()).disabled(sendDisabled)
           .keyboardShortcut(.return, modifiers: .command)
 
@@ -389,15 +385,22 @@ struct ComposerView: View {
 
   private func send() {
     save()
-    let sentFrom = sender
-    let recipient = to, sentSubject = subject, sentText = text, draftID = store.composeID
-    Task {
-      if await store.send(to: recipient, subject: sentSubject, body: sentText, draftID: draftID, from: sentFrom),
-         sender == sentFrom, to == recipient, subject == sentSubject, text == sentText { dismiss() }
+    // No "Send this email?" dialog: a 4-second undo bar instead, like Delete. Undo reopens this draft.
+    store.queueSend(to: to, subject: subject, body: text, draftID: store.composeID, from: sender)
+    dismiss()
+  }
+
+  private func scheduleSave() {
+    saveTask?.cancel()
+    saveTask = Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(600))
+      guard !Task.isCancelled else { return }
+      save()
     }
   }
 
   private func save() {
+    saveTask?.cancel(); saveTask = nil
     guard loaded, let id = store.composeID else { return }
     store.saveComposition(id: id, to: to, subject: subject, body: text, from: sender)
   }

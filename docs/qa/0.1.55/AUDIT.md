@@ -54,3 +54,26 @@
   - This covers the composer, the reply editor and every other `ComposeTextEditor`.
 - **Test:** `ComposeAccentTests` types "Hola ", sets the marked "´", forces a re-render, commits "é", then types "xito". Expected: "Hola éxito" with the cursor after é. On the old code the same test fails with the cursor at 0 and "xitoHola é".
 - **Full `swift test`:** CoveCoreTests 264, CoveRenderingTests 350, 0 failures.
+
+## Typing lag (user: "feels slow when writing")
+
+- **Cause:** every keystroke in a reply or the composer called `saveReply`/`saveComposition`. Each call:
+  - mutated `mails` (bumping `mailsRevision`), so the memoized `visible` list and the sidebar/Home counts recomputed over the whole mailbox;
+  - encrypted and wrote the email to SQLite;
+  - scheduled cloud sync.
+- **Fix:** typing stays in the editor's state, and the draft is saved after 0.6 s of no typing.
+  - **Reader:** `updateReply` debounces. `flushReply()` saves immediately when switching the reply target, opening another email, leaving the reader, or sending; `cancelReplySave()` drops a pending save on send or discard so it can't bring a draft back. The "reply written elsewhere" adoption ignores the reader's own delayed save (`savedReply`) and anything while a save is pending, so it never rolls back typing.
+  - **Composer:** `scheduleSave()` debounces; Send, Close, Discard and leaving save immediately.
+- **Test:** `ReaderDesignTests.testTypingAReplyDoesntTouchTheMailboxOnEveryKeystroke` types 23 characters with no `mailsRevision` change, then exactly one save after the pause.
+
+## Undo Send instead of "Send this email?" (user request)
+
+- **Composer:** the confirmation dialog is removed. Send (or ⌘Return) queues the email and closes the composer; a bottom bar like Delete shows "Sending to <first recipient>" with a 4-second countdown ring and Undo (⌘Z).
+- **Reply box:** Send clears the box and queues the email the same way.
+- **The queue (`AppStore.queueSend`):** nothing reaches Gmail until the window ends. Delivery then waits for any exclusive operation (`waitUntilIdle`) and calls `send`. Only one email waits at a time; a second Send delivers the first immediately.
+- **Undo, or a failed send:** the text goes back where it was written. A reply returns to that email's reply box (picked up by the reader's adoption); a new email reopens the composer on its saved draft.
+- **Tests:** `UndoSendTests`:
+  - Undo: nothing is sent, and the reply text is restored.
+  - Without Undo: nothing is sent at 1 s; it is sent after the window.
+
+Full `swift test`: CoveCoreTests 264, CoveRenderingTests 353, 0 failures.

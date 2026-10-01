@@ -6,6 +6,12 @@ struct ReaderView: View {
   @Bindable var store: AppStore
   let mail: Mail
   @State private var reply = ""
+  /// Typing stays in the editor; the draft is saved to the mailbox after a short pause (saving on
+  /// every keystroke re-sorted the whole mail list and made typing lag).
+  @State private var replySaveTask: Task<Void, Never>?
+  @State private var pendingReplyID: String?
+  /// What this reader last wrote, so its own delayed save isn't mistaken for a reply written elsewhere.
+  @State private var savedReply = ""
   @State private var confirmUnsubscribe = false
   @State var askingCove = false
   @State private var unsubscribing = false
@@ -32,7 +38,28 @@ struct ReaderView: View {
   private var replyCc: String { replyingToAll ? replyAllRecipients!.cc : "" }
   private func updateReply(_ value: String) {
     reply = value
-    store.saveReply(id: replySource.id, text: value)
+    let id = replySource.id
+    pendingReplyID = id
+    replySaveTask?.cancel()
+    replySaveTask = Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(600))
+      guard !Task.isCancelled else { return }
+      savedReply = value
+      store.saveReply(id: id, text: value)
+      pendingReplyID = nil
+    }
+  }
+  /// Saves a pending draft now (switching emails, leaving, sending from elsewhere).
+  private func flushReply() {
+    replySaveTask?.cancel(); replySaveTask = nil
+    guard let id = pendingReplyID else { return }
+    pendingReplyID = nil
+    savedReply = reply
+    store.saveReply(id: id, text: reply)
+  }
+  /// Drops a pending save (after sending or discarding, so it can't bring the draft back).
+  private func cancelReplySave() {
+    replySaveTask?.cancel(); replySaveTask = nil; pendingReplyID = nil
   }
   private var position: Int? { store.visible.firstIndex { $0.id == mail.id } }
   private var localDraft: Bool { current.labels.contains("DRAFT") && current.id.hasPrefix("local-") }
@@ -69,6 +96,7 @@ struct ReaderView: View {
             }
             Divider()
             ReaderConversation(store: store, anchor: current) { message, all in
+              flushReply()
               store.saveReply(id: replySource.id, text: reply)
               replyTarget = message
               reply = message.draft
@@ -107,7 +135,7 @@ struct ReaderView: View {
       }
     }.background(Palette.canvas).foregroundStyle(Palette.ink)
     .onAppear {
-      reply = current.draft; showReply = !reply.isEmpty
+      reply = current.draft; savedReply = current.draft; showReply = !reply.isEmpty
       let opened = current
       Task { await store.markViewed(opened) }
       // Jev checks eligible mail once for promises or requests; marketing and automated mail are skipped.
@@ -115,11 +143,14 @@ struct ReaderView: View {
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
-    .onChange(of: current.id) { _, _ in askingCove = false }
+    .onChange(of: current.id) { _, _ in askingCove = false; flushReply() }
+    .onDisappear { flushReply() }
     // Ask Cove can write the reply while this email is open. Typing keeps both in step, so a difference
     // means the draft was written elsewhere: show it instead of an empty editor.
     .onChange(of: replySource.draft) { _, written in
-      guard written != reply else { return }
+      // Our own delayed save or an older value: keep what's being typed.
+      guard written != reply, written != savedReply, pendingReplyID == nil else { return }
+      savedReply = written
       reply = written
       if !written.isEmpty { showReply = true }
     }
@@ -514,14 +545,13 @@ extension ReaderView {
       let cc = replyCc
       let sentText = reply
       let subject = source.subject.lowercased().hasPrefix("re:") ? source.subject : "Re: \(source.subject)"
-      Task {
-        if await store.send(to: recipient, subject: subject, body: sentText, reply: source, cc: cc),
-          replySource.id == source.id, reply == sentText
-        {
-          reply = ""
-          showReply = false
-        }
-      }
+      // A 4-second undo window, like Delete; Undo puts the text back in this reply box.
+      cancelReplySave()
+      savedReply = ""
+      store.saveReply(id: source.id, text: "")
+      store.queueSend(to: recipient, subject: subject, body: sentText, reply: source, cc: cc)
+      reply = ""
+      showReply = false
     } label: {
       Label(store.isSample ? "Save sample reply" : "Send reply", systemImage: "paperplane")
     }.buttonStyle(PrimaryButton()).fixedSize().disabled(
@@ -555,6 +585,7 @@ extension ReaderView {
   }
   private var discardButton: some View {
     Button {
+      cancelReplySave()
       reply = ""
       showReply = false
       store.saveReply(id: replySource.id, text: "")
