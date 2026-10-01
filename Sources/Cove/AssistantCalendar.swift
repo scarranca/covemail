@@ -26,8 +26,19 @@ import Foundation
     let purpose: String
     let intro: Bool
   }
+  /// A Google Task the user asked for, created only after they approve it on the card.
+  struct TaskProposal: Equatable {
+    var title: String
+    var due: Date?
+    var notes: String
+    /// The selected email the task comes from, linked in the task's notes.
+    var mailID: String?
+    /// The user also asked to archive that email.
+    var archive: Bool
+  }
   enum Result {
     case email
+    case task(TaskProposal)
     case compose(ComposeRequest)
     case reply(String)
     case remember(String)
@@ -48,7 +59,7 @@ import Foundation
   private struct Plan: Decodable {
     enum Action: String, Decodable {
       case email, clarify, propose, find, agenda, compose, reply, remember, forget, contact, brief, followup
-      case navigate, bulk, view, move
+      case navigate, bulk, view, move, task
     }
     let action: Action
     var screen: String?
@@ -65,6 +76,9 @@ import Foundation
     var subject: String?
     var purpose: String?
     var intro: Bool?
+    var due: String?
+    var notes: String?
+    var archive: Bool?
     var title: String?
     var start: String?
     var end: String?
@@ -112,6 +126,22 @@ import Foundation
     switch plan.action {
     case .navigate: return navigation(plan)
     case .bulk: return bulk(plan, screen: screen)
+    case .task:
+      guard let title = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+        return .clarification("What should the task say?")
+      }
+      var due: Date?
+      if let day = plan.due {
+        let parser = DateFormatter()
+        parser.calendar = Calendar(identifier: .gregorian); parser.timeZone = timeZone
+        parser.locale = Locale(identifier: "en_US_POSIX"); parser.dateFormat = "yyyy-MM-dd"
+        due = parser.date(from: day)
+      }
+      // Only the email on screen can be archived, and only because the user asked in this request.
+      let mail = mails.first
+      return .task(TaskProposal(title: String(title.prefix(300)), due: due,
+        notes: String((plan.notes ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000)),
+        mailID: mail?.id, archive: mail != nil && plan.archive == true))
     case .view:
       guard screen?.screen == "mail", screen?.view != nil else {
         return .question("Open a folder or label first, then ask about its emails.")

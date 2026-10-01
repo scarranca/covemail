@@ -171,6 +171,37 @@ struct AssistantView: View {
       }
     }
   }
+  /// Runs only from the task card's Add button: creates the task, then archives the email if the user asked.
+  private func addTask(_ id: UUID) {
+    guard let state = exchanges.first(where: { $0.id == id })?.task, state.phase == .review else { return }
+    let proposal = state.proposal
+    update(id) { $0.task?.phase = .working }
+    Task {
+      do {
+        let created = try await store.createTask(title: proposal.title, due: proposal.due, notes: proposal.notes, from: proposal.mailID)
+        var archived = false
+        if proposal.archive, let mailID = proposal.mailID, let mail = store.mails.first(where: { $0.id == mailID }),
+          mail.labels.contains("INBOX") {
+          await store.archive(mail)
+          archived = store.mails.first(where: { $0.id == mailID }).map { !$0.labels.contains("INBOX") } ?? false
+        }
+        update(id) {
+          $0.task?.phase = .created(created)
+          $0.task?.archived = archived
+          $0.source = "Google Tasks · task created" + (archived ? " · email archived" : "")
+        }
+      } catch {
+        update(id) { $0.task?.phase = .review }
+        actionNotice = (error as? CoveError)?.localizedDescription ?? "Couldn’t create the task. Try again."
+      }
+    }
+  }
+  private func undoTaskArchive(_ id: UUID) {
+    guard let state = exchanges.first(where: { $0.id == id })?.task, state.archived,
+      let mailID = state.proposal.mailID, let mail = store.mails.first(where: { $0.id == mailID }) else { return }
+    update(id) { $0.task?.archived = false }
+    Task { await store.modify(mail, add: ["INBOX"]) }
+  }
   /// Runs only from the bulk card's Approve or Undo. Undo reverses the change on exactly the emails that
   /// succeeded. It runs in its own task, so closing the chat doesn't stop an approved change halfway.
   private func runBulk(_ id: UUID, undo: Bool) {
@@ -462,6 +493,17 @@ struct AssistantView: View {
                   update(exchange.id) { $0.bulk?.plan.targets = detailed }
                 } catch { actionNotice = error.localizedDescription }
               })
+          }
+          if let task = exchange.task {
+            AssistantTaskCard(state: task, mail: task.proposal.mailID.flatMap { id in store.mails.first { $0.id == id } },
+              connected: store.tasksConnected, connecting: store.connectingStep != nil,
+              edit: { title in update(exchange.id) { $0.task?.proposal.title = title } },
+              toggleArchive: { on in update(exchange.id) { $0.task?.proposal.archive = on } },
+              connect: { Task { await store.connectTasks() } },
+              add: { addTask(exchange.id) },
+              dismiss: { update(exchange.id) { $0.task?.phase = .dismissed; $0.source = "Nothing created" } },
+              undoArchive: { undoTaskArchive(exchange.id) },
+              open: { store.screen = "tasks"; close() })
           }
           if let pending = exchange.pendingCompose, !pending.resolved {
             VStack(alignment: .leading, spacing: 8) {
@@ -967,6 +1009,11 @@ struct AssistantView: View {
               exchanges[index].bulk = AssistantBulkState(plan: plan)
             }
             return
+          case .task(let proposal):
+            exchanges[index].task = AssistantTaskState(proposal: proposal)
+            exchanges[index].answer = "Here’s your task. Nothing is created until you add it."
+            exchanges[index].source = "Google Tasks · nothing created yet"
+            return
           case .view:
             let inView = Array(store.visible.prefix(20))
             guard !inView.isEmpty else {
@@ -1234,11 +1281,13 @@ struct ChatExchange: Identifiable {
   var pendingCompose: PendingCompose?
   var memoryUndone = false
   var bulk: AssistantBulkState?
+  var task: AssistantTaskState?
   /// The selected event's times before an approved move, for Undo.
   var movedFrom: DateInterval?
   var feedback: AssistantFeedback?
   var groundingLabel: String {
     if let bulk { return bulk.groundingLabel }
+    if let task { return task.groundingLabel }
     if isCalendar {
       if eventProposal?.eventID != nil { return eventCreated ? "Event moved" : "Move ready to review" }
       return eventCreated ? "Event added" : eventProposal == nil ? "Calendar" : "Event ready to review"
@@ -1400,6 +1449,93 @@ struct AssistantDraftCard: View {
 }
 
 /// A saved memory, shown with Undo so nothing is remembered by accident.
+struct AssistantTaskState: Equatable {
+  enum Phase: Equatable { case review, working, created(GoogleTask), dismissed }
+  var proposal: AssistantCalendar.TaskProposal
+  var phase: Phase = .review
+  var archived = false
+  var groundingLabel: String {
+    switch phase {
+    case .review, .working: "Task ready to review"
+    case .created: archived ? "Task added · email archived" : "Task added"
+    case .dismissed: "No task created"
+    }
+  }
+}
+
+/// A task Ask Cove prepared. Nothing reaches Google Tasks, and the email isn't archived, until the user clicks Add.
+struct AssistantTaskCard: View {
+  let state: AssistantTaskState
+  let mail: Mail?
+  let connected: Bool
+  let connecting: Bool
+  let edit: (String) -> Void
+  let toggleArchive: (Bool) -> Void
+  let connect: () -> Void
+  let add: () -> Void
+  let dismiss: () -> Void
+  let undoArchive: () -> Void
+  let open: () -> Void
+
+  private var created: Bool { if case .created = state.phase { true } else { false } }
+  private var editable: Bool { state.phase == .review }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 12) {
+        Image(systemName: created ? "checkmark.circle.fill" : "circle").font(.cove(size: 16))
+          .foregroundStyle(created ? Palette.ink : Palette.muted).accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 4) {
+          if editable {
+            TextField("Task", text: Binding(get: { state.proposal.title }, set: edit))
+              .textFieldStyle(.plain).font(.coveSubheading)
+          } else {
+            Text(state.proposal.title).font(.coveSubheading).foregroundStyle(state.phase == .dismissed ? Palette.muted : Palette.ink)
+              .strikethrough(state.phase == .dismissed)
+          }
+          HStack(spacing: 6) {
+            Text(state.proposal.due.map { "Due " + $0.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()) } ?? "No due date")
+            if let mail { Text("·"); Text(mail.subject.isEmpty ? "(No subject)" : mail.subject).lineLimit(1) }
+          }.font(.coveMetadata).foregroundStyle(Palette.body)
+          if !state.proposal.notes.isEmpty {
+            Text(state.proposal.notes).font(.coveSecondary).foregroundStyle(Palette.body).lineLimit(3)
+          }
+        }
+        Spacer(minLength: 0)
+      }
+      if mail != nil, editable {
+        Toggle("Archive the email when the task is added", isOn: Binding(get: { state.proposal.archive }, set: toggleArchive))
+          .toggleStyle(.checkbox).font(.coveSecondary).foregroundStyle(Palette.body)
+      }
+      HStack(spacing: 10) {
+        switch state.phase {
+        case .review, .working:
+          if connected {
+            Button(state.proposal.archive && mail != nil ? "Add task and archive" : "Add task", action: add)
+              .buttonStyle(PrimaryButton(compact: true)).disabled(state.phase == .working || state.proposal.title.trimmingCharacters(in: .whitespaces).isEmpty)
+          } else {
+            Button(connecting ? "Connecting…" : "Connect Google Tasks", action: connect)
+              .buttonStyle(PrimaryButton(compact: true)).disabled(connecting)
+          }
+          Button("Not now", action: dismiss).buttonStyle(SecondaryButton(compact: true)).disabled(state.phase == .working)
+          if state.phase == .working { ProgressView().controlSize(.small) }
+        case .created:
+          Button("Open Tasks", action: open).buttonStyle(SecondaryButton(compact: true))
+          if state.archived {
+            Text("Email archived").font(.coveMetadata).foregroundStyle(Palette.body)
+            Button("Undo archive", action: undoArchive).buttonStyle(SecondaryButton(compact: true))
+          }
+        case .dismissed:
+          Text("No task created").font(.coveMetadata).foregroundStyle(Palette.muted)
+        }
+      }
+    }
+    .padding(14).frame(maxWidth: 520, alignment: .leading)
+    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line))
+  }
+}
+
 struct AssistantMemoryCard: View {
   let memory: String
   let undone: Bool

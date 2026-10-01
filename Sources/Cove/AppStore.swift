@@ -3546,6 +3546,26 @@ extension AppStore {
     return (created, failed)
   }
 
+  /// A task the user approved in Ask Cove; linked to the email it came from, when there is one.
+  func createTask(title: String, due: Date?, notes: String, from mailID: String?) async throws -> GoogleTask {
+    guard entered, !isSample else { throw CoveError.message("Tasks aren’t available in the sample mailbox.") }
+    guard tasksConnected else { throw CoveError.message("Connect Google Tasks first.") }
+    let generation = mailboxGeneration
+    let suggestion = TaskSuggestion(title: title, due: due, notes: notes)
+    let mail = mailID.flatMap { id in mails.first { $0.id == id } }
+    let task = try await tasksClient.create(title: title, notes: mail.map { TaskDetection.notes(for: suggestion, mail: $0) } ?? notes,
+                                            due: due, token: tasksToken())
+    guard generation == mailboxGeneration else { throw CancellationError() }
+    if let mail, let index = mails.firstIndex(where: { $0.id == mail.id }) {
+      var check = mails[index].taskCheck ?? MailTaskCheck(found: true, confidence: 1)
+      check.createdTaskIDs = (check.createdTaskIDs ?? []) + [task.id]
+      mails[index].taskCheck = check
+      persistMessage(mails[index])
+    }
+    googleTasks = (googleTasks + [task]).sorted { ($0.dueDay ?? .distantFuture) < ($1.dueDay ?? .distantFuture) }
+    return task
+  }
+
   @discardableResult
   func updateTask(_ task: GoogleTask, title: String, notes: String, due: Date?) async -> Bool {
     guard entered, !isSample, tasksConnected else { return false }
