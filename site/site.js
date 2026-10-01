@@ -382,4 +382,102 @@ document.documentElement.classList.add('js');
       finish: () => { typed.textContent = full; show(true); }
     });
   }
+
+  // Install demo (beta page): the Cove icon breaks into dots that travel the arc into Applications.
+  const install = document.querySelector('.install-canvas');
+  if (install) {
+    const pen = install.getContext('2d');
+    const icon = new Image();
+    const W = 560, H = 220, size = 96, appX = 120, folderX = 440, midY = 108;
+    const tide = ['#78d9c9', '#8abaf0', '#baa1ed', '#e6a8c9', '#f2bd8c'];
+    const period = 4600;
+    let particles = [];
+    let visible = false, frame = 0, began = 0;
+    const ratio = window.devicePixelRatio || 1;
+    install.width = W * ratio; install.height = H * ratio;
+    pen.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const ease = x => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+    const arc = p => [appX + 64 + (folderX - appX - 64) * p, midY + 6 - Math.sin(p * Math.PI) * 34];
+    const sample = () => {
+      const c = document.createElement('canvas'); c.width = c.height = 24;
+      const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(icon, 0, 0, 24, 24);
+      const data = g.getImageData(0, 0, 24, 24).data;
+      particles = [];
+      for (let y = 0; y < 24; y++) for (let x = 0; x < 24; x++) {
+        const i = (y * 24 + x) * 4;
+        if (data[i + 3] < 120) continue;
+        particles.push({ x: appX - size / 2 + (x + .5) * size / 24, y: midY - size / 2 + (y + .5) * size / 24,
+          color: `rgb(${data[i]},${data[i + 1]},${data[i + 2]})`, delay: Math.random() * .35, lift: (Math.random() - .5) * 26 });
+      }
+    };
+    const folder = (bounce, glow) => {
+      const w = 104 * bounce, h = 80 * bounce, x = folderX - w / 2, y = midY - h / 2 + 4;
+      pen.save();
+      pen.fillStyle = '#cfe0f7'; pen.beginPath(); pen.roundRect(x, y - 10 * bounce, w * .42, 22 * bounce, 6); pen.fill();
+      const fill = pen.createLinearGradient(0, y, 0, y + h);
+      fill.addColorStop(0, '#a9cbf5'); fill.addColorStop(1, '#8abaf0');
+      pen.fillStyle = fill; pen.beginPath(); pen.roundRect(x, y, w, h, 9); pen.fill();
+      if (glow > 0) { pen.globalAlpha = glow; pen.fillStyle = '#fff'; pen.beginPath(); pen.arc(folderX, midY + 6, 9 * bounce, 0, Math.PI * 2); pen.fill(); }
+      pen.restore();
+      pen.fillStyle = '#5d626b'; pen.font = '500 12px Inter, system-ui, sans-serif'; pen.textAlign = 'center';
+      pen.fillText('Applications', folderX, midY + 72);
+    };
+    const guide = alpha => {
+      for (let i = 0; i <= 14; i++) {
+        const p = i / 14 * .8, [x, y] = arc(p);
+        pen.globalAlpha = alpha * (.25 + .5 * p); pen.fillStyle = tide[Math.min(4, Math.floor(p * 5))];
+        pen.beginPath(); pen.arc(x, y, 1.4 + 1.6 * p, 0, Math.PI * 2); pen.fill();
+      }
+      pen.globalAlpha = 1;
+    };
+    const draw = t => {
+      const time = t % period;
+      pen.clearRect(0, 0, W, H);
+      const dissolve = ease((time - 600) / 500);          // the icon gives way to its dots
+      const travel = (time - 1000) / 1500;                 // the dots cross to the folder
+      const land = ease((time - 2500) / 350) * (1 - ease((time - 2850) / 350));
+      const reform = ease((time - 3500) / 700);            // the icon comes back for the next loop
+      guide(1 - Math.min(1, Math.max(0, travel)) * (1 - reform) * .7);
+      if (time < 1000 || reform > 0) {
+        pen.globalAlpha = time < 1000 ? 1 - dissolve : reform;
+        pen.drawImage(icon, appX - size / 2, midY - size / 2, size, size);
+        pen.globalAlpha = 1;
+      }
+      pen.fillStyle = '#5d626b'; pen.font = '500 12px Inter, system-ui, sans-serif'; pen.textAlign = 'center';
+      pen.globalAlpha = time < 1000 ? 1 : reform; pen.fillText('Cove', appX, midY + 72); pen.globalAlpha = 1;
+      if (time >= 600 && time < 3000) {
+        particles.forEach((d, i) => {
+          const p = ease((travel - d.delay) / .65);
+          const [ax, ay] = arc(p);
+          const sx = d.x + (ax - d.x) * Math.min(1, p * 1.6), sy = d.y + (ay - d.y) * Math.min(1, p * 1.6) + Math.sin(p * Math.PI) * d.lift;
+          const x = sx, y = sy;
+          pen.globalAlpha = Math.max(dissolve, .2) * .95;
+          pen.fillStyle = p > .15 ? tide[Math.min(4, Math.floor(p * 5))] : d.color;
+          pen.beginPath(); pen.arc(x, y, 2.2 - p * .9, 0, Math.PI * 2); pen.fill();
+        });
+        pen.globalAlpha = 1;
+      }
+      folder(1 + land * .07, land * .6);
+    };
+    const loop = t => {
+      frame = 0;
+      if (!visible || document.hidden || reduced.matches) return;
+      if (!began) began = t;
+      draw(t - began);
+      frame = requestAnimationFrame(loop);
+    };
+    const sync = () => {
+      if (!icon.naturalWidth) return;
+      if (reduced.matches) { draw(0); return; }
+      if (!frame && visible && !document.hidden) frame = requestAnimationFrame(loop);
+    };
+    // ?install=<ms> draws one fixed moment, for checking the animation in screenshots.
+    const fixed = new URLSearchParams(location.search).get('install');
+    icon.addEventListener('load', () => { sample(); draw(Number(fixed) || 0); if (fixed === null) sync(); });
+    icon.src = '/assets/cove-icon.png';
+    if (fixed === null) {
+      new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; sync(); }).observe(install);
+      document.addEventListener('visibilitychange', sync);
+    }
+  }
 })();

@@ -322,3 +322,8 @@
 @media(max-width:1050px){.agents-hero{grid-template-columns:1fr;padding:36px}.agents-portrait{height:340px}.agents-build{grid-template-columns:1fr;gap:40px}}
 @media(max-width:700px){.agents-hero h2 br{display:none}.agents-new{padding-block:55px}.agents-hero{padding:26px 20px;gap:24px}.agents-copy>p:not(.eyebrow){font-size:16px}.agents-portrait{height:280px}.cap-now{font-size:13px}.agents-build{margin-top:48px}}
 @media(prefers-reduced-motion:reduce){.cap-now,.cap-next,.pm-card,.pm-foot{transition:none}}
+
+/* Install demo (beta page): the Cove icon travels as dots into the Applications folder. */
+.install-demo{margin:26px 0 8px;padding:18px 18px 14px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.install-canvas{display:block;width:100%;height:auto;aspect-ratio:560/220}
+.install-demo figcaption{margin-top:8px;text-align:center;font-size:13px;color:var(--body)}

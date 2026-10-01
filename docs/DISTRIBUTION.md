@@ -118,3 +118,13 @@ Publish the feed and downloads together. The stable feed is `https://covemail.xy
 Automatic installation is disabled. Sparkle validates Ed25519 signatures before extraction and macOS code signing before replacement. The app also defers relaunch for active mail/calendar operations, pending trash undo, and open editors/conversations. The user explicitly resumes from **Cove → Install Update and Relaunch…** after saving and closing their work. Update checks send no email content or credentials; Sparkle system profiling is disabled.
 
 Users on 0.1.23 and earlier need one manual DMG installation to gain the updater. Each future release must increase CFBundleVersion, complete Apple notarization, and publish its newly signed feed. A build on a developer’s Mac does not automatically become an available update.
+
+## Designed disk image window (since 0.1.53)
+
+`scripts/build-dmg.sh` lays out the DMG window with `dmgbuild`. You get the background art from `scripts/dmg/render-background.py` (a 1x + 2x TIFF), Cove at (170, 210), Applications at (490, 210), 128-point icons, no toolbar, sidebar or status bar, and Cove's icon as the volume icon. It writes the layout directly, so Finder never opens during a build. One-time setup in the building checkout, kept out of git:
+
+```sh
+python3 -m venv .local/dmg-venv && .local/dmg-venv/bin/pip install "dmgbuild==1.6.7"
+```
+
+Without that environment, the script falls back to the old plain `hdiutil` image. Do not set `hide_extensions`: it writes Finder info onto the app bundle and breaks `codesign --verify --strict`. Finder shows only still backgrounds, so the motion is implied by the dot trail; the animated version is on the beta page (`.install-demo`, `?install=<ms>` draws one fixed moment for screenshots).

@@ -21,11 +21,23 @@ if [[ -z "$cove_identity" ]]; then
 fi
 cove_stage=$(mktemp -d "$PWD/dist/distribution/.dmg-build.XXXXXX")
 trap 'rm -rf "$cove_stage"' EXIT
-mkdir "$cove_stage/payload"
-ditto "$cove_app" "$cove_stage/payload/Cove.app"
-ln -s /Applications "$cove_stage/payload/Applications"
-hdiutil create -volname Cove -srcfolder "$cove_stage/payload" -fs HFS+ \
-  -format UDZO "$cove_stage/Cove.dmg"
+cove_dmgbuild="$PWD/.local/dmg-venv/bin/dmgbuild"
+if [[ -x "$cove_dmgbuild" ]]; then
+  # The designed window: background art, icon positions, no toolbar or sidebar. Written directly by
+  # dmgbuild, so Finder never opens a window during the build.
+  python3 scripts/dmg/render-background.py "$cove_stage/background.tiff"
+  ditto "$cove_app" "$cove_stage/Cove.app"
+  "$cove_dmgbuild" -s scripts/dmg/settings.py -D app="$cove_stage/Cove.app" \
+    -D background="$cove_stage/background.tiff" -D icon="$PWD/assets/AppIcon/Cove.icns" \
+    Cove "$cove_stage/Cove.dmg" >/dev/null
+else
+  print -u2 'dmgbuild not found in .local/dmg-venv; building a plain disk image (see docs/DISTRIBUTION.md).'
+  mkdir "$cove_stage/payload"
+  ditto "$cove_app" "$cove_stage/payload/Cove.app"
+  ln -s /Applications "$cove_stage/payload/Applications"
+  hdiutil create -volname Cove -srcfolder "$cove_stage/payload" -fs HFS+ \
+    -format UDZO "$cove_stage/Cove.dmg"
+fi
 codesign --sign "$cove_identity" --timestamp "${cove_keychain_args[@]}" "$cove_stage/Cove.dmg"
 codesign --verify --strict "$cove_stage/Cove.dmg"
 codesign -dvv "$cove_stage/Cove.dmg" 2>&1 | rg '^Authority=Developer ID Application:'
