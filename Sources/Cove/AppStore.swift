@@ -2310,7 +2310,7 @@ import SwiftUI
   }
   func createEvent(
     title: String, start: Date, end: Date, onGoogle: Bool, editing: LocalEvent? = nil,
-    localCalendar: LocalCalendar? = nil
+    localCalendar: LocalCalendar? = nil, guests: [String]? = nil, addMeet: Bool = false
   ) async -> Bool {
     guard entered, let database, end > start,
       !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -2338,10 +2338,10 @@ import SwiftUI
       }
       if let editing, editing.googleID != nil, !self.isSample {
         event = try await self.calendarClient.update(
-          token: token, event: editing, title: title, start: start, end: end)
+          token: token, event: editing, title: title, start: start, end: end, guests: guests)
       } else if onGoogle && !self.isSample {
         event = try await self.calendarClient.create(
-          token: token, title: title, start: start, end: end)
+          token: token, title: title, start: start, end: end, guests: guests ?? [], addMeet: addMeet)
       } else {
         var local = editing ?? LocalEvent(title: title, start: start, end: end)
         local.title = title

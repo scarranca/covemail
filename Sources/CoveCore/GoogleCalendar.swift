@@ -168,15 +168,38 @@ public struct GoogleCalendarClient {
     return (result, pageToken == nil)
   }
 
-  public func create(token: String, title: String, start: Date, end: Date) async throws
-    -> LocalEvent
-  {
-    let body: [String: Any] = [
+  /// Guest addresses for a request body. Only valid, distinct addresses, at most 50.
+  public static func guestList(_ guests: [String]) throws -> [String] {
+    var seen = Set<String>()
+    let clean = guests.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    for guest in clean where !ContactDirectory.isValidEmail(guest) {
+      throw CoveError.message("“\(String(guest.prefix(80)))” isn’t an email address.")
+    }
+    let unique = clean.filter { seen.insert($0.lowercased()).inserted }
+    guard unique.count <= 50 else { throw CoveError.message("Invite at most 50 guests from Cove.") }
+    return unique
+  }
+
+  /// Guests get Google's invitation email (sendUpdates=all); a Meet link is added when asked.
+  public func create(token: String, title: String, start: Date, end: Date, guests: [String] = [],
+                     addMeet: Bool = false) async throws -> LocalEvent {
+    let invited = try Self.guestList(guests)
+    var body: [String: Any] = [
       "summary": title, "start": ["dateTime": ISO8601DateFormatter().string(from: start)],
       "end": ["dateTime": ISO8601DateFormatter().string(from: end)],
     ]
+    var query: [URLQueryItem] = []
+    if !invited.isEmpty {
+      body["attendees"] = invited.map { ["email": $0] }
+      query.append(URLQueryItem(name: "sendUpdates", value: "all"))
+    }
+    if addMeet {
+      body["conferenceData"] = ["createRequest": ["requestId": UUID().uuidString,
+                                                 "conferenceSolutionKey": ["type": "hangoutsMeet"]]]
+      query.append(URLQueryItem(name: "conferenceDataVersion", value: "1"))
+    }
     let result = try JSONDecoder().decode(
-      Event.self, from: await request(token: token, method: "POST", body: body))
+      Event.self, from: await request(token: token, method: "POST", query: query, body: body))
     guard let event = result.local() else {
       throw CoveError.message(
         "The event was created, but its details could not be read. Sync your calendar before trying again."
@@ -184,19 +207,41 @@ public struct GoogleCalendarClient {
     }
     return event
   }
-  public func update(token: String, event: LocalEvent, title: String, start: Date, end: Date)
-    async throws -> LocalEvent
+  public func update(token: String, event: LocalEvent, title: String, start: Date, end: Date,
+                     guests: [String]? = nil) async throws -> LocalEvent
   {
     guard let id = event.googleID,
       id.rangeOfCharacter(
         from: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-")).inverted) == nil
     else { throw CoveError.message("Invalid calendar event ID.") }
-    let body: [String: Any] = [
+    var body: [String: Any] = [
       "summary": title, "start": ["dateTime": ISO8601DateFormatter().string(from: start)],
       "end": ["dateTime": ISO8601DateFormatter().string(from: end)],
     ]
+    var query: [URLQueryItem] = []
+    if let guests {
+      // Existing guests keep their responses; only new addresses get an invitation.
+      let invited = try Self.guestList(guests)
+      let wanted = Set(invited.map { $0.lowercased() })
+      let current = (event.attendees ?? []).filter { $0.email.map { wanted.contains($0.lowercased()) } ?? false }
+      let currentEmails = Set(current.compactMap { $0.email?.lowercased() })
+      var attendees: [[String: Any]] = current.map { attendee in
+        var entry: [String: Any] = ["email": attendee.email ?? ""]
+        if let response = attendee.response { entry["responseStatus"] = response }
+        if let name = attendee.name { entry["displayName"] = name }
+        if attendee.isSelf == true { entry["self"] = true }
+        return entry
+      }
+      attendees += invited.filter { !currentEmails.contains($0.lowercased()) }.map { ["email": $0] }
+      // The organizer stays on their own event even when not typed as a guest.
+      for me in (event.attendees ?? []) where me.isSelf == true && !(me.email.map { wanted.contains($0.lowercased()) } ?? false) {
+        attendees.append(["email": me.email ?? "", "responseStatus": me.response ?? "accepted", "self": true])
+      }
+      body["attendees"] = attendees
+      query.append(URLQueryItem(name: "sendUpdates", value: "all"))
+    }
     let result = try JSONDecoder().decode(
-      Event.self, from: await request(path: "/\(id)", token: token, method: "PATCH", body: body))
+      Event.self, from: await request(path: "/\(id)", token: token, method: "PATCH", query: query, body: body))
     guard let updated = result.local() else {
       throw CoveError.message("The event was updated. Sync your calendar to view its details.")
     }

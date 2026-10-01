@@ -67,3 +67,51 @@ final class CalendarFilesTests: XCTestCase {
     XCTAssertNotNil(files[0].safeURL)
   }
 }
+
+final class CalendarGuestsTests: XCTestCase {
+  private func body(_ request: URLRequest) throws -> [String: Any] {
+    try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+  }
+  private let created = Data(#"{"id":"new1","summary":"Demo","start":{"dateTime":"2026-10-02T16:00:00Z"},"end":{"dateTime":"2026-10-02T16:30:00Z"}}"#.utf8)
+
+  func testCreateInvitesGuestsAndAddsMeet() async throws {
+    let seen = Locked<URLRequest?>(nil)
+    let response = created
+    let client = GoogleCalendarClient(transport: MockHTTP { request in seen.mutate { $0 = request }; return response })
+    _ = try await client.create(token: "t", title: "Demo", start: Date(), end: Date().addingTimeInterval(1800),
+                                guests: ["contacto@grupo-amx.com", "CONTACTO@grupo-amx.com", "ana@example.com"], addMeet: true)
+    let request = try XCTUnwrap(seen.value)
+    let items = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+    XCTAssertTrue(items.contains(URLQueryItem(name: "sendUpdates", value: "all")))
+    XCTAssertTrue(items.contains(URLQueryItem(name: "conferenceDataVersion", value: "1")))
+    let attendees = try XCTUnwrap(body(request)["attendees"] as? [[String: Any]])
+    XCTAssertEqual(attendees.compactMap { $0["email"] as? String }, ["contacto@grupo-amx.com", "ana@example.com"], "duplicates collapse")
+  }
+
+  func testCreateWithoutGuestsSendsNoInvitationsAndBadAddressesAreRefused() async throws {
+    let seen = Locked<URLRequest?>(nil)
+    let response = created
+    let client = GoogleCalendarClient(transport: MockHTTP { request in seen.mutate { $0 = request }; return response })
+    _ = try await client.create(token: "t", title: "Focus", start: Date(), end: Date().addingTimeInterval(1800))
+    XCTAssertNil(seen.value?.url?.query, "no guests, no sendUpdates")
+    XCTAssertNil(try body(XCTUnwrap(seen.value))["attendees"])
+    XCTAssertThrowsError(try GoogleCalendarClient.guestList(["Manuel"]))
+  }
+
+  func testUpdateKeepsExistingGuestsResponsesAndInvitesOnlyNewOnes() async throws {
+    let seen = Locked<URLRequest?>(nil)
+    let response = created
+    let client = GoogleCalendarClient(transport: MockHTTP { request in seen.mutate { $0 = request }; return response })
+    var event = LocalEvent(title: "Demo", start: Date(), end: Date().addingTimeInterval(1800))
+    event.googleID = "abc123"
+    event.attendees = [CalendarAttendee(name: "Me", email: "me@example.com", response: "accepted", isSelf: true),
+                       CalendarAttendee(name: "AMX", email: "contacto@grupo-amx.com", response: "accepted", isSelf: nil),
+                       CalendarAttendee(name: "Old", email: "old@example.com", response: "needsAction", isSelf: nil)]
+    _ = try await client.update(token: "t", event: event, title: "Demo", start: event.start, end: event.end,
+                                guests: ["contacto@grupo-amx.com", "new@example.com"])
+    let attendees = try XCTUnwrap(body(XCTUnwrap(seen.value))["attendees"] as? [[String: Any]])
+    XCTAssertEqual(attendees.compactMap { $0["email"] as? String }, ["contacto@grupo-amx.com", "new@example.com", "me@example.com"])
+    XCTAssertEqual(attendees[0]["responseStatus"] as? String, "accepted", "an existing guest's answer is kept")
+    XCTAssertNil(attendees[1]["responseStatus"])
+  }
+}

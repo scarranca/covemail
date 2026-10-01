@@ -38,6 +38,9 @@ import XCTest
     }.padding(.vertical, 12), name: "rsvp-loading", width: 192)
     try await render(ContactEditor(store: store, record: record, onSave: { _ in XCTFail("Rendering must not save") }), name: "contact-editor", width: 490)
     try await render(CalendarEventEditor(store: store, draft: CalendarEventDraft(title: "Product design review")), name: "event-editor", width: 440)
+    var invited = CalendarEventDraft(title: "Demo gigstack")
+    invited.onGoogle = true; invited.guests = ["maya@example.com", "contacto@grupo-amx.com"]; invited.addMeet = true
+    try await render(CalendarEventEditor(store: store, draft: invited), name: "event-editor-guests", width: 440)
     try await render(CalendarSearchView(store: store, select: { _ in XCTFail("Rendering must not select") }), name: "calendar-search", width: 390)
   }
 

@@ -933,6 +933,13 @@ struct CalendarEventDraft: Identifiable {
   var end: Date
   var onGoogle: Bool
   var localCalendar: LocalCalendar
+  /// Guest addresses (Google Calendar only). Saving sends them Google's invitation email.
+  var guests: [String]
+  var addMeet = false
+  /// Whether the guest list differs from the event's, so an edit only re-invites when it changed.
+  var guestsChanged: Bool {
+    Set(guests.map { $0.lowercased() }) != Set((editing?.attendees ?? []).filter { $0.isSelf != true }.compactMap { $0.email?.lowercased() })
+  }
 
   init(
     title: String = "", editing: LocalEvent? = nil, start: Date = Date(), end: Date? = nil,
@@ -944,6 +951,7 @@ struct CalendarEventDraft: Identifiable {
     self.end = editing?.end ?? end ?? start.addingTimeInterval(3600)
     onGoogle = editing?.googleID != nil
     self.localCalendar = editing?.effectiveLocalCalendar ?? localCalendar
+    guests = (editing?.attendees ?? []).filter { $0.isSelf != true }.compactMap(\.email)
   }
 }
 
@@ -1019,8 +1027,16 @@ struct CalendarEventEditor: View {
             }
         }
       }
+      if draft.onGoogle, draft.editing == nil || draft.editing?.isOrganizer == true {
+        row("person.2") { EventGuestsField(store: store, draft: $draft) }
+      } else if draft.editing?.googleID == nil {
+        row("person.2") {
+          Text("To invite guests, save to Google Calendar.").font(.coveMetadata).foregroundStyle(Palette.muted)
+        }
+      }
       if reviewingProposal {
-        Label("Changing the time doesn’t recheck your availability. No guests are invited.", systemImage: "info.circle")
+        Label(draft.guests.isEmpty ? "Changing the time doesn’t recheck your availability. No guests are invited."
+                                   : "Changing the time doesn’t recheck your availability.", systemImage: "info.circle")
           .font(.coveMetadata).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
       }
       if let saveError {
@@ -1030,7 +1046,9 @@ struct CalendarEventEditor: View {
       HStack(spacing: 16) {
         Spacer()
         Button("Cancel") { dismiss() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
-        Button(draft.editing == nil ? "Add event" : "Save changes") { save() }
+        Button(draft.onGoogle && draft.guestsChanged && !draft.guests.isEmpty
+               ? (draft.editing == nil ? "Add and invite" : "Save and update guests")
+               : draft.editing == nil ? "Add event" : "Save changes") { save() }
           .buttonStyle(PrimaryButton()).keyboardShortcut(.defaultAction).disabled(!canSave)
       }
     }.padding(30).frame(width: 440).disabled(saving || store.busy || store.calendarSyncing)
@@ -1097,7 +1115,9 @@ struct CalendarEventEditor: View {
       if await store.createEvent(
         title: submitted.title, start: submitted.start, end: submitted.end,
         onGoogle: submitted.onGoogle, editing: submitted.editing,
-        localCalendar: submitted.localCalendar)
+        localCalendar: submitted.localCalendar,
+        guests: submitted.onGoogle && submitted.guestsChanged ? submitted.guests : nil,
+        addMeet: submitted.onGoogle && submitted.editing == nil && submitted.addMeet)
       {
         onSaved?(submitted)
         dismiss()
@@ -1204,5 +1224,88 @@ struct EventFilesView: View {
     case .recording: "Recording · opens in Google Drive"
     case .file: "Opens in Google"
     }
+  }
+}
+
+/// Guests for a Google Calendar event: chips, plus a field that suggests the user's contacts.
+struct EventGuestsField: View {
+  @Bindable var store: AppStore
+  @Binding var draft: CalendarEventDraft
+  @State private var text = ""
+  @State private var problem: String?
+  @FocusState private var focused: Bool
+
+  private var suggestions: [MailContact] {
+    let query = text.trimmingCharacters(in: .whitespaces)
+    guard query.count >= 2 else { return [] }
+    let taken = Set(draft.guests.map { $0.lowercased() } + [store.accountEmail.lowercased()])
+    return store.contacts.filter { contact in
+      !taken.contains(contact.email.lowercased())
+        && (contact.name.localizedStandardContains(query) || contact.email.localizedStandardContains(query))
+    }.prefix(4).map { $0 }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if !draft.guests.isEmpty {
+        MailChipLayout(spacing: 6) {
+          ForEach(draft.guests, id: \.self) { guest in
+            HStack(spacing: 5) {
+              Text(name(for: guest)).font(.coveControl).lineLimit(1)
+              Button { draft.guests.removeAll { $0 == guest } } label: { Image(systemName: "xmark").font(.cove(size: 8, weight: .semibold)) }
+                .buttonStyle(.plain).foregroundStyle(Palette.muted).accessibilityLabel("Remove \(guest)")
+            }.padding(.leading, 10).padding(.trailing, 8).frame(height: 28)
+              .background(Palette.surface, in: Capsule()).help(guest)
+          }
+        }
+      }
+      TextField("Add guests", text: $text, prompt: Text("Add guests by name or email").foregroundStyle(Palette.muted))
+        .textFieldStyle(.plain).font(.coveSecondary).focused($focused)
+        .onSubmit { add(suggestions.first?.email ?? text) }
+        .onChange(of: text) { _, value in
+          problem = nil
+          // Typing or pasting a comma or space finishes an address.
+          if let last = value.last, last == "," || last == " " || last == ";" {
+            let typed = String(value.dropLast()).trimmingCharacters(in: .whitespaces)
+            if ContactDirectory.isValidEmail(typed) { add(typed) }
+          }
+        }
+        .accessibilityLabel("Add guests")
+      if !suggestions.isEmpty {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(suggestions, id: \.email) { contact in
+            Button { add(contact.email) } label: {
+              HStack(spacing: 8) {
+                Text(contact.name).font(.coveSecondary).foregroundStyle(Palette.ink).lineLimit(1)
+                Text(contact.email).font(.coveMetadata).foregroundStyle(Palette.muted).lineLimit(1)
+                Spacer(minLength: 0)
+              }.padding(.horizontal, 8).frame(height: 28).contentShape(Rectangle())
+            }.buttonStyle(.plain)
+          }
+        }.padding(4).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+      }
+      if let problem { Text(problem).font(.coveMetadata).foregroundStyle(Palette.danger) }
+      if draft.editing == nil {
+        Toggle("Add a Google Meet link", isOn: $draft.addMeet).toggleStyle(.checkbox).font(.coveSecondary)
+          .foregroundStyle(Palette.body)
+      }
+      if !draft.guests.isEmpty && draft.guestsChanged {
+        Text("Guests get Google’s invitation email when you save.").font(.coveMetadata).foregroundStyle(Palette.muted)
+      }
+    }
+  }
+  private func name(for email: String) -> String {
+    store.contacts.first { $0.email.caseInsensitiveCompare(email) == .orderedSame }.map { $0.name == $0.email ? email : $0.name } ?? email
+  }
+  private func add(_ value: String) {
+    let email = value.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;")))
+    guard !email.isEmpty else { return }
+    guard ContactDirectory.isValidEmail(email) else { problem = "Type a full email address, or pick a contact."; return }
+    guard !draft.guests.contains(where: { $0.caseInsensitiveCompare(email) == .orderedSame }),
+      email.caseInsensitiveCompare(store.accountEmail) != .orderedSame else { text = ""; return }
+    draft.guests.append(email)
+    // New events with guests usually want a call link.
+    if draft.editing == nil && draft.guests.count == 1 { draft.addMeet = true }
+    text = ""
   }
 }
