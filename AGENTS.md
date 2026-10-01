@@ -13,7 +13,7 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 30, 2026
 
-- **Cove 0.1.52, build 54**, is published (Pages deployment `a7d30c6b`; first `1391114e`). It includes the unshipped 0.1.51 work:
+- **Cove 0.1.52, build 54**, is published (Pages deployment `83d56e1c` adds the animated install demo on /beta/; earlier `a7d30c6b`, first `1391114e`). It includes the unshipped 0.1.51 work:
   - agents built from a description, with templates, Try it and the dot-portrait header;
   - Google Tasks from email (overview, Done, side column);
   - Ask Cove inside the email; approval-gated bulk changes;
