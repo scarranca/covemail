@@ -19,3 +19,15 @@
   - E archives and selects the next email.
   - R and E pass through while typing.
 - **Left for the user's QA build:** opening the reply box and its focus.
+
+## Release
+
+- **App notarization:** `96dc2ab7-7e75-4c5a-9157-5af0c8817263`, Accepted and stapled.
+- **DMG notarization:** `8cde71bc-08d7-473d-8f9f-f2d61da0ccae`, Accepted and stapled.
+- **DMG:** 22,534,814 bytes, SHA-256 `1d1b73eb7a83acf883bd9b7dd7994e90f2598a9e41cbce543310bbfde92bddd1`.
+- **Feed and site:** signed feed with 36 verified releases; Cloudflare Pages deployment `da94d37e`.
+- **Public checks:**
+  - `/release.json` reports 0.1.57 (build 59); the appcast and `/download/latest` serve 0.1.57; the beta page says "Download Cove 0.1.57".
+  - The downloaded DMG's bytes and SHA-256 match the local build.
+  - The Ed25519 signature verifies with the bundled key, and tampering is rejected.
+- **Not run:** the headless previous→current update probe.

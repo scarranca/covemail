@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.57</title>
+            <pubDate>Thu, 01 Oct 2026 12:57:45 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>59</sparkle:version>
+            <sparkle:shortVersionString>0.1.57</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.57</title></head><body><h1>Mail from the keyboard</h1><ul><li>R replies to the open email, E marks it done (archives it and opens the next one), and U marks it read or unread.</li><li>⌘Delete still moves it to Trash with Undo, and ↑ ↓ and Esc move around.</li><li>Shortcuts pause while you type, and the list footer shows them.</li></ul><p>Nothing is sent, archived or deleted without you.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.57.dmg" length="22534814" type="application/octet-stream" sparkle:edSignature="r6WAWyNviSKmXajqjwGDLOdROz1/LIEJ+qhWGODk0ZoWcYeRrCkLK9JZa54N7v3d15pJqw666cjM85Bnlua+Cw=="/>
+        </item>
+        <item>
             <title>0.1.56</title>
             <pubDate>Thu, 01 Oct 2026 10:30:20 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.55.dmg" length="21755962" type="application/octet-stream" sparkle:edSignature="XhaN2xqqYTvPiDZqA7fmrVx8kJOtVSl4nkvHS2XjLcoxfNR+ySRp88LSQgzlflrJstOfFkj8yr8wPG2hcknwBg=="/>
         </item>
-        <item>
-            <title>0.1.54</title>
-            <pubDate>Wed, 30 Sep 2026 20:20:13 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>56</sparkle:version>
-            <sparkle:shortVersionString>0.1.54</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.54</title></head><body><h1>Smoother catch-up</h1><ul><li>Cove now stays within Gmail's limits: after time away it catches up in small, steady batches, newest mail first, instead of hitting a wall.</li><li>Label changes from other devices sync without downloading those emails again, so catching up is much lighter.</li><li>If Gmail asks Cove to slow down, it keeps what it already has and continues on its own a minute later, with a quiet status instead of an alert.</li><li>Background downloads go gently on battery and faster when your Mac is plugged in.</li><li>Connecting Calendar or Tasks during a sync now works: Cove connects as soon as the sync finishes.</li></ul><p>Nothing is sent, archived or deleted without you.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.54.dmg" length="21617682" type="application/octet-stream" sparkle:edSignature="3YPIiUPqDZJk1KZeyt0aOsI/ilhu9nfkckH3GfEVPvEhK5qxppqq11pniOCuxH4MM0qQtpdrcnlOsWOqqs/CDg=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: BN0UVoakycY6yt3x+sMKZ0T46laBKF5DSdnsTANURhGvxrXs6LBccOPofZ2fWMW0bTjqEOXkvxwFJ9ZQxmO5DA==
-length: 5027
+edSignature: F++DvWYXEkMT79pm7LK9etY6v421GrPyddtFmxDXUSAVF8G99XLkOw2NY2b0fwTuMvi3ZLQcex6S0mWzG83OAg==
+length: 4698
 -->

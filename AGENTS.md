@@ -13,7 +13,8 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 30, 2026
 
-- **Cove 0.1.56, build 58**, is published (Pages deployment `bf472c84`): Ask Cove tasks and meetings-with-a-person, linked tasks in the reader, calendar guests/Meet, describe-an-event (✦, +/⌘E, first open spot via `firstOpenSpot`), Gemini notes links (no Drive scope, user decision), ⌘Delete on events, inbox dusk scene, Important-unread badge, mojibake repair. Evidence: `docs/qa/0.1.56/AUDIT.md`.
+- **Cove 0.1.57, build 59**, is published (Pages deployment `da94d37e`): mail keyboard shortcuts R reply, E done (archive and open the next), U read/unread (`MailNavigationShortcut`, `AppStore.replyRequestID`). Evidence: `docs/qa/0.1.57/AUDIT.md`.
+- **Cove 0.1.56, build 58**, was published (Pages deployment `bf472c84`): Ask Cove tasks and meetings-with-a-person, linked tasks in the reader, calendar guests/Meet, describe-an-event (✦, +/⌘E, first open spot via `firstOpenSpot`), Gemini notes links (no Drive scope, user decision), ⌘Delete on events, inbox dusk scene, Important-unread badge, mojibake repair. Evidence: `docs/qa/0.1.56/AUDIT.md`.
 - **Cove 0.1.55, build 57**, was published (Pages deployment `0c483037`): keep working while Cove syncs (`syncing` vs `busy`, instant label actions with `LabelEdit` re-apply), debounced draft saves, accent-safe editor, Undo Send (4 s), no duplicate reply bar. Evidence: `docs/qa/0.1.55/AUDIT.md`.
 - **Cove 0.1.54, build 56**, was published (Pages deployment `6646faf7`): Gmail sync within Google's real per-user budget and continuing quietly after rate limits; Calendar and Tasks connect after a running sync. Evidence: `docs/qa/0.1.54/AUDIT.md`.
 - **Cove 0.1.53, build 55**, was published (Pages deployment `ace91a3e`): the 0.1.52 app in the designed installer window (`scripts/dmg/`, dmgbuild in `.local/dmg-venv`; see `docs/DISTRIBUTION.md`). Evidence: `docs/qa/0.1.53/AUDIT.md`.
