@@ -63,3 +63,15 @@
 - Settings → Gmail shows only the open account.
 - A notification for another account doesn't switch to it.
 - After the move, downgrading to an older Cove looks signed out.
+
+## Release
+
+- **App notarization:** `e8acc9a0-2e07-4cd6-9eb4-991a51a4f8a4`, Accepted and stapled.
+- **DMG notarization:** `9d805782-25a6-4bae-bb2e-d17956ddd7cf`, Accepted and stapled.
+- **DMG:** 22,861,855 bytes, SHA-256 `f9e1df151a4b098ac6051b9ad774c5b8e19f0d728a03f859598c345cbd36aa02`.
+- **Feed and site:** signed feed with 39 verified releases; Cloudflare Pages deployment `e183aae4`.
+- **Public checks:**
+  - `/release.json` reports 0.1.60 (build 62); the appcast and `/download/latest` serve 0.1.60; the beta page says "Download Cove 0.1.60".
+  - The downloaded DMG's bytes and SHA-256 match the local build.
+  - The Ed25519 signature verifies with the bundled key, and tampering is rejected.
+- **Not run:** the headless previous→current update probe.

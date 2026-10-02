@@ -13,7 +13,13 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 30, 2026
 
-- **Cove 0.1.59, build 61**, is published (Pages deployment `994e38a7`): a locked AI key (`errSecInteractionNotAllowed`, -25308) during background work is a status line ("AI paused…"), not an alert (`HardenedSecrets.lockedMessage`). Evidence: `docs/qa/0.1.59/AUDIT.md`.
+- **Cove 0.1.60, build 62**, is published (Pages deployment `e183aae4`): several Google accounts, one open at a time. Evidence: `docs/qa/0.1.60/AUDIT.md`.
+  - **Sign-ins:** each account's session is its own Keychain entry `googleAccountSession.<sha256(lowercased email)>`, with a roster in `accounts.roster`.
+  - **Legacy move:** the single legacy session is moved only after read-back; if the move fails, the old entry keeps working.
+  - **Switching:** `AppStore.switchAccount`/`addAccount` settle the current mailbox first (Undo Send, Gmail write queues, sync).
+  - **Work accounts:** they can use the organization's own Desktop client (`connect(client:)`, `OrgClientSheet`, `docs/ORG-GOOGLE-CLIENT.md`). Reconnecting reuses the account's own client.
+  - **Not yet built:** only the open account syncs.
+- **Cove 0.1.59, build 61**, was published (Pages deployment `994e38a7`): a locked AI key (`errSecInteractionNotAllowed`, -25308) during background work is a status line ("AI paused…"), not an alert (`HardenedSecrets.lockedMessage`). Evidence: `docs/qa/0.1.59/AUDIT.md`.
 - The design system is mirrored in Pen at `~/Pens/Cove.pen` (tokens, components, five screens beside app renders in `~/Pens/cove-reference/`); build Pen screens from those components and compare with test renders.
 - **Cove 0.1.58, build 60**, was published (Pages deployment `c549bea2`): default From (`Preferences.defaultSender`, `AppStore.sendingAliases`), replies from the alias the email was sent to (`replySender(for:)`, From menu in the reply box), Settings → Gmail as cards (`SettingsGroup/Card/Row`). Evidence: `docs/qa/0.1.58/AUDIT.md`.
 - **Cove 0.1.57, build 59**, was published (Pages deployment `da94d37e`): mail keyboard shortcuts R reply, E done (archive and open the next), U read/unread (`MailNavigationShortcut`, `AppStore.replyRequestID`). Evidence: `docs/qa/0.1.57/AUDIT.md`.
