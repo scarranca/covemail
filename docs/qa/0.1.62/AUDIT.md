@@ -29,3 +29,16 @@ Cove 0.1.61 became "not responding" right after it opened. Because it froze, it 
 ## Recovery for affected users
 
 A frozen 0.1.61 can't install updates. Force quit it, then install 0.1.62 from the website DMG.
+
+## Release
+
+- **App notarization:** `314cf71e-bf19-4663-8dd9-5c547e7dee31`, Accepted and stapled.
+- **DMG notarization:** `5e8f4a9a-0be2-459f-94d4-6473eabf4906`, Accepted and stapled.
+- **DMG:** 22,979,887 bytes, SHA-256 `5661fe73d7959da5eb43a17874ea3f419fc18b74fe0bec5935341046b5081b9b`.
+- **Feed and site:** signed feed with 41 verified releases; Cloudflare Pages deployment `1f638a28`.
+- **Public checks:**
+  - `/release.json` (0.1.62, build 64) and the beta page briefly served 0.1.61 from the edge cache, then 0.1.62 with a cache-busting query. The deployment URL served 0.1.62 directly.
+  - The appcast and `/download/latest` serve 0.1.62.
+  - The downloaded DMG's bytes and SHA-256 match the local build.
+  - The Ed25519 signature verifies with the bundled key, and tampering is rejected.
+- **Not run:** the headless previous→current update probe.
