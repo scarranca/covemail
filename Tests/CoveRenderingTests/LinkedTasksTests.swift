@@ -150,3 +150,21 @@ private struct OfflineHTTP: HTTPTransport {
     XCTAssertEqual(NSHostingView(rootView: SignInWaitingBar(store: store)).fittingSize.height, 0, accuracy: 1, "hidden when not waiting")
   }
 }
+
+@MainActor final class OrgClientSheetTests: XCTestCase {
+  func testSheetRendersWithSetupSteps() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveOrgClient-" + UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    let store = try AppStore(database: Database(url: root.appendingPathComponent("mail.sqlite")), accountEmail: "me@example.com",
+      gmail: GmailClient(transport: OfflineHTTP()), gmailTokenProvider: { "fixture" }, syncClock: Date.init)
+    XCTAssertTrue(OrgClientSheet.steps.joined().contains("Internal"))
+    XCTAssertFalse(GoogleOAuthConfiguration(clientID: "not-a-client").isConfigured)
+    XCTAssertTrue(GoogleOAuthConfiguration(clientID: "123-abc.apps.googleusercontent.com").isConfigured)
+    let host = NSHostingView(rootView: OrgClientSheet(store: store))
+    host.frame = NSRect(origin: .zero, size: host.fittingSize)
+    host.layoutSubtreeIfNeeded()
+    let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: rep)
+    try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-org-client-sheet.png"))
+  }
+}

@@ -218,6 +218,8 @@ import SwiftUI
   var replyRequestID: String?
   /// The Google sign-in page while Cove waits for it (Add account), for the waiting banner.
   var signInURL: URL?
+  /// Shows the sheet for adding an account with its organization's own Google client.
+  var showOrgClientSheet = false
   func cancelSignIn() { auth.cancel() }
   @ObservationIgnored private var tasksLoadedOnce = false
   var tasksLoading = false
@@ -862,7 +864,7 @@ import SwiftUI
   /// Signs in another Google account and opens it; the current account stays signed in. The browser
   /// sign-in runs first while the user keeps working; only after it succeeds does the current account
   /// finish what it owes Gmail (a waiting Undo Send, label changes) and hand over. Cancelling changes nothing.
-  func addAccount() async {
+  func addAccount(client: GoogleOAuthConfiguration? = nil) async {
     guard !switchingAccount else { return }
     guard !busy else { status = "Finish the current action first"; return }
     switchingAccount = true
@@ -873,7 +875,7 @@ import SwiftUI
     let pending: GoogleAuth.PendingConnection
     do {
       // A new account starts with Gmail only; it connects Calendar, Tasks and cloud sync on its own.
-      pending = try await auth.connect(includeCalendar: false, includeCloud: false, includeTasks: false)
+      pending = try await auth.connect(includeCalendar: false, includeCloud: false, includeTasks: false, client: client)
     } catch {
       auth.finishBrowserSignIn(success: false)
       // Cancelling is a choice, not an error.

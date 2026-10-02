@@ -1,3 +1,4 @@
+import CoveCore
 import SwiftUI
 
 /// Reopens Cove's window from the Dock or Finder. Closing the window keeps Cove running (sync,
@@ -100,6 +101,8 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
         if !store.accounts.isEmpty { Divider() }
         Button("Add Account…") { Task { await store.addAccount() } }
           .disabled(store.isSample || store.busy || store.switchingAccount)
+        Button("Add Work Account (Own Google Client)…") { store.showOrgClientSheet = true }
+          .disabled(store.isSample || store.busy || store.switchingAccount)
       }
       CommandGroup(replacing: .appSettings) {
         Button("Settings…") { store.showConnections = true }.keyboardShortcut(",")
@@ -187,6 +190,7 @@ struct RootView: View {
       AssistantView(store: store, availableSize: availableSize, initialQuery: store.assistantInitialQuery)
     }
     .sheet(isPresented: $store.showComposer) { ComposerView(store: store, availableSize: availableSize) }
+    .sheet(isPresented: $store.showOrgClientSheet) { OrgClientSheet(store: store) }
     .sheet(item: $store.taskSuggestionMail) { mail in TaskSuggestionsView(store: store, mail: mail) }
     .overlay(alignment: .bottom) { PostSendTaskToast(store: store) }
     .animation(.spring(response: 0.4, dampingFraction: 0.85), value: store.postSend)
@@ -327,6 +331,8 @@ struct AccountSwitcher: View {
         if !store.accounts.isEmpty { Divider() }
         Button("Add account…") { Task { await store.addAccount() } }
           .disabled(store.busy || store.switchingAccount)
+        Button("Add work account (own Google client)…") { store.showOrgClientSheet = true }
+          .disabled(store.busy || store.switchingAccount)
         Button("Account settings…") { store.showConnections = true }
       } label: {
         AccountSwitcherLabel(store: store)
@@ -412,4 +418,66 @@ struct SignInWaitingBar: View {
       .accessibilityElement(children: .contain)
     }
   }
+}
+
+/// Add a work account with the organization's own Google client (Internal), so it needs no Google
+/// verification or tester list. The ID and secret are used for this sign-in and saved with its session.
+struct OrgClientSheet: View {
+  @Bindable var store: AppStore
+  @Environment(\.dismiss) private var dismiss
+  @State private var clientID = ""
+  @State private var secret = ""
+  @State private var showSteps = false
+  private var config: GoogleOAuthConfiguration { GoogleOAuthConfiguration(clientID: clientID, clientSecret: secret) }
+  private var valid: Bool { config.isConfigured && !config.clientSecret.isEmpty }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      HStack(alignment: .firstTextBaseline) {
+        Text("Add a work account").font(.coveDetailTitle)
+        Spacer()
+        Button { dismiss() } label: { Image(systemName: "xmark").font(.cove(size: 12)) }
+          .buttonStyle(.plain).foregroundStyle(Palette.body).keyboardShortcut(.cancelAction).accessibilityLabel("Close")
+      }
+      Text("Use your organization’s own Google client. Accounts in your Google Workspace can then sign in without Cove’s tester list. The client is used only for this account.")
+        .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      VStack(alignment: .leading, spacing: 10) {
+        TextField("Client ID", text: $clientID, prompt: Text("1234-abc.apps.googleusercontent.com").foregroundStyle(Palette.muted))
+          .textFieldStyle(CoveFieldStyle()).accessibilityLabel("Client ID")
+        SecureField("Client secret", text: $secret, prompt: Text("Client secret").foregroundStyle(Palette.muted))
+          .textFieldStyle(CoveFieldStyle()).accessibilityLabel("Client secret")
+        if !clientID.isEmpty && !config.isConfigured {
+          Text("A client ID ends in .apps.googleusercontent.com.").font(.coveMetadata).foregroundStyle(Palette.danger)
+        }
+      }
+      DisclosureGroup("How your admin sets this up (about 15 minutes)", isExpanded: $showSteps) {
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(Array(Self.steps.enumerated()), id: \.offset) { index, step in
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+              Text("\(index + 1).").font(.coveSecondary).foregroundStyle(Palette.muted).frame(width: 16, alignment: .trailing)
+              Text(step).font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+            }
+          }
+        }.padding(.top, 10)
+      }.font(.coveSecondary).foregroundStyle(Palette.body).disclosureGroupStyle(CoveDisclosureStyle())
+      HStack(spacing: 16) {
+        Spacer()
+        Button("Cancel") { dismiss() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+        Button("Continue in browser") {
+          let client = config
+          dismiss()
+          Task { await store.addAccount(client: client) }
+        }.buttonStyle(PrimaryButton()).keyboardShortcut(.defaultAction).disabled(!valid)
+      }
+    }
+    .padding(30).frame(width: 520).background(Palette.canvas)
+  }
+
+  static let steps = [
+    "In Google Cloud Console, create a project for your organization.",
+    "APIs & Services → Library: enable the Gmail API, Google Calendar API and Google Tasks API.",
+    "Google Auth Platform → Branding: app name “Cove”, your support email. Audience: choose Internal.",
+    "Data Access → Add scopes: gmail.modify, calendar.events and tasks (add openid and email only if you use Cove cloud sync).",
+    "Clients → Create client → Application type: Desktop app. Copy its Client ID and Client secret here.",
+  ]
 }

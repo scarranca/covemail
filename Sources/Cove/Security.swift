@@ -316,16 +316,27 @@ enum Vault {
     }
     return Data(bytes).base64URL
   }
+  /// `client` signs in with an organization's own Google client (Add work account). Reconnecting an
+  /// existing account (a `loginHint` for it) reuses the client it first signed in with, so its grants stay
+  /// with the same client. Otherwise Cove's client (or the custom one in Settings) is used.
   func connect(includeCalendar: Bool = false, includeCloud: Bool = false, includeTasks: Bool = false,
-               loginHint: String? = nil) async throws -> PendingConnection {
+               loginHint: String? = nil, client: GoogleOAuthConfiguration? = nil) async throws -> PendingConnection {
     finishBrowserSignIn(success: false)
-    guard GoogleOAuthConfiguration(clientID: clientID).isConfigured else {
-      throw CoveError.message("Add a Google Desktop OAuth client ID in Connections first.")
+    var chosen = client
+    if chosen == nil, let loginHint, let session = try? sessionStore().current,
+      session.email.caseInsensitiveCompare(loginHint) == .orderedSame,
+      session.clientID.caseInsensitiveCompare(clientID) != .orderedSame
+    {
+      chosen = GoogleOAuthConfiguration(clientID: session.clientID, clientSecret: session.clientSecret)
+    }
+    let connectingClientID = chosen?.clientID ?? clientID
+    guard GoogleOAuthConfiguration(clientID: connectingClientID).isConfigured else {
+      throw CoveError.message(chosen == nil ? "Add a Google Desktop OAuth client ID in Connections first."
+                                            : "That client ID doesn’t look right. It ends in .apps.googleusercontent.com.")
     }
     let generation = UUID()
     connectionGeneration = generation
-    let connectingClientID = clientID
-    let connectingSecret = try clientSecret()
+    let connectingSecret = try chosen.map(\.clientSecret) ?? clientSecret()
     let verifier = try random()
     expectedState = try random()
     let parameters = NWParameters.tcp
