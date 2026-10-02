@@ -21,3 +21,15 @@
 - **`MeetingAlertTests`:** levels, titles, prominence, skipped events and late joins, and link detection, including https-only and known hosts.
 - **`MeetingMenuBarTests`:** the model's tick with a fixed clock (Join title, pulse cadence, later list, off state), and a panel render that was inspected.
 - **Not tested automatically:** the menu bar label itself (it can't be rendered off-screen), so it is left for the QA build.
+
+## Release
+
+- **App notarization:** `05975416-016e-41c5-8861-5f69c71e1b9d`, Accepted and stapled.
+- **DMG notarization:** `0df3e39e-2660-4e9e-9e12-80116cd0c82d`, Accepted and stapled.
+- **DMG:** 22,969,948 bytes, SHA-256 `0ebb7043d4e13cd8d3ccd4014bb9bdd9df2ab98930c2deb922ec3f8fd07f25fc`.
+- **Feed and site:** signed feed with 40 verified releases; Cloudflare Pages deployment `1d1e3de0`.
+- **Public checks:**
+  - `/release.json` reports 0.1.61 (build 63); the appcast and `/download/latest` serve 0.1.61; the beta page says "Download Cove 0.1.61".
+  - The downloaded DMG's bytes and SHA-256 match the local build.
+  - The Ed25519 signature verifies with the bundled key, and tampering is rejected.
+- **Not run:** the headless previous→current update probe.

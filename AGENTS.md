@@ -13,7 +13,8 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 30, 2026
 
-- **Cove 0.1.60, build 62**, is published (Pages deployment `e183aae4`): several Google accounts, one open at a time. Evidence: `docs/qa/0.1.60/AUDIT.md`.
+- **Cove 0.1.61, build 63**, is published (Pages deployment `1d1e3de0`): optional meetings menu bar item (`MeetingMenuBar.swift`, core `MeetingAlert`/`MeetingLink`, setting `menuBar.meetings`, off by default). Countdown within 10 minutes; a pulse for calls with guests and a link (still under Reduce Motion); Join from the panel. Evidence: `docs/qa/0.1.61/AUDIT.md`.
+- **Cove 0.1.60, build 62**, was published (Pages deployment `e183aae4`): several Google accounts, one open at a time. Evidence: `docs/qa/0.1.60/AUDIT.md`.
   - **Sign-ins:** each account's session is its own Keychain entry `googleAccountSession.<sha256(lowercased email)>`, with a roster in `accounts.roster`.
   - **Legacy move:** the single legacy session is moved only after read-back; if the move fails, the old entry keeps working.
   - **Switching:** `AppStore.switchAccount`/`addAccount` settle the current mailbox first (Undo Send, Gmail write queues, sync).

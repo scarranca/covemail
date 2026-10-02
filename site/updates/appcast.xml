@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.61</title>
+            <pubDate>Fri, 02 Oct 2026 10:36:39 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>63</sparkle:version>
+            <sparkle:shortVersionString>0.1.61</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.61</title></head><body><h1>Your next meeting, in the menu bar</h1><ul><li>Turn on Meetings in the menu bar (Settings → Gmail) to see your next meeting at a glance: “Standup in 8m”, then “Join Standup”.</li><li>When a call with other people is about to start, the icon pulses. Join is one click away, for Google Meet, Zoom, Teams and Webex links.</li><li>The panel also lists your later meetings today and opens any of them in Cove.</li></ul><p>It’s off by default, and it stays still with Reduce Motion.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.61.dmg" length="22969948" type="application/octet-stream" sparkle:edSignature="oO8gG0JZ1aoHyspHbQDy5kB20OxcUvVtaRaKR1S7ex1XKLCZxm4cDRhDuVjMDdnmhTnYJG1W6YkO7ASzHAflDg=="/>
+        </item>
+        <item>
             <title>0.1.60</title>
             <pubDate>Fri, 02 Oct 2026 01:03:41 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.59.dmg" length="22658600" type="application/octet-stream" sparkle:edSignature="qUi1srl8JpuMWypO3cqmPPtaDlgliZGySLWjHLhmuGYjARYX40AavfwIOecl448HcnFJoaAcp+xx6Cp3Qi68AA=="/>
         </item>
-        <item>
-            <title>0.1.58</title>
-            <pubDate>Thu, 01 Oct 2026 17:08:34 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>60</sparkle:version>
-            <sparkle:shortVersionString>0.1.58</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.58</title></head><body><h1>Send from the right address</h1><ul><li>Choose a default From address when your Gmail can send from more than one.</li><li>Replies come from the address the email was sent to, and the reply box shows which one, with a menu to change it.</li><li>Settings → Gmail is redesigned: your account, sending, sync and Google services (Calendar and Tasks) in clear cards.</li></ul><p>Nothing is sent without you.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.58.dmg" length="22671149" type="application/octet-stream" sparkle:edSignature="gLcHMxGGCyxi7kqSovlH41kLjzlKPETv1eaCMeqzDZQd9srxn8628PkFY4fN24X1OjbEIszz9lLLdR+WTvJvAQ=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: o0I4htkSS56AxQfCie9fiqCQ634G9SmtKZ1GFpovJEwpPf8DDVQuJOTeVztSSMYLPpD7VTiGZoOe49ov711/CA==
-length: 4161
+edSignature: 4jUA1bnxd1TSBrcE3U9nOf7Hma6Y2Mf3nJZePlXSpJe8RTlNDlmCla2iWtYjhZHnc64Zdx0B127J4fezLEX3AA==
+length: 4245
 -->
