@@ -187,7 +187,17 @@ enum Vault {
   }
 
   private func sessionStore() throws -> GoogleSessionStore {
-    try migrateLegacySessionIfNeeded()
+    do { try migrateLegacySessionIfNeeded() } catch {
+      // The move failed (it's retried next time). Keep using the old entry for its own account so the
+      // user stays signed in instead of being blocked at every launch.
+      if let email = activeEmail, let legacy = try? storage.read(Self.legacySessionName),
+        let session = try? JSONDecoder().decode(GoogleAccountSession.self, from: Data(legacy.utf8)),
+        session.email.caseInsensitiveCompare(email) == .orderedSame
+      {
+        return try GoogleSessionStore(read: { legacy }, write: writer(for: Self.legacySessionName))
+      }
+      throw error
+    }
     guard let email = activeEmail else {
       // No active account: nothing to read, and nowhere to write.
       return try GoogleSessionStore(
@@ -206,6 +216,15 @@ enum Vault {
   /// Moves the old single Keychain entry to its account's own entry. Runs once per instance and is
   /// idempotent: the legacy entry is deleted only after the new entry reads back identically, and an
   /// undecodable legacy entry is left untouched.
+  /// Whether an account still has a readable sign-in. nil when the Keychain couldn't be read (locked),
+  /// which is not the same as missing.
+  func hasSession(for email: String) -> Bool? {
+    do {
+      guard let value = try storage.read(AccountRoster.sessionKey(for: email)) else { return false }
+      return (try? JSONDecoder().decode(GoogleAccountSession.self, from: Data(value.utf8))) != nil
+    } catch { return nil }
+  }
+
   func migrateLegacySessionIfNeeded() throws {
     guard !migrated else { return }
     if let legacy = try storage.read(Self.legacySessionName) {

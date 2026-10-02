@@ -24,7 +24,9 @@ public enum OAuthSupport {
       ("client_id", clientID), ("redirect_uri", redirect), ("response_type", "code"),
       ("scope", gmailScope + (includeCalendar ? " " + calendarScope : "") + (includeTasks ? " " + tasksScope : "")
         + (includeCloud ? " openid email" : "")),
-      ("access_type", "offline"), ("prompt", "consent"), ("state", state),
+      // Without a hint (first sign-in, Add account) Google shows its account chooser, so a browser
+      // already signed in to one account doesn't silently pick it.
+      ("access_type", "offline"), ("prompt", loginHint?.isEmpty == false ? "consent" : "select_account consent"), ("state", state),
       ("code_challenge", challenge), ("code_challenge_method", "S256"),
     ]
     if let loginHint, !loginHint.isEmpty {

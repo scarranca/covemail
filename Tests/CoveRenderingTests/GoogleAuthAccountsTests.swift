@@ -87,6 +87,34 @@ import XCTest
     XCTAssertEqual(stored("first@example.com"), first)
   }
 
+  func testAFailedMoveStillSignsTheUserInFromTheOldEntry() throws {
+    items["googleAccountSession"] = json(first)
+    defaults.set("first@example.com", forKey: "accountEmail")
+    droppedSaves = [AccountRoster.sessionKey(for: "first@example.com")]
+    let auth = makeAuth()
+    XCTAssertEqual(try auth.restorableAccountEmail(), "first@example.com", "not blocked at launch")
+    XCTAssertNotNil(items["googleAccountSession"], "the old entry is kept until a move succeeds")
+  }
+
+  func testHasSessionTellsMissingFromUnreadable() {
+    items[AccountRoster.sessionKey(for: "first@example.com")] = json(first)
+    let auth = makeAuth()
+    XCTAssertEqual(auth.hasSession(for: "first@example.com"), true)
+    XCTAssertEqual(auth.hasSession(for: "gone@example.com"), false)
+    let locked = GoogleAuth(storage: .init(read: { _ in throw FakeError.unavailable }, save: { _, _ in }, delete: { _ in },
+                                          defaults: defaults))
+    XCTAssertNil(locked.hasSession(for: "first@example.com"), "a locked Keychain isn't 'signed out'")
+  }
+
+  func testSignInShowsGooglesAccountChooserWithoutAHint() {
+    let add = OAuthSupport.authorizationURL(clientID: "c", redirect: "r", state: "s", challenge: "x",
+                                           includeCalendar: false, includeCloud: false)
+    XCTAssertTrue(add.absoluteString.contains("prompt=select_account%20consent"))
+    let reconnect = OAuthSupport.authorizationURL(clientID: "c", redirect: "r", state: "s", challenge: "x",
+                                                 includeCalendar: true, includeCloud: false, loginHint: "first@example.com")
+    XCTAssertTrue(reconnect.absoluteString.contains("prompt=consent&"))
+  }
+
   func testCorruptLegacyIsLeftUntouched() throws {
     items["googleAccountSession"] = "{not json"
     defaults.set("first@example.com", forKey: "accountEmail")

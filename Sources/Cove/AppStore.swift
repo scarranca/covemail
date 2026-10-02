@@ -856,19 +856,48 @@ import SwiftUI
     if connected { await sync() }
   }
 
-  /// Signs in another Google account and opens it; the current account stays signed in. Cancelling the
-  /// browser sign-in changes nothing.
+  /// Signs in another Google account and opens it; the current account stays signed in. The browser
+  /// sign-in runs first while the user keeps working; only after it succeeds does the current account
+  /// finish what it owes Gmail (a waiting Undo Send, label changes) and hand over. Cancelling changes nothing.
   func addAccount() async {
     guard !switchingAccount else { return }
+    guard !busy else { status = "Finish the current action first"; return }
     switchingAccount = true
     defer { switchingAccount = false }
-    if entered, !isSample {
-      guard await settleBeforeLeavingMailbox() else { return }
-    } else if busy {
-      status = "Finish the current action first"
+    status = "Waiting for Google sign-in…"
+    let pending: GoogleAuth.PendingConnection
+    do {
+      // A new account starts with Gmail only; it connects Calendar, Tasks and cloud sync on its own.
+      pending = try await auth.connect(includeCalendar: false, includeCloud: false, includeTasks: false)
+    } catch {
+      auth.finishBrowserSignIn(success: false)
+      if !(error is CancellationError) { self.error = error.localizedDescription }
+      status = "Account not added"
       return
     }
-    await connect()
+    if entered, !isSample, pending.session.email.caseInsensitiveCompare(accountEmail) != .orderedSame {
+      guard await settleBeforeLeavingMailbox() else {
+        auth.finishBrowserSignIn(success: false)
+        return
+      }
+    }
+    var connected = false
+    await run("Adding \(pending.session.email)…") {
+      // Nothing in the active account changes until identity, database, and Keychain all succeed.
+      let snapshot = try self.loadMailbox(name: pending.session.email)
+      try self.auth.commit(pending)
+      self.activateMailbox(snapshot)
+      self.calendarConnected = pending.session.calendarConnected
+      self.tasksConnected = pending.session.tasksConnected == true
+      self.isSample = false
+      self.accountEmail = pending.session.email
+      self.entered = true
+      self.showConnections = false
+      connected = true
+    }
+    auth.finishBrowserSignIn(success: connected)
+    reloadAccounts()
+    if connected { await sync() }
   }
 
   /// Opens another signed-in account's mailbox. Its local copy shows at once; a sync follows. Anything
@@ -899,6 +928,14 @@ import SwiftUI
   /// Makes a signed-in account active and opens its mailbox, or changes nothing. The mailbox and the
   /// session are both checked before any state changes, so a failure never leaves a half-open account.
   @discardableResult private func openAccount(_ email: String) -> Bool {
+    // A roster entry whose sign-in is gone can never open: drop it rather than fail every time, and
+    // check before touching its mailbox so no empty database or key is created for it.
+    if activateAccount == nil, auth.hasSession(for: email) == false {
+      AccountRoster.remove(email)
+      reloadAccounts()
+      status = "\(email) was signed out · add it again with Add account…"
+      return false
+    }
     let snapshot: MailboxSnapshot
     let grants: (calendar: Bool, tasks: Bool)
     do {
@@ -1258,8 +1295,8 @@ import SwiftUI
   /// After signing one account out, another signed-in account opens instead of the sign-in screen.
   private func openNextSignedInAccount() {
     reloadAccounts()
-    guard let next = signedInAccounts.first else { return }
-    guard openAccount(next) else { return }
+    // Try each remaining account in order; one whose sign-in is gone is skipped (and dropped).
+    guard let next = signedInAccounts.first(where: { openAccount($0) }) else { return }
     status = "Signed in as \(next)"
     Task { @MainActor [weak self] in await self?.sync() }
   }
