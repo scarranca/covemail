@@ -248,10 +248,11 @@ struct AgentsHeader: View {
     let recent = store.customAgents.runs.filter { $0.error == nil && ($0.appliedLabel != nil || $0.replySuggestion != nil) }
       .sorted { $0.date > $1.date }.prefix(6)
     let lines = recent.map { run -> String in
-      let subject = run.subject.isEmpty ? "an email" : "“\(run.subject)”"
+      let subject = Self.shortSubject(run.subject)
       let name = names[run.agentID] ?? "An agent"
-      if run.replySuggestion != nil { return "\(name) drafted a reply to \(subject)" }
-      return "\(name) filed \(subject) under \(run.appliedLabel ?? "")"
+      // What the agent did comes first, so a long subject is what gets cut off, never the label.
+      if run.replySuggestion != nil { return "\(name) → reply drafted · \(subject)" }
+      return "\(name) → \(run.appliedLabel ?? "labeled") · \(subject)"
     }
     if !lines.isEmpty { return (lines, false) }
     return ([
@@ -260,6 +261,14 @@ struct AgentsHeader: View {
       "“Can we find 30 minutes?” → reply drafted",
       "Flight confirmation → Travel",
     ], true)
+  }
+  /// A subject without reply/forward prefixes or a leading [list] tag, short enough for one line.
+  static func shortSubject(_ subject: String) -> String {
+    var text = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+    while let range = text.range(of: #"^(?i)(re|fwd?|rv|aw)\s*:\s*"#, options: .regularExpression) { text.removeSubrange(range) }
+    if let range = text.range(of: #"^\[[^\]]{1,60}\]\s*"#, options: .regularExpression) { text.removeSubrange(range) }
+    if text.isEmpty { return "an email" }
+    return text.count > 48 ? String(text.prefix(47)).trimmingCharacters(in: .whitespaces) + "…" : text
   }
   var body: some View {
     let layout = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 20)) : AnyLayout(HStackLayout(alignment: .center, spacing: 28))

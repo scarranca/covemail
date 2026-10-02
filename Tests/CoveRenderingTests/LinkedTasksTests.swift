@@ -122,3 +122,12 @@ private struct OfflineHTTP: HTTPTransport {
     XCTAssertNil(store.preferences.defaultSender)
   }
 }
+
+@MainActor final class AgentCaptionTests: XCTestCase {
+  func testCaptionSubjectsDropPrefixesAndStayShort() {
+    XCTAssertEqual(AgentsHeader.shortSubject("Re: [disruptive-learning/backend] fix(discovery,proserver): address release review notes"),
+                   "fix(discovery,proserver): address release revie…")
+    XCTAssertEqual(AgentsHeader.shortSubject("Fwd: RE: Invoice #2048"), "Invoice #2048")
+    XCTAssertEqual(AgentsHeader.shortSubject("  "), "an email")
+  }
+}
