@@ -11,6 +11,7 @@ struct SettingsView: View {
   @State private var showAdvancedGoogle = false
   @State private var saved = false
   @State private var confirmErasure = false
+  @AppStorage(MeetingMenuBarModel.enabledKey) private var meetingsInMenuBar = false
   var readSecret: (String) throws -> String? = { try Vault.read($0) }
 
   var selectedSection: String {
@@ -161,6 +162,12 @@ struct SettingsView: View {
                 .buttonStyle(SecondaryButton(compact: true)).disabled(store.connectingStep != nil)
                 .help("Adds Calendar to your Google sign-in. Your mail stays as it is.")
             }
+          }
+          SettingsDivider()
+          SettingsRow("Meetings in the menu bar", icon: "menubar.rectangle",
+                      detail: "Shows your next meeting in the menu bar. When a call with other people is about to start, the icon pulses and Join is one click away.") {
+            Toggle("", isOn: $meetingsInMenuBar).toggleStyle(CoveToggleStyle()).labelsHidden()
+              .accessibilityLabel("Meetings in the menu bar")
           }
           SettingsDivider()
           SettingsRow("Google Tasks", icon: "checklist", detail: tasksDescription) {

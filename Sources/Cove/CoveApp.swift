@@ -51,9 +51,16 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
 
 @main struct CoveApp: App {
   @NSApplicationDelegateAdaptor(CoveAppDelegate.self) private var appDelegate
-  @State private var store = AppStore()
+  @State private var store: AppStore
+  @State private var meetings: MeetingMenuBarModel
+  @AppStorage(MeetingMenuBarModel.enabledKey) private var meetingsInMenuBar = false
   @StateObject private var updater = AppUpdater.shared
-  init() { DesignAssets.registerFonts() }
+  init() {
+    DesignAssets.registerFonts()
+    let store = AppStore()
+    _store = State(initialValue: store)
+    _meetings = State(initialValue: MeetingMenuBarModel(store: store))
+  }
   var body: some Scene {
     WindowGroup(id: "main") {
       RootView(store: store)
@@ -108,6 +115,12 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
         Button("Settings…") { store.showConnections = true }.keyboardShortcut(",")
       }
     }
+    MenuBarExtra(isInserted: $meetingsInMenuBar) {
+      MeetingMenuPanel(store: store, model: meetings)
+    } label: {
+      MeetingMenuBarLabel(model: meetings)
+    }
+    .menuBarExtraStyle(.window)
   }
 }
 
