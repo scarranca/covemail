@@ -161,6 +161,10 @@ import SwiftUI
       if let error, error == HTTPFailure.gmailRateLimitMessage {
         self.error = nil
         status = "Gmail asked Cove to slow down · try again in a minute"
+      } else if let error, error == HardenedSecrets.lockedMessage {
+        // A locked AI key during background work is expected (locked Mac, Cove not in front).
+        self.error = nil
+        status = "AI paused while your key is locked · it resumes when you’re back"
       }
     }
   }

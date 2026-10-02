@@ -36,6 +36,7 @@ enum HardenedSecrets {
     return context
   }
   private static let presenceKey = "security.aiKeysRequireTouchID"
+  static let lockedMessage = "Your AI key is locked right now (your Mac is locked, or Touch ID couldn’t be shown). Cove will use it when you’re back."
 
   static func protects(_ name: String) -> Bool { name.hasPrefix("aiProvider.") || name == "typesafeKey" }
   static var protectedNames: [String] { AIProvider.allCases.map(\.keyName) + ["typesafeKey"] }
@@ -77,6 +78,10 @@ enum HardenedSecrets {
       case errSecSuccess:
         if let data, let value = String(data: data, encoding: .utf8) { return value }
       case errSecItemNotFound: break
+      case errSecInteractionNotAllowed:
+        // The Mac is locked, or Touch ID can't be shown right now (Cove isn't in front): not an
+        // error to alert about. Background work tries again on the next sync.
+        throw CoveError.message(lockedMessage)
       case errSecUserCanceled, errSecAuthFailed:
         authentication = makeContext()
         throw CoveError.message("Touch ID wasn’t confirmed, so Cove didn’t use your AI key.")

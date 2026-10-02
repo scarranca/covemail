@@ -1,3 +1,4 @@
+import CoveCore
 import Security
 import XCTest
 @testable import Cove
@@ -43,6 +44,20 @@ import XCTest
     let query = Vault.legacyQuery("typesafeKey", service: "ai.cove.test")
     XCTAssertEqual(query[kSecUseDataProtectionKeychain as String] as? Bool, false)
     XCTAssertEqual(query[kSecAttrAccount as String] as? String, "typesafeKey")
+  }
+
+  func testALockedKeyIsAQuietStatusNotAnAlert() throws {
+    readStatus = errSecInteractionNotAllowed
+    XCTAssertThrowsError(try HardenedSecrets.read("typesafeKey", service: "ai.cove.test", legacy: { nil })) { error in
+      XCTAssertEqual((error as? CoveError)?.localizedDescription, HardenedSecrets.lockedMessage)
+    }
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveLocked-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try AppStore(database: Database(url: root.appendingPathComponent("mail.sqlite")), accountEmail: "me@example.com",
+      gmail: GmailClient(), gmailTokenProvider: { "fixture" }, syncClock: Date.init)
+    store.error = HardenedSecrets.lockedMessage
+    XCTAssertNil(store.error, "no alert for background work on a locked Mac")
+    XCTAssertTrue(store.status.contains("AI paused"))
   }
 
   func testOnlyAIAndTypeSafeKeysAreHandled() {
