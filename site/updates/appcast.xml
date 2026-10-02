@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.63</title>
+            <pubDate>Fri, 02 Oct 2026 11:46:21 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>65</sparkle:version>
+            <sparkle:shortVersionString>0.1.63</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.63</title></head><body><h1>The menu bar icon appears</h1><ul><li>Fixes the menu bar icon not appearing in 0.1.62. Turn it on in Settings → Menu bar to see your next meeting, a countdown, and one-click Join.</li></ul></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.63.dmg" length="22979941" type="application/octet-stream" sparkle:edSignature="lkkq1enJ36oCLra7G3+j1XTo136Op/+LpMFgNusTUzDGOdIfp5XlhcHt/sjZy013Yltyj0xTGyPPLazs1HMKBg=="/>
+        </item>
+        <item>
             <title>0.1.62</title>
             <pubDate>Fri, 02 Oct 2026 11:24:07 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.61.dmg" length="22969948" type="application/octet-stream" sparkle:edSignature="oO8gG0JZ1aoHyspHbQDy5kB20OxcUvVtaRaKR1S7ex1XKLCZxm4cDRhDuVjMDdnmhTnYJG1W6YkO7ASzHAflDg=="/>
         </item>
-        <item>
-            <title>0.1.60</title>
-            <pubDate>Fri, 02 Oct 2026 01:03:41 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>62</sparkle:version>
-            <sparkle:shortVersionString>0.1.60</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.60</title></head><body><h1>More than one account</h1><ul><li>Sign in to several Google accounts and switch between them from the account menu (or ⌃1–⌃9). Each keeps its own mail, agents, tasks and From address.</li><li>Add a work account with your organization's own Google client, so your whole Google Workspace can sign in.</li><li>While Google sign-in waits, a bar lets you copy the link for another browser, open it again, or cancel.</li><li>Agent activity on the Agents screen now leads with the label, so long subjects no longer hide it.</li></ul><p>Your current sign-in moves over automatically the first time you open this version.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.60.dmg" length="22861855" type="application/octet-stream" sparkle:edSignature="1p2EMqgv54SGNCXOxssyVqgppIYNOtrdYV0pmI/aINUX9JWQtvIKiPSi9y3BQ3UK0qxRLWdxe086rUJ5XnRGBw=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: eCGonS7Ze+ONRgxgnqEL+f/1urPSbOMOCULoALYAfyHsvofDJWZYLm//ZawrrsMy+ivyN/d6ywd+SnCxDOsCAA==
-length: 4268
+edSignature: G7fd7fpibAyPIPLXb5dtAcvSpQwW2Ndyd/CFIjnmdlumE+SNIlE5/NREwKlNrdKzaev0AEek0iwze8I5qhfsDg==
+length: 3837
 -->
