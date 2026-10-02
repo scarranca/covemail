@@ -90,6 +90,17 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
         Button("Categories") { store.screen = "categories" }.disabled(!store.entered)
         Button("Connections") { store.screen = "integrations" }.disabled(!store.entered)
       }
+      CommandMenu("Account") {
+        // ⌃1…⌃9: ⌘0–⌘5 already go to Cove's destinations.
+        ForEach(Array(store.accounts.prefix(9).enumerated()), id: \.element) { index, email in
+          Button(email) { Task { await store.switchAccount(to: email) } }
+            .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .control)
+            .disabled(store.switchingAccount || email.caseInsensitiveCompare(store.accountEmail) == .orderedSame)
+        }
+        if !store.accounts.isEmpty { Divider() }
+        Button("Add Account…") { Task { await store.addAccount() } }
+          .disabled(store.isSample || store.busy || store.switchingAccount)
+      }
       CommandGroup(replacing: .appSettings) {
         Button("Settings…") { store.showConnections = true }.keyboardShortcut(",")
       }
@@ -203,23 +214,7 @@ struct Sidebar: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       Logo().padding(.top, 30)
-      Button {
-        store.showConnections = true
-      } label: {
-        HStack(spacing: 10) {
-          CoveAvatar(
-            initials: store.isSample ? "AL" : String(store.accountEmail.prefix(2)).uppercased(),
-            size: 30)
-          VStack(alignment: .leading, spacing: 2) {
-            Text(store.isSample ? "Alex Lee" : store.accountEmail).font(.coveLabel).lineLimit(1)
-            if store.isSample { Text("Sample mailbox").font(.coveMetadata).foregroundStyle(Palette.body) }
-          }
-          Spacer(minLength: 0)
-          Image(systemName: "chevron.up.chevron.down").font(.cove(size: 10))
-        }
-      }.buttonStyle(.plain)
-        .help(store.isSample ? "Sample mailbox · account settings" : "Gmail account settings")
-        .accessibilityLabel("Account: \(store.isSample ? "Alex Lee, sample mailbox" : store.accountEmail)")
+      AccountSwitcher(store: store)
       Button {
         store.startNewItem()
       } label: {
@@ -306,6 +301,66 @@ struct Sidebar: View {
     }.buttonStyle(.plain)
       .help(shortcut.map { "\(name) (\($0))" } ?? name)
       .accessibilityAddTraits(selected ? .isSelected : [])
+  }
+}
+
+/// The account at the top of the sidebar. With a real account it opens a menu of the signed-in
+/// accounts (⌃1…⌃9), Add account… and Account settings…; the sample mailbox opens settings directly.
+struct AccountSwitcher: View {
+  @Bindable var store: AppStore
+
+  var body: some View {
+    if store.isSample {
+      Button { store.showConnections = true } label: { AccountSwitcherLabel(store: store) }
+        .buttonStyle(.plain)
+        .help("Sample mailbox · account settings")
+        .accessibilityLabel("Account: Alex Lee, sample mailbox")
+    } else {
+      Menu {
+        ForEach(store.accounts, id: \.self) { email in
+          Toggle(isOn: Binding(
+            get: { email.caseInsensitiveCompare(store.accountEmail) == .orderedSame },
+            set: { on in if on { Task { await store.switchAccount(to: email) } } }
+          )) { Text(email) }
+            .disabled(store.switchingAccount)
+        }
+        if !store.accounts.isEmpty { Divider() }
+        Button("Add account…") { Task { await store.addAccount() } }
+          .disabled(store.busy || store.switchingAccount)
+        Button("Account settings…") { store.showConnections = true }
+      } label: {
+        AccountSwitcherLabel(store: store)
+      }
+      .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+      .fixedSize(horizontal: false, vertical: true)
+      .help(store.accounts.count > 1 ? "Switch Gmail account (⌃1–⌃\(min(store.accounts.count, 9)))" : "Gmail accounts")
+      .accessibilityLabel("Account: \(store.accountEmail)")
+    }
+  }
+}
+
+struct AccountSwitcherLabel: View {
+  @Bindable var store: AppStore
+  var body: some View {
+    HStack(spacing: 10) {
+      CoveAvatar(
+        initials: store.isSample ? "AL" : String(store.accountEmail.prefix(2)).uppercased(),
+        size: 30)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(store.isSample ? "Alex Lee" : store.accountEmail).font(.coveLabel).lineLimit(1)
+        if store.isSample {
+          Text("Sample mailbox").font(.coveMetadata).foregroundStyle(Palette.body)
+        } else if store.switchingAccount {
+          Text("Switching…").font(.coveMetadata).foregroundStyle(Palette.body)
+        } else if store.accounts.count > 1 {
+          Text("\(store.accounts.count) accounts").font(.coveMetadata).foregroundStyle(Palette.body)
+        }
+      }
+      Spacer(minLength: 0)
+      Image(systemName: "chevron.up.chevron.down").font(.cove(size: 10))
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .contentShape(Rectangle())
   }
 }
 

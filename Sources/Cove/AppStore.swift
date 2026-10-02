@@ -139,6 +139,17 @@ import SwiftUI
   var isSample = false
   var entered = false
   var accountEmail = ""
+  /// Google accounts signed in on this Mac, in roster order. Stored (GoogleAuth isn't observable) and
+  /// refreshed by `reloadAccounts()` after every sign-in, switch and sign-out.
+  private var signedInAccounts: [String] = []
+  var accounts: [String] { isSample ? [] : signedInAccounts }
+  /// An account switch in progress (settling a send, waiting for Gmail work, opening the mailbox).
+  var switchingAccount = false
+  /// Test seams: tests replace the Keychain-backed roster, session activation and mailbox store.
+  /// Activation returns the account's Calendar and Tasks grants.
+  @ObservationIgnored var accountsProvider: (() -> [String])?
+  @ObservationIgnored var activateAccount: ((String) throws -> (calendar: Bool, tasks: Bool))?
+  @ObservationIgnored var mailboxDatabase: ((String) throws -> Database)?
   var busy = false
   /// Background mail work (sync, label views, organizing, agent checks). Separate from `busy`, so
   /// archiving, starring, connecting and the rest stay available while Cove catches up.
@@ -224,7 +235,8 @@ import SwiftUI
   var connectingStep: SetupStep?
   /// After a send: Jev looks for promises in what was just sent.
   var postSend: PostSendTaskCheck?
-  let auth = GoogleAuth()
+  /// Replaceable only by tests (an in-memory Keychain and isolated defaults).
+  @ObservationIgnored var auth = GoogleAuth()
   private var database: Database?
   private var gmail = GmailClient()
   private var gmailTokenProvider: (() async throws -> String)?
@@ -477,6 +489,7 @@ import SwiftUI
       } catch {
         self.error = error.localizedDescription
       }
+      reloadAccounts()
     }
   }
   /// Runs the same mailbox flow against an injected store and transport, without Keychain access.
@@ -514,6 +527,9 @@ import SwiftUI
     let nextPage: String?
   }
   private func loadMailbox(name: String) throws -> MailboxSnapshot {
+    if let mailboxDatabase, name != "sample-mailbox" {
+      return try loadMailbox(database: mailboxDatabase(name))
+    }
     let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent(
         CoveRuntime.isQA ? "Cove/QA" : "Cove", isDirectory: true)
@@ -585,6 +601,7 @@ import SwiftUI
     syncContinuation?.cancel(); syncContinuation = nil
     mailDecodingVersion = snapshot.mailDecodingVersion
     resetMailboxPresentation()
+    resetAccountScopedState()
     nextPage = snapshot.nextPage
     screen = "home"
     selectedID = nil
@@ -635,6 +652,31 @@ import SwiftUI
     search = ""
     priorityOnly = false
   }
+  /// State that belongs to one Google account rather than to the screen: aliases, Tasks, task checks,
+  /// undo offers and connection prompts. Cleared whenever a different mailbox opens or closes, so
+  /// nothing from one account shows (or is acted on) in another. A pending send is settled separately.
+  private func resetAccountScopedState() {
+    sendingAliases = []
+    googleTasks = []
+    tasksLoadedOnce = false
+    tasksLoading = false
+    taskChecksRunning = []
+    taskSuggestionMail = nil
+    postSend = nil
+    openTaskID = nil
+    replyRequestID = nil
+    inboxMoveUndo = nil
+    inboxTab = .important
+    tasksConnectError = nil
+    calendarConnectError = nil
+    integrationsFocus = nil
+    agentBackfillTask?.cancel(); agentBackfillTask = nil
+    agentBackfill = nil
+  }
+  /// Reads the signed-in accounts from the roster (or the test seam).
+  func reloadAccounts() {
+    signedInAccounts = accountsProvider?() ?? auth.accounts
+  }
   @discardableResult private func openMailbox(name: String) -> Bool {
     do {
       activateMailbox(try loadMailbox(name: name))
@@ -655,6 +697,7 @@ import SwiftUI
       mailDecodingVersion = 0
       entered = false
       resetMailboxPresentation()
+      resetAccountScopedState()
       return false
     }
   }
@@ -809,7 +852,124 @@ import SwiftUI
       connected = true
     }
     auth.finishBrowserSignIn(success: connected)
+    reloadAccounts()
     if connected { await sync() }
+  }
+
+  /// Signs in another Google account and opens it; the current account stays signed in. Cancelling the
+  /// browser sign-in changes nothing.
+  func addAccount() async {
+    guard !switchingAccount else { return }
+    switchingAccount = true
+    defer { switchingAccount = false }
+    if entered, !isSample {
+      guard await settleBeforeLeavingMailbox() else { return }
+    } else if busy {
+      status = "Finish the current action first"
+      return
+    }
+    await connect()
+  }
+
+  /// Opens another signed-in account's mailbox. Its local copy shows at once; a sync follows. Anything
+  /// the current account still owes Gmail (an Undo Send, label changes, a move to Trash, a read
+  /// receipt, a running sync) finishes first, because it would otherwise use the next account's sign-in.
+  func switchAccount(to email: String) async {
+    guard !isSample, !switchingAccount,
+      email.caseInsensitiveCompare(accountEmail) != .orderedSame,
+      let target = accounts.first(where: { $0.caseInsensitiveCompare(email) == .orderedSame })
+    else { return }
+    switchingAccount = true
+    var opened = false
+    if entered {
+      opened = await settleBeforeLeavingMailbox()
+    } else if busy || syncing {
+      status = "Finish the current action first"
+    } else {
+      opened = true
+    }
+    opened = opened && openAccount(target)
+    // The local mailbox is showing now; its sync is ordinary background work, not part of the switch.
+    switchingAccount = false
+    guard opened else { return }
+    status = "Switched to \(target)"
+    await sync()
+  }
+
+  /// Makes a signed-in account active and opens its mailbox, or changes nothing. The mailbox and the
+  /// session are both checked before any state changes, so a failure never leaves a half-open account.
+  @discardableResult private func openAccount(_ email: String) -> Bool {
+    let snapshot: MailboxSnapshot
+    let grants: (calendar: Bool, tasks: Bool)
+    do {
+      snapshot = try loadMailbox(name: email)
+      if let activateAccount {
+        grants = try activateAccount(email)
+      } else {
+        // Re-activating the active account would only drop its cached token.
+        if auth.activeEmail?.caseInsensitiveCompare(email) != .orderedSame {
+          try auth.activate(email: email)
+        }
+        grants = (UserDefaults.standard.bool(forKey: "calendarConnected"),
+                  UserDefaults.standard.bool(forKey: "tasksConnected"))
+      }
+    } catch {
+      self.error = "Cove couldn’t open \(email). Sign in to it again with Add account… "
+        + error.localizedDescription
+      status = "Couldn’t open \(email) · sign in again"
+      reloadAccounts()
+      return false
+    }
+    activateMailbox(snapshot)
+    calendarConnected = grants.calendar
+    tasksConnected = grants.tasks
+    isSample = false
+    accountEmail = email
+    entered = true
+    reloadAccounts()
+    return true
+  }
+
+  /// Before another account takes over: refuses during a user action, delivers a waiting Undo Send for
+  /// this account (stopping if it fails, so its text is restored here), then waits for queued Gmail
+  /// writes and any sync to finish. False means stay in the current account.
+  func settleBeforeLeavingMailbox(timeout: Duration = .seconds(30)) async -> Bool {
+    guard !busy, agentBackfill?.phase != .applying else {
+      status = "Finish the current action first"
+      return false
+    }
+    if let waiting = pendingSend {
+      if waiting.delivering {
+        let deadline = ContinuousClock.now + timeout
+        while pendingSend?.id == waiting.id, ContinuousClock.now < deadline {
+          try? await Task.sleep(for: .milliseconds(100))
+        }
+        guard pendingSend?.id != waiting.id else {
+          status = "Still sending · try again in a moment"
+          return false
+        }
+      } else {
+        sendTask?.cancel(); sendTask = nil
+        status = "Sending before switching…"
+        guard await deliver(waiting) else { return false }
+      }
+    }
+    let deadline = ContinuousClock.now + timeout
+    while busy || syncing || cloudSyncing || !labelTasks.isEmpty || !pendingReadTasks.isEmpty
+      || !queuedTrashIDs.isEmpty || trashCommitting
+    {
+      guard ContinuousClock.now < deadline, !Task.isCancelled else {
+        status = "Cove is still finishing changes in Gmail · try again in a moment"
+        return false
+      }
+      if syncing && !busy { status = "Switching after this sync…" }
+      try? await Task.sleep(for: .milliseconds(100))
+    }
+    guard pendingSend == nil else {
+      status = "Wait for the email you just sent, then switch"
+      return false
+    }
+    return true
   }
   /// Learns the user's writing style from their own sent mail and saves it in the encrypted
   /// mailbox preferences. Only bounded, quote-stripped excerpts go to the chosen writing model.
@@ -1064,21 +1224,44 @@ import SwiftUI
   }
   func disconnect() {
     // Signing out waits for background work too: a sync must not write into a mailbox being closed.
-    guard !busy, !syncing else { return }
+    guard !busy, !syncing, !switchingAccount else { return }
+    // An email in its Undo Send window belongs to this account; with other accounts signed in it
+    // would otherwise go out under the next one.
+    guard pendingSend == nil else {
+      status = "Wait for the email you just sent, then sign out"
+      return
+    }
+    let wasSample = isSample
     do {
-      if !isSample { try auth.disconnect() }
+      if !wasSample { try auth.disconnect() }
       resetDisconnectedMailbox()
-    } catch { self.error = error.localizedDescription }
+    } catch { self.error = error.localizedDescription; return }
+    if !wasSample { openNextSignedInAccount() }
   }
 
   func eraseLocalMailbox() {
-    guard !busy, !syncing, let database else { return }
+    guard !busy, !syncing, !switchingAccount, let database else { return }
+    guard pendingSend == nil else {
+      status = "Wait for the email you just sent, then erase"
+      return
+    }
+    let wasSample = isSample
     do {
       // Remove this device's saved connection first so failed cleanup cannot re-download mail.
-      if !isSample { try auth.disconnect() }
+      if !wasSample { try auth.disconnect() }
       resetDisconnectedMailbox()
       try database.eraseContents()
-    } catch { self.error = error.localizedDescription }
+    } catch { self.error = error.localizedDescription; return }
+    if !wasSample { openNextSignedInAccount() }
+  }
+
+  /// After signing one account out, another signed-in account opens instead of the sign-in screen.
+  private func openNextSignedInAccount() {
+    reloadAccounts()
+    guard let next = signedInAccounts.first else { return }
+    guard openAccount(next) else { return }
+    status = "Signed in as \(next)"
+    Task { @MainActor [weak self] in await self?.sync() }
   }
 
   private func resetDisconnectedMailbox() {
@@ -1097,6 +1280,7 @@ import SwiftUI
     gmailHistoryID = nil
     mailDecodingVersion = 0
     resetMailboxPresentation()
+    resetAccountScopedState()
     accountEmail = ""
     isSample = false
     status = ""
@@ -3568,7 +3752,11 @@ extension AppStore {
       var seen = Set<String>()
       let tasks = (open + done).filter { seen.insert($0.id).inserted }
       googleTasks = tasks.sorted { ($0.dueDay ?? .distantFuture) < ($1.dueDay ?? .distantFuture) }
-    } catch { self.error = error.localizedDescription }
+    } catch {
+      // A refresh that outlived an account switch reports nothing about the new account.
+      guard generation == mailboxGeneration else { return }
+      self.error = error.localizedDescription
+    }
   }
 
   /// Asks Jev once whether an eligible email holds a promise or request; the answer is saved on it.
@@ -4001,15 +4189,16 @@ extension AppStore {
     restoreUnsent(item)
   }
 
-  private func deliver(_ item: PendingSend) async {
+  @discardableResult fileprivate func deliver(_ item: PendingSend) async -> Bool {
     if pendingSend?.id == item.id { pendingSend?.delivering = true }
     let generation = mailboxGeneration
     _ = await waitUntilIdle()
-    guard generation == mailboxGeneration else { if pendingSend?.id == item.id { pendingSend = nil }; return }
+    guard generation == mailboxGeneration else { if pendingSend?.id == item.id { pendingSend = nil }; return false }
     let sent = await send(to: item.to, subject: item.subject, body: item.body, reply: item.reply,
                           draftID: item.draftID, from: item.from, cc: item.cc)
     if pendingSend?.id == item.id { pendingSend = nil }
     if !sent { restoreUnsent(item) }
+    return sent
   }
 
   /// Puts an unsent email back where it was written: the reply box, or the composer with its draft.

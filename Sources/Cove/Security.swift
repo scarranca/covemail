@@ -126,50 +126,136 @@ enum Vault {
   private var identityToken: String?
   private var expiration = Date.distantPast
   private var expectedState = ""
+  /// The session store for the active account, and the Keychain entry it was loaded from.
   private var sessions: GoogleSessionStore?
+  private var sessionsKey: String?
+  private var migrated = false
   private var connectionGeneration = UUID()
   private var browserReply: OAuthBrowserReply?
+  private let storage: Storage
+  private var defaults: UserDefaults { storage.defaults }
+
+  /// Where sign-in state lives. Production uses the Keychain (`Vault`) and standard defaults;
+  /// tests inject in-memory closures so they never touch the user's real Keychain.
+  struct Storage {
+    var read: (String) throws -> String?
+    var save: (String, String) throws -> Void  // (value, name)
+    var delete: (String) throws -> Void
+    var defaults: UserDefaults
+
+    static var vault: Storage {
+      Storage(
+        read: { try Vault.read($0) }, save: { try Vault.save($0, name: $1) },
+        delete: { try Vault.delete($0) }, defaults: .standard)
+    }
+  }
+
+  /// The single-account Keychain entry used before several accounts could stay signed in.
+  static let legacySessionName = "googleAccountSession"
+
+  init(storage: Storage = .vault) {
+    self.storage = storage
+  }
+
   struct PendingConnection {
     let session: GoogleAccountSession
     let accessToken: String
     let expiration: Date
     var identityToken: String? = nil
   }
+
+  /// Signed-in account emails, in the order they were added.
+  var accounts: [String] {
+    try? migrateLegacySessionIfNeeded()
+    return AccountRoster.emails(defaults)
+  }
+  /// The account Cove is showing; every token request is for this account.
+  var activeEmail: String? {
+    guard let email = defaults.string(forKey: "accountEmail"), !email.isEmpty else { return nil }
+    return email
+  }
+
+  private func writer(for key: String) -> (String?) throws -> Void {
+    let storage = storage
+    return { value in
+      if let value {
+        try storage.save(value, key)
+      } else {
+        try storage.delete(key)
+      }
+    }
+  }
+
   private func sessionStore() throws -> GoogleSessionStore {
-    if let sessions { return sessions }
-    let loaded = try GoogleSessionStore(
-      read: { try Vault.read("googleAccountSession") },
-      write: { value in
-        if let value {
-          try Vault.save(value, name: "googleAccountSession")
-        } else {
-          try Vault.delete("googleAccountSession")
-        }
-      })
+    try migrateLegacySessionIfNeeded()
+    guard let email = activeEmail else {
+      // No active account: nothing to read, and nowhere to write.
+      return try GoogleSessionStore(
+        read: { nil },
+        write: { _ in throw CoveError.message("Connect Gmail to continue.") })
+    }
+    let key = AccountRoster.sessionKey(for: email)
+    if let sessions, sessionsKey == key { return sessions }
+    let storage = storage
+    let loaded = try GoogleSessionStore(read: { try storage.read(key) }, write: writer(for: key))
     sessions = loaded
+    sessionsKey = key
     return loaded
   }
+
+  /// Moves the old single Keychain entry to its account's own entry. Runs once per instance and is
+  /// idempotent: the legacy entry is deleted only after the new entry reads back identically, and an
+  /// undecodable legacy entry is left untouched.
+  func migrateLegacySessionIfNeeded() throws {
+    guard !migrated else { return }
+    if let legacy = try storage.read(Self.legacySessionName) {
+      if let session = try? JSONDecoder().decode(
+        GoogleAccountSession.self, from: Data(legacy.utf8)), !session.email.isEmpty
+      {
+        let key = AccountRoster.sessionKey(for: session.email)
+        // Only older builds write the legacy entry, so it is the newest copy of this account.
+        try storage.save(String(decoding: try JSONEncoder().encode(session), as: UTF8.self), key)
+        guard let stored = try storage.read(key),
+          let readBack = try? JSONDecoder().decode(GoogleAccountSession.self, from: Data(stored.utf8)),
+          readBack == session
+        else {
+          throw CoveError.message("Cove could not move your Google sign-in. Please try again.")
+        }
+        AccountRoster.add(session.email, defaults)
+        try storage.delete(Self.legacySessionName)
+        if sessionsKey == key { sessions = nil; sessionsKey = nil }
+      }
+    }
+    if let email = activeEmail,
+      !AccountRoster.emails(defaults).contains(where: {
+        $0.caseInsensitiveCompare(email) == .orderedSame
+      }),
+      try storage.read(AccountRoster.sessionKey(for: email)) != nil
+    {
+      AccountRoster.add(email, defaults)
+    }
+    migrated = true
+  }
+
   var clientID: String {
     GoogleOAuthConfiguration.selected(
-      customClientID: UserDefaults.standard.string(forKey: "googleClientID"), customSecret: nil,
+      customClientID: defaults.string(forKey: "googleClientID"), customSecret: nil,
       bundled: BundledGoogleOAuth.configuration
     ).clientID
   }
   private func clientSecret() throws -> String {
-    let customID = UserDefaults.standard.string(forKey: "googleClientID") ?? ""
+    let customID = defaults.string(forKey: "googleClientID") ?? ""
     let customSecret =
       customID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      ? nil : try Vault.read("googleClientSecret")
+      ? nil : try storage.read("googleClientSecret")
     return GoogleOAuthConfiguration.selected(
       customClientID: customID, customSecret: customSecret,
       bundled: BundledGoogleOAuth.configuration
     ).clientSecret
   }
-  var isConnected: Bool { UserDefaults.standard.string(forKey: "accountEmail") != nil }
+  var isConnected: Bool { defaults.string(forKey: "accountEmail") != nil }
   func restorableAccountEmail() throws -> String? {
-    guard let email = UserDefaults.standard.string(forKey: "accountEmail"), !email.isEmpty else {
-      return nil
-    }
+    guard let email = activeEmail else { return nil }
     if let session = try sessionStore().current {
       try session.requireMailbox(email)
       guard !session.refreshToken.isEmpty, !session.clientID.isEmpty else { return nil }
@@ -177,9 +263,32 @@ enum Vault {
     }
     // A cached mailbox name alone does not mean the user is signed in.
     guard clientID.hasSuffix(".apps.googleusercontent.com"),
-      let refresh = try Vault.read("googleRefreshToken"), !refresh.isEmpty
+      let refresh = try storage.read("googleRefreshToken"), !refresh.isEmpty
     else { return nil }
     return email
+  }
+
+  /// Switches the active account to one already signed in, without any network request.
+  func activate(email: String) throws {
+    try migrateLegacySessionIfNeeded()
+    let key = AccountRoster.sessionKey(for: email)
+    // A Keychain read error (e.g. locked) propagates; only a missing or undecodable entry asks to sign in.
+    let stored = try storage.read(key)
+    guard let stored,
+      let store = try? GoogleSessionStore(read: { stored }, write: writer(for: key)),
+      let session = store.current
+    else { throw CoveError.message("Sign in to \(email) again.") }
+    try session.requireMailbox(email)
+    connectionGeneration = UUID()
+    access = nil
+    identityToken = nil
+    expiration = .distantPast
+    sessions = store
+    sessionsKey = key
+    AccountRoster.add(session.email, defaults)
+    defaults.set(session.email, forKey: "accountEmail")
+    defaults.set(session.calendarConnected, forKey: "calendarConnected")
+    defaults.set(session.tasksConnected == true, forKey: "tasksConnected")
   }
   private func random() throws -> String {
     var bytes = [UInt8](repeating: 0, count: 32)
@@ -270,17 +379,26 @@ enum Vault {
       accessToken: result.access_token,
       expiration: Date().addingTimeInterval(result.expires_in - 60), identityToken: result.id_token)
   }
+  /// Saves the account under its own Keychain entry, adds it to the roster and makes it active.
+  /// Other accounts' sessions are untouched.
   func commit(_ pending: PendingConnection) throws {
-    try sessionStore().commit(pending.session)
+    try? migrateLegacySessionIfNeeded()
+    let key = AccountRoster.sessionKey(for: pending.session.email)
+    // Never decode what is already stored: a corrupt entry must not block signing in again.
+    let store = try GoogleSessionStore(read: { nil }, write: writer(for: key))
+    try store.commit(pending.session)
+    sessions = store
+    sessionsKey = key
     connectionGeneration = UUID()
     access = pending.accessToken
     identityToken = pending.identityToken
     expiration = pending.expiration
-    UserDefaults.standard.set(pending.session.email, forKey: "accountEmail")
-    UserDefaults.standard.set(pending.session.calendarConnected, forKey: "calendarConnected")
-    UserDefaults.standard.set(pending.session.tasksConnected == true, forKey: "tasksConnected")
+    AccountRoster.add(pending.session.email, defaults)
+    defaults.set(pending.session.email, forKey: "accountEmail")
+    defaults.set(pending.session.calendarConnected, forKey: "calendarConnected")
+    defaults.set(pending.session.tasksConnected == true, forKey: "tasksConnected")
     // Old versions stored only a refresh token; it must never be reused after a successful switch.
-    try? Vault.delete("googleRefreshToken")
+    try? storage.delete("googleRefreshToken")
   }
   /// Called after the full account/mailbox transaction, including local persistence.
   func finishBrowserSignIn(success: Bool) {
@@ -379,7 +497,7 @@ enum Vault {
       Tokens.self, from: await checked(request, transport: LiveHTTP()))
   }
   func token() async throws -> String {
-    guard let email = UserDefaults.standard.string(forKey: "accountEmail") else {
+    guard let email = defaults.string(forKey: "accountEmail") else {
       throw CoveError.message("Connect Gmail to continue.")
     }
     let store = try sessionStore()
@@ -393,7 +511,7 @@ enum Vault {
           "grant_type": "refresh_token",
         ], secret: session.clientSecret)
       guard generation == connectionGeneration, store.current == session,
-        UserDefaults.standard.string(forKey: "accountEmail") == email
+        defaults.string(forKey: "accountEmail") == email
       else {
         throw CoveError.message("The Google connection changed. Please retry.")
       }
@@ -403,7 +521,7 @@ enum Vault {
       return result.access_token
     }
     // Upgrade old credentials only after checking their actual Gmail identity.
-    guard let refresh = try Vault.read("googleRefreshToken") else {
+    guard let refresh = try storage.read("googleRefreshToken") else {
       throw CoveError.message("Connect Gmail to continue.")
     }
     let secret = try clientSecret()
@@ -414,13 +532,13 @@ enum Vault {
       ], secret: secret)
     let verifiedEmail = try await GmailClient().profile(token: result.access_token)
     guard generation == connectionGeneration, store.current == nil,
-      UserDefaults.standard.string(forKey: "accountEmail") == email
+      defaults.string(forKey: "accountEmail") == email
     else {
       throw CoveError.message("The Google connection changed. Please retry.")
     }
     let session = GoogleAccountSession(
       email: verifiedEmail, clientID: legacyClientID, clientSecret: secret, refreshToken: refresh,
-      calendarConnected: UserDefaults.standard.bool(forKey: "calendarConnected"))
+      calendarConnected: defaults.bool(forKey: "calendarConnected"))
     try session.requireMailbox(email)
     try commit(
       PendingConnection(
@@ -440,25 +558,42 @@ enum Vault {
     }
     return token
   }
+  /// Signs out only the active account. Other accounts' sessions stay in the Keychain and roster.
   func disconnect() throws {
-    if try Vault.read("googleAccountSession") != nil {
-      // Also permits disconnecting a corrupt record without decoding it first.
-      if let store = try? sessionStore() {
-        try store.disconnect()
-      } else {
-        try Vault.delete("googleAccountSession")
+    try? migrateLegacySessionIfNeeded()
+    let email = activeEmail
+    var removedSession = false
+    if let email {
+      let key = AccountRoster.sessionKey(for: email)
+      if try storage.read(key) != nil {
+        // Deleting directly also permits disconnecting a corrupt record without decoding it first.
+        try storage.delete(key)
+        removedSession = true
       }
-      try? Vault.delete("googleRefreshToken")
-    } else {
-      try Vault.delete("googleRefreshToken")
     }
+    // A legacy entry left behind (it could not be migrated) belongs to the account being signed out
+    // when it is unreadable or names that account.
+    if let legacy = try storage.read(Self.legacySessionName) {
+      let owner = (try? JSONDecoder().decode(GoogleAccountSession.self, from: Data(legacy.utf8)))?.email
+      if owner == nil || email == nil || owner?.caseInsensitiveCompare(email ?? "") == .orderedSame {
+        try storage.delete(Self.legacySessionName)
+        removedSession = true
+      }
+    }
+    if removedSession {
+      try? storage.delete("googleRefreshToken")
+    } else {
+      try storage.delete("googleRefreshToken")
+    }
+    if let email { AccountRoster.remove(email, defaults) }
     sessions = nil
+    sessionsKey = nil
     cancel()
     access = nil
     identityToken = nil
     expiration = .distantPast
-    UserDefaults.standard.removeObject(forKey: "accountEmail")
-    UserDefaults.standard.removeObject(forKey: "calendarConnected")
-    UserDefaults.standard.removeObject(forKey: "tasksConnected")
+    defaults.removeObject(forKey: "accountEmail")
+    defaults.removeObject(forKey: "calendarConnected")
+    defaults.removeObject(forKey: "tasksConnected")
   }
 }
