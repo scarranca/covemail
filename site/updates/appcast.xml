@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.59</title>
+            <pubDate>Thu, 01 Oct 2026 19:48:39 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>61</sparkle:version>
+            <sparkle:shortVersionString>0.1.59</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.59</title></head><body><h1>Quieter when your Mac is locked</h1><ul><li>If Cove needs your AI key while your Mac is locked (or Touch ID can't be shown because Cove is in the background), it no longer interrupts you with an alert. The status line says AI is paused, and the work picks up again on the next sync.</li></ul><p>Nothing is sent without you.</p></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.59.dmg" length="22658600" type="application/octet-stream" sparkle:edSignature="qUi1srl8JpuMWypO3cqmPPtaDlgliZGySLWjHLhmuGYjARYX40AavfwIOecl448HcnFJoaAcp+xx6Cp3Qi68AA=="/>
+        </item>
+        <item>
             <title>0.1.58</title>
             <pubDate>Thu, 01 Oct 2026 17:08:34 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -27,20 +38,9 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ]]></description>
             <enclosure url="https://covemail.xyz/downloads/Cove-0.1.57.dmg" length="22534814" type="application/octet-stream" sparkle:edSignature="r6WAWyNviSKmXajqjwGDLOdROz1/LIEJ+qhWGODk0ZoWcYeRrCkLK9JZa54N7v3d15pJqw666cjM85Bnlua+Cw=="/>
         </item>
-        <item>
-            <title>0.1.56</title>
-            <pubDate>Thu, 01 Oct 2026 10:30:20 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>58</sparkle:version>
-            <sparkle:shortVersionString>0.1.56</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.56</title></head><body><h1>Tasks, calendar and Ask Cove, smoother</h1><ul><li>Ask Cove creates Google Tasks from an email ("create a task and archive this"), finds your meetings with someone over the past year, and knows who "Manuel" is in the email you're reading.</li><li>Emails show the tasks made from them, payment requests get a Create task button, and a new date picker sets due dates.</li><li>New events: invite guests with a Google Meet link, or press + and describe it ("30 min with Manuel, first open spot") — Cove finds the time in your real calendar.</li><li>Meetings link their Gemini notes and transcripts, and ⌘Delete deletes the selected event after asking.</li><li>An empty inbox tab shows a quiet dotted sunset, the Inbox count now means unread Important mail, and broken accents like "botÃ³n" read correctly.</li></ul><p>Nothing is sent, created or deleted without you.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.56.dmg" length="22521792" type="application/octet-stream" sparkle:edSignature="Y28P7htTHSJGGnIu4G3/D/9j03+LHfCGgHAlW46Z8XQJcDomVYdJiDqAWuzZLhrT6EQqftNpRREOmEeYsY0OBA=="/>
-        </item>
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: lGwBkoKOPntkpbtn6l/jeKL0aBKyvuiSHjEK0AV464qzmPhD3Onh2d1dQPL8yYxjwGijcEBnB94iWNgy0xlzAg==
-length: 4456
+edSignature: Tud7P3Mcvq+qUgnzFKTF61lfGredk0gKodc0EsUj+kKgcBzXnAR7ke+FwzyDJR7wPNZThZvVsxS2s6TFxYHnDg==
+length: 3911
 -->
