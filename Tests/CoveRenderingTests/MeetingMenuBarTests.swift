@@ -29,6 +29,7 @@ import XCTest
     let review = LocalEvent(title: "Design review", start: now.addingTimeInterval(7_200), end: now.addingTimeInterval(9_000))
     store.events = [standup, review]
     let model = MeetingMenuBarModel(store: store)
+    model.installsStatusItem = false
     model.clock = { now }
     let wait = model.tick()
     XCTAssertEqual(model.alert?.title(), "Join Standup")
@@ -49,5 +50,20 @@ import XCTest
     UserDefaults.standard.set(false, forKey: key)
     model.tick()
     XCTAssertNil(model.alert, "off means nothing is tracked")
+  }
+
+  /// Regression (0.1.61 hang): a tick that changes nothing must not notify observers.
+  func testQuietTicksDoNotNotify() throws {
+    let key = MeetingMenuBarModel.enabledKey
+    let previous = UserDefaults.standard.object(forKey: key)
+    UserDefaults.standard.set(false, forKey: key)
+    addTeardownBlock { if let previous { UserDefaults.standard.set(previous, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) } }
+    let model = MeetingMenuBarModel(store: try store())
+    model.installsStatusItem = false
+    model.tick()
+    var notified = false
+    withObservationTracking { _ = (model.alert, model.later, model.pulseOn) } onChange: { notified = true }
+    model.tick(); model.tick()
+    XCTAssertFalse(notified, "disabled ticks are silent")
   }
 }

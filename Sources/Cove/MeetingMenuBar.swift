@@ -15,6 +15,11 @@ import SwiftUI
   @ObservationIgnored private var loop: Task<Void, Never>?
   @ObservationIgnored private var lastRefresh = Date.distantPast
   @ObservationIgnored var clock: () -> Date = Date.init
+  /// The AppKit status item (outside SwiftUI's app scene, which re-rendered the whole app on every
+  /// change in 0.1.61). Created when the setting turns on, removed when it turns off.
+  @ObservationIgnored private var statusItem: NSStatusItem?
+  @ObservationIgnored private var popover: NSPopover?
+  @ObservationIgnored var installsStatusItem = true
 
   init(store: AppStore) {
     self.store = store
@@ -31,17 +36,29 @@ import SwiftUI
 
   /// Recomputes the next meeting and returns how long to wait: quick while pulsing, slow otherwise.
   @discardableResult func tick() -> Int {
-    guard enabled, let store, store.entered else {
-      alert = nil; later = []; pulseOn = true
+    guard enabled else {
+      removeStatusItem()
+      if alert != nil { alert = nil }
+      if !later.isEmpty { later = [] }
+      return 2_000
+    }
+    if installsStatusItem { installStatusItem() }
+    guard let store, store.entered else {
+      if alert != nil { alert = nil }
+      if !later.isEmpty { later = [] }
+      updateStatusItem()
       return 15_000
     }
     let now = clock()
-    alert = MeetingAlert.next(in: store.events, now: now)
+    let next = MeetingAlert.next(in: store.events, now: now)
+    // Assign only real changes: every assignment notifies SwiftUI.
+    if next?.event.id != alert?.event.id || next?.level != alert?.level || next?.title() != alert?.title() || next?.startsIn != alert?.startsIn && next?.level == .soon { alert = next }
     let day = Calendar.current.dateInterval(of: .day, for: now)
-    later = store.events.filter { event in
+    let upcoming = store.events.filter { event in
       event.allDay != true && event.ownResponse != "declined" && event.start > now
         && event.id != alert?.event.id && day.map { event.start < $0.end } ?? false
     }.sorted { $0.start < $1.start }.prefix(4).map { $0 }
+    if upcoming.map(\.id) != later.map(\.id) { later = upcoming }
     // Today's calendar stays fresh while the icon is on, without disturbing the Calendar screen's sync.
     if store.calendarConnected, !store.isSample, !store.calendarSyncing, !store.busy, now.timeIntervalSince(lastRefresh) > 300,
       let start = day?.start
@@ -51,35 +68,62 @@ import SwiftUI
     }
     if let alert, alert.urgent, alert.prominent, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
       pulseOn.toggle()
+      updateStatusItem()
       return 700
     }
-    pulseOn = true
+    if !pulseOn { pulseOn = true }
+    updateStatusItem()
     return alert?.level == .soon ? 5_000 : 15_000
   }
-}
 
-struct MeetingMenuBarLabel: View {
-  let model: MeetingMenuBarModel
-  var body: some View {
-    if let alert = model.alert, let title = alert.title() {
-      HStack(spacing: 4) {
-        Image(systemName: icon(alert))
-        Text(title)
-      }
-    } else {
-      Image(systemName: "water.waves")
-    }
-  }
-  private func icon(_ alert: MeetingAlert) -> String {
-    if alert.prominent { return model.pulseOn ? "video.fill" : "video" }
+  /// Menu bar text and symbol for the current state.
+  var statusTitle: String? { alert?.title() }
+  var statusSymbol: String {
+    guard let alert, alert.level != .later else { return "water.waves" }
+    if alert.prominent { return pulseOn ? "video.fill" : "video" }
     return alert.joinURL != nil ? "video" : "calendar"
+  }
+
+  private func installStatusItem() {
+    guard statusItem == nil else { return }
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    item.button?.target = self
+    item.button?.action = #selector(togglePanel(_:))
+    item.button?.imagePosition = .imageLeading
+    statusItem = item
+    updateStatusItem()
+  }
+  private func removeStatusItem() {
+    popover?.close(); popover = nil
+    if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+    statusItem = nil
+  }
+  private func updateStatusItem() {
+    guard let button = statusItem?.button else { return }
+    let image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: "Cove meetings")
+    image?.isTemplate = true
+    if button.image?.name() != statusSymbol { image?.setName(statusSymbol); button.image = image }
+    let title = statusTitle.map { " " + $0 } ?? ""
+    if button.title != title { button.title = title }
+    button.toolTip = alert.map { $0.event.title } ?? "Cove · meetings"
+  }
+  @objc private func togglePanel(_ sender: NSStatusBarButton) {
+    if let popover, popover.isShown { popover.performClose(nil); return }
+    guard let store else { return }
+    let panel = NSPopover()
+    panel.behavior = .transient
+    panel.contentViewController = NSHostingController(rootView: MeetingMenuPanel(store: store, model: self) { [weak panel] in
+      panel?.performClose(nil)
+    })
+    popover = panel
+    panel.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
   }
 }
 
 struct MeetingMenuPanel: View {
   @Bindable var store: AppStore
   let model: MeetingMenuBarModel
-  @Environment(\.openWindow) private var openWindow
+  var dismiss: () -> Void = {}
   @AppStorage(MeetingMenuBarModel.enabledKey) private var enabled = false
 
   var body: some View {
@@ -114,7 +158,7 @@ struct MeetingMenuPanel: View {
       HStack {
         Button("Open Cove") { openCove() }.buttonStyle(.plain).font(.coveControl)
         Spacer()
-        Button("Hide this icon") { enabled = false }.buttonStyle(.plain).font(.coveMetadata).foregroundStyle(Palette.muted)
+        Button("Hide this icon") { dismiss(); enabled = false }.buttonStyle(.plain).font(.coveMetadata).foregroundStyle(Palette.muted)
       }
     }
     .padding(16).frame(width: 300, alignment: .leading)
@@ -132,7 +176,7 @@ struct MeetingMenuPanel: View {
       }
       HStack(spacing: 8) {
         if let url = alert.joinURL {
-          Button { NSWorkspace.shared.open(url) } label: { Label("Join", systemImage: "video.fill") }
+          Button { NSWorkspace.shared.open(url); dismiss() } label: { Label("Join", systemImage: "video.fill") }
             .buttonStyle(PrimaryButton(compact: true)).keyboardShortcut(.defaultAction)
         }
         Button("Open in Cove") {
@@ -158,7 +202,7 @@ struct MeetingMenuPanel: View {
     return others.count == 1 ? "With \(name)" : "With \(name) and \(others.count - 1) other\(others.count == 2 ? "" : "s")"
   }
   private func openCove() {
-    openWindow(id: "main")
-    NSApp.activate()
+    dismiss()
+    CoveAppDelegate.showMainWindow(in: CoveAppDelegate.mainWindows.allObjects)
   }
 }

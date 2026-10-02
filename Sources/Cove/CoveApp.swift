@@ -53,7 +53,6 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
   @NSApplicationDelegateAdaptor(CoveAppDelegate.self) private var appDelegate
   @State private var store: AppStore
   @State private var meetings: MeetingMenuBarModel
-  @AppStorage(MeetingMenuBarModel.enabledKey) private var meetingsInMenuBar = false
   @StateObject private var updater = AppUpdater.shared
   init() {
     DesignAssets.registerFonts()
@@ -115,12 +114,6 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
         Button("Settings…") { store.showConnections = true }.keyboardShortcut(",")
       }
     }
-    MenuBarExtra(isInserted: $meetingsInMenuBar) {
-      MeetingMenuPanel(store: store, model: meetings)
-    } label: {
-      MeetingMenuBarLabel(model: meetings)
-    }
-    .menuBarExtraStyle(.window)
   }
 }
 
