@@ -23,7 +23,7 @@ import XCTest
         styleMask: [.borderless], backing: .buffered, defer: false)
       window.isReleasedWhenClosed = false; window.contentView = host
       defer { window.close() }
-      for section in ["Settings", "Gmail", "Jev · Mail agent", "Reading", "Privacy", "App updates", "Reading"] {
+      for section in ["Settings", "Gmail", "Jev · Mail agent", "Reading", "Menu bar", "Privacy", "App updates", "Reading"] {
         store.settingsSection = section
         for _ in 0..<6 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
         XCTAssertFalse(window.isVisible)

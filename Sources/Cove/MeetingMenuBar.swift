@@ -2,7 +2,7 @@ import AppKit
 import CoveCore
 import SwiftUI
 
-/// Optional menu bar item for the next meeting (Settings → Gmail → Meetings in the menu bar). It shows a
+/// Optional menu bar item (Settings → Menu bar). Today it shows the next meeting. It shows a
 /// countdown when a meeting is close, pulses when a call with other people is about to start, and its
 /// panel joins the call in one click.
 @MainActor @Observable final class MeetingMenuBarModel {

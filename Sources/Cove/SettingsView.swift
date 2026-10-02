@@ -16,7 +16,7 @@ struct SettingsView: View {
 
   var selectedSection: String {
     switch store.settingsSection {
-    case "Jev · Mail agent", "Reading", "Privacy", "App updates": return store.settingsSection
+    case "Jev · Mail agent", "Reading", "Menu bar", "Privacy", "App updates": return store.settingsSection
     case "Cloud sync" where store.cloudConfigured: return "Cloud sync"
     default: return "Gmail"
     }
@@ -69,6 +69,7 @@ struct SettingsView: View {
     switch selectedSection {
     case "Jev · Mail agent": jevSection
     case "Reading": ReadingSettingsView(showsHeading: false, store: store)
+    case "Menu bar": menuBarSection
     case "Cloud sync": CloudSyncSettings(store: store, showsHeading: false)
     case "Privacy": privacySection
     case "App updates": AppUpdateSettings(showsHeading: false)
@@ -164,12 +165,6 @@ struct SettingsView: View {
             }
           }
           SettingsDivider()
-          SettingsRow("Meetings in the menu bar", icon: "menubar.rectangle",
-                      detail: "Shows your next meeting in the menu bar. When a call with other people is about to start, the icon pulses and Join is one click away.") {
-            Toggle("", isOn: $meetingsInMenuBar).toggleStyle(CoveToggleStyle()).labelsHidden()
-              .accessibilityLabel("Meetings in the menu bar")
-          }
-          SettingsDivider()
           SettingsRow("Google Tasks", icon: "checklist", detail: tasksDescription) {
             if store.tasksConnected { SettingsStatusPill(text: "Connected") }
             else if store.auth.isConnected && !store.isSample {
@@ -192,6 +187,29 @@ struct SettingsView: View {
       }.font(.coveSecondary).foregroundStyle(Palette.body).disclosureGroupStyle(CoveDisclosureStyle())
     }
     .task { if store.entered && !store.isSample { await store.loadSendingAliasesIfNeeded() } }
+  }
+  /// Cove in the macOS menu bar. Meetings are the first thing it shows; more can join this section.
+  private var menuBarSection: some View {
+    VStack(alignment: .leading, spacing: 28) {
+      SettingsCard {
+        SettingsRow("Show Cove in the menu bar", icon: "menubar.rectangle",
+                    detail: "A small icon at the top of your screen, so Cove is one click away even when its window is closed.") {
+          Toggle("", isOn: $meetingsInMenuBar).toggleStyle(CoveToggleStyle()).labelsHidden()
+            .accessibilityLabel("Show Cove in the menu bar")
+        }
+      }
+      SettingsGroup("What it shows") {
+        SettingsCard {
+          SettingsRow("Your next meeting", icon: "video",
+                      detail: store.calendarConnected || store.isSample
+                        ? "“Standup in 8m” when a meeting is close, then “Join Standup”. A call with other people pulses as it starts, and Join is one click away (Google Meet, Zoom, Teams, Webex)."
+                        : "Connect Google Calendar in Settings → Gmail to see your meetings here.") {
+            if meetingsInMenuBar { SettingsStatusPill(text: "On") }
+            else { Text("Off").font(.coveMetadata).foregroundStyle(Palette.muted) }
+          }
+        }
+      }
+    }
   }
   private var tasksDescription: String {
     if store.isSample { return "Connect Gmail to use Google Tasks." }

@@ -19,7 +19,7 @@ struct SettingsSidebar: View {
         Text("Settings").font(.coveControl)
           .foregroundStyle(Palette.body).padding(.horizontal, 11).padding(.bottom, 8)
         ForEach([("Gmail", "envelope"),
-                 ("Jev · Mail agent", "sparkles"), ("Reading", "text.alignleft")] +
+                 ("Jev · Mail agent", "sparkles"), ("Reading", "text.alignleft"), ("Menu bar", "menubar.rectangle")] +
                  (store.cloudConfigured ? [("Cloud sync", "icloud")] : []) +
                  [("Privacy", "lock.shield"), ("App updates", "arrow.down.circle")], id: \.0) { title, icon in
           Button { select(title) } label: {
