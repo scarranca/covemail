@@ -367,6 +367,7 @@ enum Vault {
       clientID: connectingClientID, redirect: redirect, state: expectedState,
       challenge: OAuthSupport.challenge(for: verifier), includeCalendar: includeCalendar,
       includeCloud: includeCloud, includeTasks: includeTasks, loginHint: loginHint)
+    onSignInURL?(url)
     let code: String = try await withCheckedThrowingContinuation { continuation in
       callback = continuation
       if !NSWorkspace.shared.open(url) {
@@ -481,14 +482,19 @@ enum Vault {
     }
     callback?.resume(with: result)
     callback = nil
+    onSignInURL?(nil)
     timeout?.cancel()
     timeout = nil
     listener?.cancel()
     listener = nil
   }
+  static let cancelledMessage = "Sign-in cancelled."
+  /// The Google page the browser was sent to while sign-in waits (nil when not waiting), so the app can
+  /// offer it for another browser.
+  var onSignInURL: ((URL?) -> Void)?
   func cancel() {
     connectionGeneration = UUID()
-    finish(.failure(CoveError.message("Sign-in cancelled.")))
+    finish(.failure(CoveError.message(Self.cancelledMessage)))
   }
   struct Tokens: Decodable {
     var access_token: String

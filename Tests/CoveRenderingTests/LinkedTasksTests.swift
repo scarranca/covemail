@@ -131,3 +131,22 @@ private struct OfflineHTTP: HTTPTransport {
     XCTAssertEqual(AgentsHeader.shortSubject("  "), "an email")
   }
 }
+
+@MainActor final class SignInWaitingBarTests: XCTestCase {
+  func testWaitingBarOffersCopyOpenAndCancel() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("CoveSignInBar-" + UUID().uuidString)
+    addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+    let store = try AppStore(database: Database(url: root.appendingPathComponent("mail.sqlite")), accountEmail: "me@example.com",
+      gmail: GmailClient(transport: OfflineHTTP()), gmailTokenProvider: { "fixture" }, syncClock: Date.init)
+    store.signInURL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth?client_id=x")
+    XCTAssertEqual(GoogleAuth.cancelledMessage, "Sign-in cancelled.")
+    let host = NSHostingView(rootView: SignInWaitingBar(store: store).padding(24).background(Color(white: 0.95)))
+    host.frame = NSRect(origin: .zero, size: host.fittingSize)
+    host.layoutSubtreeIfNeeded()
+    let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: rep)
+    try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-signin-waiting.png"))
+    store.signInURL = nil
+    XCTAssertEqual(NSHostingView(rootView: SignInWaitingBar(store: store)).fittingSize.height, 0, accuracy: 1, "hidden when not waiting")
+  }
+}

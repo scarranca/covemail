@@ -216,6 +216,9 @@ import SwiftUI
   var openTaskID: String?
   /// Set by the R shortcut: the reader showing this email opens its reply box.
   var replyRequestID: String?
+  /// The Google sign-in page while Cove waits for it (Add account), for the waiting banner.
+  var signInURL: URL?
+  func cancelSignIn() { auth.cancel() }
   @ObservationIgnored private var tasksLoadedOnce = false
   var tasksLoading = false
   /// Emails whose task check is running, so each is sent to Jev at most once at a time.
@@ -865,13 +868,18 @@ import SwiftUI
     switchingAccount = true
     defer { switchingAccount = false }
     status = "Waiting for Google sign-in…"
+    auth.onSignInURL = { [weak self] url in self?.signInURL = url }
+    defer { auth.onSignInURL = nil; signInURL = nil }
     let pending: GoogleAuth.PendingConnection
     do {
       // A new account starts with Gmail only; it connects Calendar, Tasks and cloud sync on its own.
       pending = try await auth.connect(includeCalendar: false, includeCloud: false, includeTasks: false)
     } catch {
       auth.finishBrowserSignIn(success: false)
-      if !(error is CancellationError) { self.error = error.localizedDescription }
+      // Cancelling is a choice, not an error.
+      if !(error is CancellationError), error.localizedDescription != GoogleAuth.cancelledMessage {
+        self.error = error.localizedDescription
+      }
       status = "Account not added"
       return
     }

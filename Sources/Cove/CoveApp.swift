@@ -157,7 +157,7 @@ struct RootView: View {
       }
     }
     .overlay(alignment: .bottom) {
-      VStack(spacing: 8) { SendUndoToast(store: store); MailDeletionToast(store: store) }.padding(.bottom, 22)
+      VStack(spacing: 8) { SignInWaitingBar(store: store); SendUndoToast(store: store); MailDeletionToast(store: store) }.padding(.bottom, 22)
     }
     .background(MailDeleteShortcut(store: store).frame(width: 0, height: 0))
     .font(.coveBody).tint(Palette.ink).foregroundStyle(Palette.ink).background(Palette.canvas)
@@ -386,4 +386,30 @@ private struct MainWindowReporter: NSViewRepresentable {
   }
   func makeNSView(context: Context) -> Probe { Probe() }
   func updateNSView(_ view: Probe, context: Context) {}
+}
+
+/// While Cove waits for Google (Add account): the page to finish in any browser, and a way out.
+struct SignInWaitingBar: View {
+  @Bindable var store: AppStore
+  @State private var copied = false
+  var body: some View {
+    if let url = store.signInURL {
+      HStack(spacing: 12) {
+        ProgressView().controlSize(.small)
+        Text("Finish signing in to Google in your browser").font(.coveSecondary).foregroundStyle(Palette.ink)
+        Button(copied ? "Copied" : "Copy link") {
+          NSPasteboard.general.clearContents()
+          NSPasteboard.general.setString(url.absoluteString, forType: .string)
+          copied = true
+        }.buttonStyle(SecondaryButton(compact: true)).help("Paste it into another browser to sign in there")
+        Button("Open again") { NSWorkspace.shared.open(url) }.buttonStyle(SecondaryButton(compact: true))
+        Button("Cancel") { store.cancelSignIn() }.buttonStyle(PrimaryButton(compact: true))
+      }
+      .padding(.leading, 16).padding(.trailing, 8).frame(height: 46)
+      .background(Palette.canvas, in: Capsule())
+      .overlay(Capsule().strokeBorder(Palette.line))
+      .shadow(color: .black.opacity(0.12), radius: 14, y: 4)
+      .accessibilityElement(children: .contain)
+    }
+  }
 }
