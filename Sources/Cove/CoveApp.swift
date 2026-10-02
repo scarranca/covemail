@@ -52,13 +52,13 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
 @main struct CoveApp: App {
   @NSApplicationDelegateAdaptor(CoveAppDelegate.self) private var appDelegate
   @State private var store: AppStore
-  @State private var meetings: MeetingMenuBarModel
   @StateObject private var updater = AppUpdater.shared
   init() {
     DesignAssets.registerFonts()
     let store = AppStore()
     _store = State(initialValue: store)
-    _meetings = State(initialValue: MeetingMenuBarModel(store: store))
+    // Owned for the life of the app: nothing in the scene reads it, so @State wouldn't keep it alive.
+    MeetingMenuBarModel.start(store: store)
   }
   var body: some Scene {
     WindowGroup(id: "main") {

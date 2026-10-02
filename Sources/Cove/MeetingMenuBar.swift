@@ -7,6 +7,13 @@ import SwiftUI
 /// panel joins the call in one click.
 @MainActor @Observable final class MeetingMenuBarModel {
   static let enabledKey = "menuBar.meetings"
+  /// The app's one menu bar model, kept alive for the life of the process.
+  private(set) static var shared: MeetingMenuBarModel?
+  /// Starts it once; a second App init (SwiftUI may build the App value more than once) reuses it.
+  static func start(store: AppStore) {
+    guard shared == nil else { return }
+    shared = MeetingMenuBarModel(store: store)
+  }
   private(set) var alert: MeetingAlert?
   private(set) var later: [LocalEvent] = []
   /// Flips while an urgent meeting pulses (never under Reduce Motion).
