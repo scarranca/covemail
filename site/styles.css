@@ -327,3 +327,26 @@
 .install-demo{margin:26px 0 8px;padding:18px 18px 14px;border:1px solid var(--line);border-radius:12px;background:#fff}
 .install-canvas{display:block;width:100%;height:auto;aspect-ratio:560/220}
 .install-demo figcaption{margin-top:8px;text-align:center;font-size:13px;color:var(--body)}
+
+/* Private by design: local-first commitments and bringing your organization's Google client. */
+.privacy-first{padding-block:96px}
+.privacy-grid{display:grid;grid-template-columns:420fr 760fr;gap:72px;align-items:start}
+.privacy-lead{font-size:18px;line-height:1.6;margin-top:22px;max-width:420px}
+.privacy-link{display:inline-block;margin-top:24px;font-size:14px;color:var(--ink);text-decoration:underline;text-underline-offset:4px}
+.privacy-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:34px 40px}
+.privacy-list li{display:flex;gap:16px;align-items:flex-start}
+.privacy-list svg{width:22px;height:22px;flex-shrink:0;color:var(--violet);margin-top:2px}
+.privacy-list h3{margin:0;font-size:16px;font-weight:500;line-height:1.4;color:#2b2e35}
+.privacy-list p{font-size:14px;line-height:1.6;margin-top:6px}
+.org-client{margin-top:72px;display:grid;grid-template-columns:1.15fr 1fr;gap:56px;padding:44px;border-radius:14px;background:var(--dark);color:#f3f4f7}
+.org-client .eyebrow{color:#b9b2d6;margin-bottom:12px}
+.org-client h3{margin:0;font-size:clamp(24px,2.2vw,30px);font-weight:500;line-height:1.25;letter-spacing:-.02em}
+.org-client p{color:#c9ccd5;font-size:15px;line-height:1.65;margin-top:16px}
+.org-client b{color:#fff;font-weight:500}
+.org-client .org-note{font-size:13px;color:#a9adb8;border-left:2px solid #4a4f5c;padding-left:14px}
+.org-steps{list-style:none;margin:0;padding:0;display:grid;gap:14px;align-content:center}
+.org-steps li{display:flex;gap:14px;align-items:baseline;font-size:14px;line-height:1.55;color:#d6d9e0;padding:14px 16px;border:1px solid #2c303a;border-radius:10px;background:#16181d}
+.org-steps span{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex-shrink:0;border-radius:50%;background:#2a2e38;color:#fff;font-size:12px;font-weight:500}
+@media(max-width:1050px){.privacy-grid{grid-template-columns:1fr;gap:40px}.org-client{grid-template-columns:1fr;gap:32px;padding:32px}}
+@media(max-width:700px){.privacy-first{padding-block:60px}.privacy-list{grid-template-columns:1fr;gap:26px}.org-client{margin-top:48px;padding:24px}}
+.org-steps li p{margin:0;color:#d6d9e0;font-size:14px;line-height:1.55}
