@@ -709,12 +709,12 @@ struct CalendarDayColumn: View {
         if moving == nil && resizing == nil {
           dragging(true)
           if value.startLocation.y >= bottom - Self.edge {
-            resizing = (event.id, value.translation.height)
+            resizing = (event.id, Double(value.translation.height))
           } else {
             moving = (event.id, value.translation)
           }
         }
-        if resizing?.id == event.id { resizing = (event.id, value.translation.height) }
+        if resizing?.id == event.id { resizing = (event.id, Double(value.translation.height)) }
         else { moving = (event.id, value.translation) }
       }
       .onEnded { value in

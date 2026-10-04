@@ -892,9 +892,13 @@ struct AssistantView: View {
     // Keep follow-ups within the selected conversation; failed attempts are not evidence.
     let conversationHistory = exchanges.filter {
       $0.mail?.id == mail?.id && $0.scope == scope && $0.answer != nil
-    }.suffix(3).map {
-      "User: " + String($0.question.prefix(600)) + "\nCove: " + String(($0.answer ?? $0.error ?? "").prefix(900))
-        + ($0.eventProposal.map { "\nProposed: \($0.title), \($0.start.ISO8601Format()) to \($0.end.ISO8601Format())." } ?? "")
+    }.suffix(3).map { exchange -> String in
+      let question = String(exchange.question.prefix(600))
+      let answer = String((exchange.answer ?? exchange.error ?? "").prefix(900))
+      let proposal: String = exchange.eventProposal.map {
+        "\nProposed: \($0.title), \($0.start.ISO8601Format()) to \($0.end.ISO8601Format())."
+      } ?? ""
+      return "User: " + question + "\nCove: " + answer + proposal
     }.joined(separator: "\n")
     // Follow-ups ("make it shorter") reuse the emails the previous answer used instead of searching again.
     let previousSources: [Mail] = {
