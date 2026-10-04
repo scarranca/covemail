@@ -1,0 +1,89 @@
+# Codemagic CI/CD for Cove for iPhone. Setup steps (App Store Connect key, environment group): docs/IOS.md → Codemagic.
+# The Mac app keeps its own release pipeline (scripts/build-app.sh, notarization, Pages); see AGENTS.md.
+definitions:
+  ios_changes: &ios_changes
+    changeset:
+      includes:
+        - "Package.swift"
+        - "Sources/CoveCore/**"
+        - "Sources/CSQLite/**"
+        - "Sources/CoveMobile/**"
+        - "iOS/**"
+        - "codemagic.yaml"
+  setup_project: &setup_project
+    name: Generate the Xcode project
+    script: |
+      brew install xcodegen
+      # The public iOS OAuth client ID comes from the cove_ios environment group, never from the repo.
+      printf 'COVE_GOOGLE_IOS_CLIENT_ID = %s\n' "$COVE_GOOGLE_IOS_CLIENT_ID" > iOS/Config/Local.xcconfig
+      scripts/ios/generate-project.sh
+
+workflows:
+  # Every push to main that touches the iPhone app (or shared core) becomes a TestFlight build.
+  ios-testflight:
+    name: iPhone → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Cove App Store Connect
+    environment:
+      groups:
+        - cove_ios
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: ai.cove.ios
+      xcode: latest
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+      cancel_previous_builds: true
+    when: *ios_changes
+    scripts:
+      - *setup_project
+      - name: Core tests (offline)
+        script: swift test --filter CoveCoreTests
+      - name: Use the signing profiles
+        script: xcode-project use-profiles --project iOS/CoveMobile.xcodeproj
+      - name: Next build number
+        script: |
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          cd iOS && agvtool new-version -all $((LATEST + 1))
+      - name: Build the signed app
+        script: |
+          xcode-project build-ipa --project iOS/CoveMobile.xcodeproj --scheme CoveMobileApp
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      # Add an `email:` block with recipients here for build notifications.
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        beta_groups:
+          - Cove Beta
+        submit_to_app_store: false
+
+  # Pull requests: compile the iPhone app for the simulator, without signing or publishing.
+  ios-check:
+    name: iPhone check
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+    triggering:
+      events:
+        - pull_request
+      cancel_previous_builds: true
+    when: *ios_changes
+    scripts:
+      - *setup_project
+      - name: Core tests (offline)
+        script: swift test --filter CoveCoreTests
+      - name: Build for the simulator
+        script: |
+          xcodebuild build -project iOS/CoveMobile.xcodeproj -scheme CoveMobileApp \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO

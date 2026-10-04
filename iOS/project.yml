@@ -34,6 +34,8 @@ targets:
         DEVELOPMENT_TEAM: 27H459Y2P9
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
+        # agvtool (used by Codemagic to set the build number) needs Apple Generic versioning.
+        VERSIONING_SYSTEM: apple-generic
 schemes:
   CoveMobileApp:
     build:

@@ -21,6 +21,28 @@ The project's development team is `27H459Y2P9` and the bundle identifier is `ai.
 
 To check that the shared code compiles for iPhone without the app shell, run `xcodebuild build -scheme CoveMobile -destination 'generic/platform=iOS Simulator'` from the repository root. The **Apple builds** GitHub workflow (`.github/workflows/apple-builds.yml`) runs that, the Mac build, the core tests and the app-shell build. It runs on demand and on pull requests that touch Swift code.
 
+## Codemagic: automatic TestFlight builds
+
+`codemagic.yaml` has two workflows:
+
+- **iPhone → TestFlight** (`ios-testflight`) runs on every push to `main` that changes the iPhone app or the shared core (`Package.swift`, `Sources/CoveCore`, `Sources/CSQLite`, `Sources/CoveMobile`, `iOS/`). Mac-only changes don't start it. It:
+  1. generates the project and runs the offline core tests;
+  2. signs with Codemagic's automatic code signing (App Store distribution for `ai.cove.ios`);
+  3. sets the build number to the latest TestFlight build + 1;
+  4. uploads to TestFlight for the beta group **Cove Beta**. It never submits to the App Store.
+- **iPhone check** (`ios-check`) runs on pull requests that touch the same paths. It runs the core tests and a simulator build, with no signing.
+
+One-time setup. These steps belong to the account owner: they involve the Apple account and keys, which never go in the repository or chat.
+
+1. In App Store Connect, create the app record for bundle ID `ai.cove.ios` (team `27H459Y2P9`). Note its Apple ID, the number in the app's URL. Create a TestFlight group named **Cove Beta**, or change `beta_groups` in `codemagic.yaml`.
+2. In App Store Connect → Users and Access → Integrations, create an API key with the App Manager role. In Codemagic → Team settings → Integrations → App Store Connect, add it under the name **Cove App Store Connect** (the name `codemagic.yaml` refers to).
+3. In Codemagic, add this repository as an app that uses `codemagic.yaml`. Create the environment group **`cove_ios`** with:
+   - `APP_STORE_APPLE_ID`: the app's Apple ID from step 1;
+   - `COVE_GOOGLE_IOS_CLIENT_ID`: the iOS OAuth client ID. It's public configuration, but keep it out of the repository with the other local settings.
+4. Codemagic needs an Apple Distribution certificate to sign. With an App Store Connect key, automatic signing can create one and the App Store profile. Or upload the existing Apple Distribution certificate under Code signing identities. Never copy a private key into the repository or chat.
+
+The Mac app's release (Developer ID, notarization, Sparkle feed, Cloudflare Pages) is not in Codemagic. It still follows the release steps in `AGENTS.md`.
+
 ## Google sign-in on iPhone
 
 The Mac uses a Desktop OAuth client and a loopback redirect. iOS needs Google's **iOS** client type:
