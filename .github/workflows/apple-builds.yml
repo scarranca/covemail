@@ -17,21 +17,32 @@ jobs:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: xcodebuild -version && swift --version
+      # Each step ends with just its errors, so they are visible in the last lines of a failed log.
       - name: Build the Mac app
-        run: swift build
+        shell: bash
+        run: |
+          swift build 2>&1 | tee build.log; status=${PIPESTATUS[0]}
+          [ $status -eq 0 ] || { echo "==== ERRORS ===="; grep -E "error:" build.log | sed 's|.*/covemail/||' | sort -u | head -60; }
+          exit $status
       - name: Core tests (offline)
-        run: swift test --filter 'CoveCoreTests'
+        shell: bash
+        run: |
+          swift test --filter 'CoveCoreTests' 2>&1 | tee test.log; status=${PIPESTATUS[0]}
+          [ $status -eq 0 ] || { echo "==== FAILURES ===="; grep -E "error:|failed" test.log | sed 's|.*/covemail/||' | sort -u | head -60; }
+          exit $status
       - name: Build CoveMobile for iOS Simulator
+        shell: bash
         run: |
           xcodebuild build -scheme CoveMobile -destination 'generic/platform=iOS Simulator' \
-            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO | tail -50
-          exit ${PIPESTATUS[0]}
-        shell: bash
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO > ios.log 2>&1; status=$?
+          [ $status -eq 0 ] || { echo "==== ERRORS ===="; grep -E "error:" ios.log | sed 's|.*/covemail/||' | sort -u | head -60; tail -20 ios.log; }
+          exit $status
       - name: Build the iPhone app shell
+        shell: bash
         run: |
           brew install xcodegen
           scripts/ios/generate-project.sh
           xcodebuild build -project iOS/CoveMobile.xcodeproj -scheme CoveMobileApp \
-            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO | tail -50
-          exit ${PIPESTATUS[0]}
-        shell: bash
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO > app.log 2>&1; status=$?
+          [ $status -eq 0 ] || { echo "==== ERRORS ===="; grep -E "error:" app.log | sed 's|.*/covemail/||' | sort -u | head -60; tail -20 app.log; }
+          exit $status
