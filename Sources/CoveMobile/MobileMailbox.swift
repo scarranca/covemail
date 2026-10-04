@@ -241,7 +241,8 @@ import Observation
       let live = Dictionary(uniqueKeysWithValues: mails.map { ($0.id, $0) })
       let adopted = try database?.adopting(found, live: Set(live.keys)) ?? found
       // Results already loaded keep their local state; the rest come from Gmail or the store.
-      searchResults = found.map { live[$0.id] ?? adopted.first(where: { a in a.id == $0.id }) ?? $0 }
+      let stored = Dictionary(adopted.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+      searchResults = found.map { live[$0.id] ?? stored[$0.id] ?? $0 }
     } catch is CancellationError {
     } catch {
       self.error = error.localizedDescription
