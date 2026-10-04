@@ -102,4 +102,20 @@ This document does not use Private Cloud Compute or newer Foundation Models feat
 
 ## Verification status
 
-This branch was written in a Linux container with no Swift toolchain or Apple SDK, so nothing here has been compiled or run yet. Compile with the Apple builds workflow or locally in Xcode before a release. Record results in a versioned QA audit, as for the Mac app.
+October 4, 2026, GitHub Actions **Apple builds** run `37197465161` (macos-26 runner, Xcode 26.6, macOS 26.5 SDK):
+
+- **Passed:**
+  - `swift build` (Mac app, with FoundationModels weak-linked);
+  - `swift test --filter CoveCoreTests`, which includes `AppleIntelligenceTests` and `MobileOAuthTests`;
+  - `xcodebuild` of the `CoveMobile` library for the iOS Simulator;
+  - `xcodebuild` of the XcodeGen `CoveMobileApp` shell for the iOS Simulator.
+- **Two older Mac files fixed:** `AgentChatView.swift` and `CalendarView.swift` didn't compile with Xcode 26.6 (a slow type-check and a `CGFloat` in a tuple). They have small fixes on this branch.
+- **Not verified yet:**
+  - the `CoveRenderingTests` suite, which includes the new `AIProviderSettingsTests` Apple Intelligence test;
+  - running the iPhone app in a simulator or on a device;
+  - a real Google sign-in with an iOS client;
+  - an Apple Intelligence response on hardware that supports it;
+  - launching the Mac app on macOS 14 or 15 to confirm the weak link;
+  - the Codemagic workflows.
+
+  Record those checks in a versioned QA audit before a release.
