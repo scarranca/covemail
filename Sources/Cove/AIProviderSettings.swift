@@ -10,6 +10,8 @@ import Observation
   private let readSecret: (String) throws -> String?
   private let saveSecret: (String, String) throws -> Void
   private let deleteSecret: (String) throws -> Void
+  /// Whether Apple Intelligence can run on this Mac now (injectable for tests).
+  let appleStatus: () -> AppleIntelligenceStatus
   var provider: AIProvider {
     didSet { defaults.set(provider.rawValue, forKey: "ai.selectedProvider") }
   }
@@ -21,9 +23,11 @@ import Observation
     saveSecret: @escaping (String, String) throws -> Void = { try Vault.save($0, name: $1) },
     deleteSecret: @escaping (String) throws -> Void = { try Vault.delete($0) },
     client: AIProviderClient = AIProviderClient(),
-    claude: ClaudeConnection? = nil
+    claude: ClaudeConnection? = nil,
+    appleStatus: @escaping () -> AppleIntelligenceStatus = { AppleIntelligence.status }
   ) {
     self.defaults = defaults
+    self.appleStatus = appleStatus
     self.claude = claude ?? .shared
     self.client = client
     self.readSecret = readSecret
@@ -68,7 +72,8 @@ import Observation
   func availableProviders(chatGPTConnected: Bool? = nil) -> [AIProvider] {
     AIProvider.allCases.filter {
       !model($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && ($0 == .chatGPT ? (chatGPTConnected ?? ChatGPTConnection.shared.connected) : $0 == .claudeSubscription ? claude.connected : hasKey($0))
+        && ($0 == .chatGPT ? (chatGPTConnected ?? ChatGPTConnection.shared.connected) : $0 == .claudeSubscription ? claude.connected
+          : $0 == .appleIntelligence ? appleStatus().isAvailable : hasKey($0))
     }
   }
   func writingProvider(chatGPTConnected: Bool? = nil) -> AIProvider? {
@@ -97,7 +102,11 @@ import Observation
     let available: [String]
     if provider == .chatGPT { available = try await ChatGPTConnection.shared.models() }
     else if provider == .claudeSubscription { available = try await claude.models() }
-    else {
+    else if provider == .appleIntelligence {
+      let status = appleStatus()
+      guard status.isAvailable else { throw CoveError.message(status.message) }
+      available = [AppleIntelligence.modelID]
+    } else {
       available = try await client.models(provider: provider, key: readSecret(provider.keyName) ?? "")
     }
     try Task.checkCancellation()
@@ -105,7 +114,8 @@ import Observation
     return modelCatalog.models[provider] ?? []
   }
   func modelLabel(_ model: String, provider: AIProvider) -> String {
-    provider == .claudeSubscription ? claude.modelLabel(model) : model
+    provider == .claudeSubscription ? claude.modelLabel(model)
+      : provider == .appleIntelligence && model == AppleIntelligence.modelID ? AppleIntelligence.modelLabel : model
   }
   /// Validates a pending selection using synthetic text without changing the active configuration.
   func testModel(_ model: String, provider: AIProvider, client: AIProviderClient = AIProviderClient()) async throws {
@@ -115,6 +125,8 @@ import Observation
       _ = try await ChatGPTConnection.shared.complete(model: model, prompt: prompt)
     } else if provider == .claudeSubscription {
       _ = try await claude.complete(model: model, prompt: prompt)
+    } else if provider == .appleIntelligence {
+      _ = try await AppleIntelligence.complete(prompt)
     } else {
       _ = try await client.complete(provider: provider, key: readSecret(provider.keyName) ?? "",
                                     model: model, prompt: prompt)
@@ -140,6 +152,9 @@ import Observation
     }
     if selected == .claudeSubscription {
       return try await claude.complete(model: selectedModel, prompt: prompt)
+    }
+    if selected == .appleIntelligence {
+      return try await AppleIntelligence.complete(prompt, onPartial: onPartial)
     }
     return try await client.complete(
       provider: selected, key: readSecret(selected.keyName) ?? "", model: selectedModel,

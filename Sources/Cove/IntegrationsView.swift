@@ -102,9 +102,12 @@ struct IntegrationsView: View {
       } content: {
         CoveMenuPicker("AI account", selection: $selectedProvider, options: [
           (.chatGPT, "ChatGPT · subscription"), (.claudeSubscription, "Claude · subscription"),
+          (.appleIntelligence, "Apple Intelligence · on this Mac"),
           (.openAI, "OpenAI · API key"), (.anthropic, "Anthropic · API key"), (.openRouter, "OpenRouter · API key")
         ]).disabled(busy)
-        Text(checking ? "Checking your sign-in…" : ready
+        Text(checking ? "Checking your sign-in…" : selectedProvider.isAppleIntelligence
+          ? (ready ? "Runs on this Mac. Free, private, no account needed." : settings.appleStatus().message)
+          : ready
           ? (selectedProvider.isSubscription ? "Connected. Your plan’s limits apply." : "Key saved. Billed separately by the provider.")
           : (selectedProvider.isSubscription ? "Use the plan you already pay for." : "Billed separately by the provider."))
           .font(.coveSecondary).foregroundStyle(Palette.body)
@@ -112,6 +115,7 @@ struct IntegrationsView: View {
           VStack(alignment: .leading, spacing: 16) {
             if selectedProvider == .chatGPT { subscription }
             else if selectedProvider == .claudeSubscription { claudeSubscription }
+            else if selectedProvider.isAppleIntelligence { appleIntelligence }
             else { apiKey }
           }.disabled(busy).padding(.top, 4)
         }
@@ -149,6 +153,7 @@ struct IntegrationsView: View {
         VStack(alignment: .leading, spacing: 12) {
           Text("When you write or ask Cove, your provider receives your instructions, recipients, draft, up to 20 relevant emails (48 KB), and calendar context when lookups are enabled.")
           Text("Reply rules you enable also send the triggering email, readable attachment text, and writing instructions during sync. Provider usage and data policies apply.")
+          Text("Apple Intelligence runs on this Mac with a smaller model: it receives fewer emails (about 4 KB), and requests too long for it ask you to choose another model.")
           Text("Jev organizes mail separately. You review every email before sending.")
         }.font(.coveSecondary).foregroundStyle(Palette.body)
           .fixedSize(horizontal: false, vertical: true).padding(.top, 8)
@@ -185,7 +190,7 @@ struct IntegrationsView: View {
             .font(.coveSecondary).foregroundStyle(Palette.body).textSelection(.enabled)
         }
       }
-      if ready {
+      if ready && !selectedProvider.isAppleIntelligence {
         Button(useExactModel ? "Choose from the model list" : "Use a custom model ID…") { useExactModel.toggle() }
           .buttonStyle(.plain).font(.coveSecondary).foregroundStyle(Palette.body).disabled(busy)
       }
@@ -198,7 +203,8 @@ struct IntegrationsView: View {
       : selectedProvider == .claudeSubscription ? !claude.checked && !claude.connected : false
   }
   private var ready: Bool {
-    checking || (selectedProvider == .chatGPT ? connection.connected : selectedProvider == .claudeSubscription ? claude.connected : settings.hasKey(selectedProvider))
+    checking || (selectedProvider == .chatGPT ? connection.connected : selectedProvider == .claudeSubscription ? claude.connected
+      : selectedProvider.isAppleIntelligence ? settings.appleStatus().isAvailable : settings.hasKey(selectedProvider))
   }
   private var canSave: Bool { ready && !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && key.isEmpty }
   private var configurationID: String { selectedProvider.rawValue + ":" + model }
@@ -237,6 +243,21 @@ struct IntegrationsView: View {
       if selectedProvider == .openAI {
         Text("To use a ChatGPT plan instead, choose ChatGPT · subscription.")
           .font(.coveSecondary).foregroundStyle(Palette.body)
+      }
+    }
+  }
+  private var appleIntelligence: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      let status = settings.appleStatus()
+      Label(status.message, systemImage: status.isAvailable ? "checkmark.circle" : "info.circle")
+        .font(.coveLabel).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      Text("Uses Apple’s model on this Mac. Nothing is sent to another company, and there is no usage cost. It suits rewrites, short replies and tasks; choose a larger model for long research.")
+        .font(.coveSecondary).foregroundStyle(Palette.body).fixedSize(horizontal: false, vertical: true)
+      if !status.isAvailable {
+        Button("Check again") {
+          testedConfiguration = nil
+          run { try await refreshModels() }
+        }.buttonStyle(SecondaryButton()).disabled(busy)
       }
     }
   }
@@ -375,7 +396,7 @@ struct IntegrationsView: View {
         try await connection.refresh()
         if connection.connected { try await refreshModels() }
       }
-    } else if settings.hasKey(provider) {
+    } else if provider.isAppleIntelligence ? settings.appleStatus().isAvailable : settings.hasKey(provider) {
       run { try await refreshModels() }
     }
   }

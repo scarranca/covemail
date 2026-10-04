@@ -13,6 +13,10 @@ Some README/status/distribution sections are historical and still mention older 
 
 ## Current checkpoint — September 30, 2026
 
+- **Unreleased (branch `claude/ios-apple-intelligence`, October 4): Cove for iPhone and Apple Intelligence.** See `docs/IOS.md`.
+  - **iPhone app:** iOS 26+. `Sources/CoveMobile` is a SwiftPM library, and `iOS/project.yml` generates the Xcode shell with XcodeGen.
+  - **Apple Intelligence:** `AIProvider.appleIntelligence` (`CoveCore/AppleIntelligence.swift`) on Mac and iPhone. FoundationModels is weak-linked on macOS. Prompts are refitted with `AIPromptLimits.onDevice`; a request that is still too long is reported, never silently cut or rerouted.
+  - **Verification:** written without a Swift toolchain. Nothing is verified until the Apple builds workflow, or Xcode on the Mac, compiles it.
 - **Cove 0.1.63, build 65**, is published (Pages deployment `55f32f76`): the menu bar model is held by a static owner (`MeetingMenuBarModel.start(store:)`). An unread `@State` in `App` is released, which is why the icon never appeared in 0.1.62. Verify status items with System Events (`menu bar 2` of the process). Evidence: `docs/qa/0.1.63/AUDIT.md`.
 - **Cove 0.1.62, build 64**, was published (Pages deployment `1f638a28`): hotfix for the 0.1.61 launch freeze. Never use SwiftUI `MenuBarExtra(isInserted:)` with `@AppStorage` in the `App` body: it re-rendered the app scene at 100% CPU. The menu bar item is now an AppKit `NSStatusItem` + `NSPopover` (`MeetingMenuBarModel`), and its setting lives in Settings → Menu bar. Evidence: `docs/qa/0.1.62/AUDIT.md`.
 - **Cove 0.1.61, build 63**, was published (and froze on launch; see 0.1.62) (Pages deployment `1d1e3de0`): optional meetings menu bar item (`MeetingMenuBar.swift`, core `MeetingAlert`/`MeetingLink`, setting `menuBar.meetings`, off by default). Countdown within 10 minutes; a pulse for calls with guests and a link (still under Reduce Motion); Join from the panel. Evidence: `docs/qa/0.1.61/AUDIT.md`.
@@ -86,6 +90,8 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 | Optional cloud mirror | `Sources/CoveCore/CloudMailSync.swift`, `backend/` |
 | Landing page and downloads | `site/`, `assets/update-config.json`, `scripts/build-site.py` |
 | Verification | `Tests/CoveCoreTests/`, `Tests/CoveRenderingTests/`, `docs/qa/`, `scripts/qa/` |
+| iPhone app | `Sources/CoveMobile/` (screens, `MobileMailbox`, `MobileAuth`, `MobileAI`), `iOS/` (XcodeGen shell), `docs/IOS.md` |
+| Apple Intelligence | `Sources/CoveCore/AppleIntelligence.swift`, Connections card in `IntegrationsView.swift` |
 
 ## Design rules to preserve
 

@@ -27,3 +27,8 @@ backend/coverage/
 
 # Brand films (rendered output; recreate with scripts/video/)
 /videos/
+
+# iPhone app: the Xcode project is generated from iOS/project.yml; the OAuth client ID is local.
+iOS/*.xcodeproj/
+iOS/Config/Local.xcconfig
+iOS/build/

@@ -1,0 +1,5 @@
+// Build settings for Cove on iPhone.
+// COVE_GOOGLE_IOS_CLIENT_ID is the public iOS OAuth client ID ("…apps.googleusercontent.com") from the
+// Cove Google Cloud project. Set it in Local.xcconfig (not committed); see docs/IOS.md.
+COVE_GOOGLE_IOS_CLIENT_ID =
+#include? "Local.xcconfig"

@@ -1,0 +1,45 @@
+# Cove for iPhone. Generate the Xcode project with scripts/ios/generate-project.sh (XcodeGen).
+# The app target is a thin shell around the CoveMobile library in the root Swift package.
+name: CoveMobile
+options:
+  bundleIdPrefix: ai.cove
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  Cove:
+    path: ..
+targets:
+  CoveMobileApp:
+    type: application
+    platform: iOS
+    sources:
+      - CoveMobileApp
+    dependencies:
+      - package: Cove
+        product: CoveMobile
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: Cove
+        PRODUCT_BUNDLE_IDENTIFIER: ai.cove.ios
+        INFOPLIST_FILE: CoveMobileApp/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 27H459Y2P9
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+schemes:
+  CoveMobileApp:
+    build:
+      targets:
+        CoveMobileApp: all
+    run:
+      config: Debug
+    archive:
+      config: Release

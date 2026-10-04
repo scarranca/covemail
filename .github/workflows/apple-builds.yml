@@ -1,0 +1,37 @@
+# Compiles Cove for macOS and iPhone and runs the offline core tests. Runs on demand, on pull requests
+# that touch Swift code, and on pushes to agent branches (claude/**), which are written without Xcode.
+# macOS runner minutes are billed at a higher rate than Linux.
+name: Apple builds
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths: ["Package.swift", "Sources/**", "Tests/**", "iOS/**", ".github/workflows/apple-builds.yml"]
+  pull_request:
+    paths: ["Package.swift", "Sources/**", "Tests/**", "iOS/**", ".github/workflows/apple-builds.yml"]
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+      - name: Build the Mac app
+        run: swift build
+      - name: Core tests (offline)
+        run: swift test --filter 'CoveCoreTests'
+      - name: Build CoveMobile for iOS Simulator
+        run: |
+          xcodebuild build -scheme CoveMobile -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO | tail -50
+          exit ${PIPESTATUS[0]}
+        shell: bash
+      - name: Build the iPhone app shell
+        run: |
+          brew install xcodegen
+          scripts/ios/generate-project.sh
+          xcodebuild build -project iOS/CoveMobile.xcodeproj -scheme CoveMobileApp \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO | tail -50
+          exit ${PIPESTATUS[0]}
+        shell: bash

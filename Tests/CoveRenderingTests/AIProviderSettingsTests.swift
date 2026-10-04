@@ -122,6 +122,31 @@ import XCTest
     XCTAssertNil(settings.writingProvider(chatGPTConnected: true))
   }
 
+  func testAppleIntelligenceIsAvailableOnlyWhenTheDeviceSaysSoAndNeverReadsKeychain() async throws {
+    let suite = "cove-ai-apple-" + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    var status = AppleIntelligenceStatus.notEnabled
+    let settings = AIProviderSettings(defaults: defaults,
+      readSecret: { _ in XCTFail("Apple Intelligence has no key"); return nil },
+      saveSecret: { _, _ in }, deleteSecret: { _ in }, appleStatus: { status })
+    settings.setModel(AppleIntelligence.modelID, provider: .appleIntelligence)
+    XCTAssertFalse(settings.availableProviders(chatGPTConnected: false).contains(.appleIntelligence))
+    do {
+      _ = try await settings.models(.appleIntelligence)
+      XCTFail("An unavailable model is not listed")
+    } catch {
+      XCTAssertEqual(error.localizedDescription, AppleIntelligenceStatus.notEnabled.message)
+    }
+    status = .available
+    XCTAssertEqual(settings.availableProviders(chatGPTConnected: false), [.appleIntelligence])
+    let models = try await settings.models(.appleIntelligence)
+    XCTAssertEqual(models, [AppleIntelligence.modelID])
+    XCTAssertEqual(settings.modelLabel(AppleIntelligence.modelID, provider: .appleIntelligence), AppleIntelligence.modelLabel)
+    settings.provider = .appleIntelligence
+    XCTAssertEqual(settings.writingProvider(chatGPTConnected: false), .appleIntelligence)
+  }
+
   func testFailedKeychainSaveDoesNotClaimKeySaved() throws {
     let suite = "cove-ai-settings-test-" + UUID().uuidString
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
