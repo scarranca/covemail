@@ -22,7 +22,7 @@ struct CustomAgentBackfillPanel: View {
     VStack(alignment: .leading, spacing: 14) {
       switch state?.phase {
       case nil:
-        Text("Checks up to \(CustomAgentBackfill.limit) inbox emails from the last \(CustomAgentBackfill.days) days. Nothing changes until you apply.")
+        Text("Checks up to \(store.agentsUseModel ? 50 : CustomAgentBackfill.limit) inbox emails from the last \(CustomAgentBackfill.days) days, one at a time. Nothing changes until you apply.")
           .font(.coveSecondary).foregroundStyle(Palette.body).lineSpacing(3)
         Button("Check recent mail") { store.previewAgentBackfill(agent) }.buttonStyle(SecondaryButton())
       case .checking?:
@@ -44,7 +44,9 @@ struct CustomAgentBackfillPanel: View {
         }
       }
       if state == nil || state?.phase == .ready || state?.phase == .failed {
-        Text("Uses TypeSafe for each email checked. Charges apply.").font(.coveMetadata).foregroundStyle(Palette.muted)
+        Text(store.agentsUseModel ? "Uses your writing model for each email checked (\(store.agentModelName))."
+                                  : "Uses TypeSafe for each email checked. Charges apply. Connect a writing model in Connections for smarter checks.")
+          .font(.coveMetadata).foregroundStyle(Palette.muted)
       }
     }.frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -58,35 +60,71 @@ struct CustomAgentBackfillPanel: View {
   }
   @ViewBuilder private func summary(_ preview: CustomAgentBackfillPreview) -> some View {
     Text(preview.summary).font(.coveSubheading).accessibilityIdentifier("backfill-summary")
-    if !preview.matches.isEmpty || !preview.unclear.isEmpty {
-      VStack(alignment: .leading, spacing: 0) {
-        ForEach(preview.matches.prefix(8)) { row($0, detail: detail(for: $0, preview: preview)) }
-        if preview.matches.count > 8 { more(preview.matches.count - 8) }
-        ForEach(preview.unclear.prefix(4)) { row($0, detail: "Unclear → Activity") }
-        if preview.unclear.count > 4 { more(preview.unclear.count - 4) }
-      }.padding(.horizontal, 12).padding(.vertical, 4)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+    if preview.failed > 0, let error = preview.firstError {
+      Text("\(preview.failed) couldn’t be checked: \(error)").font(.coveSecondary).foregroundStyle(Palette.danger)
+        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
     }
     let count = preview.matches.count
     if count > 0 || !preview.unclear.isEmpty {
-      Button(count > 0 ? "Apply to \(count) \(count == 1 ? "email" : "emails")" : "Send \(preview.unclear.count) to Activity") {
-        store.applyAgentBackfill()
-      }.buttonStyle(PrimaryButton())
-      if preview.replyCount > 0 {
-        Text("Replies are prepared for review in Activity, never sent.").font(.coveMetadata).foregroundStyle(Palette.muted)
+      HStack(spacing: 12) {
+        Button(count > 0 ? "Apply to \(count) \(count == 1 ? "email" : "emails")" : "Send \(preview.unclear.count) to Activity") {
+          store.applyAgentBackfill()
+        }.buttonStyle(PrimaryButton(compact: true))
+        Button("Discard") { store.cancelAgentBackfill() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+      }
+      if preview.replyCount > 0 || !preview.unclear.isEmpty {
+        Text("Unclear emails go to Activity for a Yes or No. Replies are prepared for review, never sent.")
+          .font(.coveMetadata).foregroundStyle(Palette.muted)
+      }
+    } else {
+      Button("Discard") { store.cancelAgentBackfill() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+    }
+    // Every checked email, with what the agent would do and why.
+    group("Would act on", preview.matches) { detail(for: $0, preview: preview) }
+    group("Unclear", preview.unclear) { _ in "Needs your call" }
+    group("Not a match", preview.noMatches, limit: showAllNoMatch ? .max : 5) { _ in "No change" }
+    if preview.noMatches.count > 5 && !showAllNoMatch {
+      Button("Show all \(preview.noMatches.count)") { showAllNoMatch = true }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
+    }
+  }
+  @State private var showAllNoMatch = false
+  @ViewBuilder private func group(_ title: String, _ items: [CustomAgentBackfillItem], limit: Int = .max,
+                                  outcome: @escaping (CustomAgentBackfillItem) -> String) -> some View {
+    if !items.isEmpty {
+      VStack(alignment: .leading, spacing: 0) {
+        Text("\(title) · \(items.count)").font(.coveControl).foregroundStyle(Palette.body).padding(.bottom, 6)
+        VStack(spacing: 0) {
+          ForEach(items.prefix(limit)) { item in
+            row(item, outcome: outcome(item))
+            Divider()
+          }
+        }
+        .background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Palette.line))
       }
     }
-    Button("Discard") { store.cancelAgentBackfill() }.buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body)
   }
   private func detail(for item: CustomAgentBackfillItem, preview: CustomAgentBackfillPreview) -> String {
-    item.decision.label(for: preview.agent) ?? "Reply for review"
+    let rule = item.decision.rule(for: preview.agent)
+    var parts: [String] = []
+    if let label = item.decision.label(for: preview.agent) { parts.append("Label " + label) }
+    if rule?.action.drafts == true { parts.append("draft a reply") }
+    for extra in rule?.extras ?? [] { parts.append(extra.title.lowercased()) }
+    return parts.isEmpty ? "Match" : parts.joined(separator: ", ")
   }
-  private func row(_ item: CustomAgentBackfillItem, detail: String) -> some View {
+  private func row(_ item: CustomAgentBackfillItem, outcome: String) -> some View {
     VStack(alignment: .leading, spacing: 3) {
-      Text(item.sender + " · " + (item.subject.isEmpty ? "(No subject)" : item.subject))
-        .font(.coveSecondary).foregroundStyle(Palette.ink).lineLimit(1)
-      Text(detail).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(1)
-    }.padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading)
+      HStack(alignment: .firstTextBaseline) {
+        Text(item.sender).font(.coveLabel).foregroundStyle(Palette.ink).lineLimit(1)
+        Spacer(minLength: 8)
+        Text(outcome).font(.coveCaption).foregroundStyle(Palette.body).lineLimit(1)
+      }
+      Text(item.subject.isEmpty ? "(No subject)" : item.subject).font(.coveSecondary).foregroundStyle(Palette.ink).lineLimit(1)
+      if let why = item.decision.reason ?? item.decision.excerpt {
+        Text(why).font(.coveMetadata).foregroundStyle(Palette.body).lineLimit(2)
+      }
+    }
+    .padding(.horizontal, 12).padding(.vertical, 9).frame(maxWidth: .infinity, alignment: .leading)
   }
   private func more(_ count: Int) -> some View {
     Text("and \(count) more").font(.coveMetadata).foregroundStyle(Palette.body).padding(.vertical, 6)

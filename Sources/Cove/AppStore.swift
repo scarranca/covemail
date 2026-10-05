@@ -43,6 +43,8 @@ import SwiftUI
 
   var customAgents = CustomAgentLibrary()
   var customAgentWriter: ((AIPrompt) async throws -> String)?
+  /// Tests: the agents' decision model (`AgentBrain`). Nil uses the connected writing model.
+  var agentBrainWriter: ((AIPrompt) async throws -> String)?
   /// Test hook for voice learning; production uses the connected writing model.
   var voiceWriter: ((AIPrompt) async throws -> String)?
   /// Mac-level voice shared by all accounts. Tests inject an in-memory store.
@@ -245,10 +247,10 @@ import SwiftUI
   private var database: Database?
   private var gmail = GmailClient()
   private var gmailTokenProvider: (() async throws -> String)?
-  private var syncClock: () -> Date = { Date() }
-  private var jev = JevClient()
-  private var jevKeyProvider: (() throws -> String?)?
-  private var mailboxGeneration = UUID()
+  private(set) var syncClock: () -> Date = { Date() }
+  private(set) var jev = JevClient()
+  private(set) var jevKeyProvider: (() throws -> String?)?
+  private(set) var mailboxGeneration = UUID()
   private var pendingReadTasks: [String: Task<Void, Never>] = [:]
   private var readRevision = 0
   private var readChanges: [String: (revision: Int, unread: Bool)] = [:]
@@ -2690,18 +2692,18 @@ import SwiftUI
 }
 
 extension AppStore {
-  private func agentKey() throws -> String {
+  func agentKey() throws -> String {
     let key = try jevKeyProvider?() ?? Vault.read("typesafeKey") ?? ""
     guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw CoveError.message("Connect TypeSafe in Integrations before testing or turning on an agent.")
     }
     return key
   }
-  private func agentToken() async throws -> String {
+  func agentToken() async throws -> String {
     if let gmailTokenProvider { return try await gmailTokenProvider() }
     return try await auth.token()
   }
-  private func saveAgentLibrary(_ library: CustomAgentLibrary) throws {
+  func saveAgentLibrary(_ library: CustomAgentLibrary) throws {
     guard entered, let database else { throw CoveError.message("Open a mailbox to save your agents.") }
     try database.save(library, key: "customAgents")
     customAgents = library
@@ -2757,18 +2759,18 @@ extension AppStore {
   }
   func previewCustomAgent(_ agent: CustomAgent, mail: Mail, synthetic: Bool, key: String? = nil) async throws -> CustomAgentDecision {
     let generation = mailboxGeneration
-    let key = try key ?? agentKey()
+    let key = agentsUseModel ? (try? key ?? agentKey()) : try key ?? agentKey()
     // Sample text may be evaluated, but sample attachment IDs must never reach Gmail.
     _ = try agent.validated()
     let context = try await customAgentAttachments(mail, agent: agent, synthetic: synthetic || isSample)
     try Task.checkCancellation()
     guard entered, generation == mailboxGeneration else { throw CancellationError() }
-    let result = try await jev.classify(mail, agent: agent, key: key, attachments: context.0, warnings: context.1)
+    let result = try await decideAgent(mail, agent: agent, attachments: context.0, warnings: context.1, key: key)
     try Task.checkCancellation()
     guard entered, generation == mailboxGeneration else { throw CancellationError() }
     return result
   }
-  private func customAgentAttachments(_ mail: Mail, agent: CustomAgent, synthetic: Bool = false) async throws -> ([AgentAttachmentText], [String]) {
+  func customAgentAttachments(_ mail: Mail, agent: CustomAgent, synthetic: Bool = false) async throws -> ([AgentAttachmentText], [String]) {
     guard agent.includeAttachments else { return ([], []) }
     let generation = mailboxGeneration
     var texts: [AgentAttachmentText] = []; var warnings: [String] = []
@@ -2823,7 +2825,7 @@ extension AppStore {
     var processed = 0
     var failed = 0
     await runSync("Checking your custom agents…") {
-      let key = try self.agentKey()
+      let key = self.agentsUseModel ? (try? self.agentKey()) : try self.agentKey()
       let agents = self.customAgents.agents.filter { $0.status == .active && (agentID == nil || $0.id == agentID) }
       mailLoop: for mail in self.mails.sorted(by: { $0.date < $1.date }) {
         for agent in agents where agent.accepts(mail, account: account) {
@@ -2840,11 +2842,12 @@ extension AppStore {
           guard isCurrent() else { continue }
           processed += 1
           var record = old?.revision == agent.revision ? old! : CustomAgentRun(agent: agent, mail: mail, date: self.syncClock())
+          record.sender = mail.sender.isEmpty ? mail.senderEmail : mail.sender
           do {
             if record.decision == nil {
               let context = try await self.customAgentAttachments(mail, agent: agent)
               try Task.checkCancellation(); guard isCurrent() else { continue }
-              record.decision = try await self.jev.classify(mail, agent: agent, key: key, attachments: context.0, warnings: context.1)
+              record.decision = try await self.decideAgent(mail, agent: agent, attachments: context.0, warnings: context.1, key: key)
               try Task.checkCancellation(); guard isCurrent() else { continue }
               // Durable decision before any Gmail write. Retry labeling without paying for another evaluation.
               try self.persistAgentRun(record)
@@ -2854,6 +2857,10 @@ extension AppStore {
             if record.appliedLabel == nil, let name = decision.label(for: agent) {
               guard try await self.applyAgentLabel(named: name, to: mail.id, generation: generation, isCurrent: isCurrent) != nil else { continue }
               record.appliedLabel = name
+              try self.persistAgentRun(record)
+            }
+            if let rule = decision.rule(for: agent), let extras = rule.extras, !extras.isEmpty, record.extrasApplied == nil {
+              record.extrasApplied = await self.applyAgentExtras(extras, to: mail.id, agent: agent)
               try self.persistAgentRun(record)
             }
             if let rule = decision.rule(for: agent), rule.action.drafts, record.replySuggestion == nil {
@@ -2888,7 +2895,7 @@ extension AppStore {
     if failed > 0 { agentFailure = "\(failed) check(s) couldn’t finish. See activity for details; Cove will retry in 10 minutes." }
     else if processed > 0 { agentNotice = "Finished \(processed) agent check(s). Open Activity to review results and prepared replies."; agentFailure = nil }
   }
-  private func prepareCustomAgentReply(rule: CustomAgentRule, mail: Mail, attachments: [AgentAttachmentText]) async throws -> String {
+  func prepareCustomAgentReply(rule: CustomAgentRule, mail: Mail, attachments: [AgentAttachmentText]) async throws -> String {
     let generation = mailboxGeneration
     let request = ComposeSuggestion.instruction(rule.replyInstructions, voice: preferences.voice,
       instructions: preferences.instructions, selection: false, profile: preferences.voiceProfile,
@@ -2932,7 +2939,7 @@ extension AppStore {
       agentFailure = nil; chooseFolder("All mail"); selectedID = mail.id
     } catch { agentFailure = error.localizedDescription }
   }
-  private func persistAgentRun(_ run: CustomAgentRun) throws {
+  func persistAgentRun(_ run: CustomAgentRun) throws {
     var library = customAgents
     if let index = library.runs.firstIndex(where: { $0.id == run.id }) { library.runs[index] = run }
     else { library.runs.append(run) }
@@ -2948,10 +2955,13 @@ extension AppStore {
     do {
       guard !isSample else { throw CoveError.message("Connect Gmail to try an agent on your recent mail.") }
       let agent = try draft.validated()
-      let key = try agentKey()
+      // With a writing model, Try it uses it (like the running agent); TypeSafe only without one.
+      let key: String? = agentsUseModel ? (try? agentKey()) : try agentKey()
       let stored = customAgents.agents.first { $0.id == agent.id } ?? agent
+      // A writing model answers one email at a time, so Try it reads the 50 newest instead of 200.
       let candidates = CustomAgentBackfill.candidates(in: mails, agent: stored, runs: customAgents.runs,
-                                                      account: accountEmail, now: syncClock())
+                                                      account: accountEmail, now: syncClock(),
+                                                      limit: agentsUseModel ? 50 : CustomAgentBackfill.limit)
       agentBackfill = AgentBackfillState(runID: runID, agentID: agent.id, phase: .checking, total: candidates.count,
                                          preview: CustomAgentBackfillPreview(agent: agent))
       let generation = mailboxGeneration
@@ -2963,7 +2973,7 @@ extension AppStore {
                                          preview: CustomAgentBackfillPreview(agent: draft), message: error.localizedDescription)
     }
   }
-  private func checkBackfill(_ agent: CustomAgent, candidates: [Mail], key: String, generation: UUID, runID: UUID) async {
+  private func checkBackfill(_ agent: CustomAgent, candidates: [Mail], key: String?, generation: UUID, runID: UUID) async {
     var preview = CustomAgentBackfillPreview(agent: agent)
     var stopped: String?
     await withTaskGroup(of: (Mail, Result<CustomAgentDecision, Error>).self) { group in
@@ -2982,7 +2992,11 @@ extension AppStore {
         case .failure(let error):
           if error is CancellationError { group.cancelAll(); stopped = "Cancelled"; break }
           preview.failed += 1
-          if JevAutomation.shouldStopBatch(after: error) { stopped = error.localizedDescription; group.cancelAll() }
+          if preview.firstError == nil { preview.firstError = error.localizedDescription }
+          // The same failure five times with nothing checked: stop instead of failing (and paying) for every email.
+          if JevAutomation.shouldStopBatch(after: error) || (preview.failed >= 5 && preview.items.isEmpty) {
+            stopped = error.localizedDescription; group.cancelAll()
+          }
         }
         if stopped != nil { break }
         if agentBackfill?.runID == runID { agentBackfill?.done += 1 }
@@ -3080,7 +3094,7 @@ extension AppStore {
 
   /// The one idempotent label-apply path for agents. Returns false when the email already carries
   /// the label (no Gmail write), and nil when the run went stale before writing.
-  private func applyAgentLabel(named name: String, to mailID: String, generation: UUID,
+  func applyAgentLabel(named name: String, to mailID: String, generation: UUID,
                                isCurrent: () -> Bool) async throws -> Bool? {
     if let known = gmailLabels.first(where: { $0.type == "user" && $0.name.caseInsensitiveCompare(name) == .orderedSame }),
       mails.first(where: { $0.id == mailID })?.labels.contains(known.id) == true { return false }

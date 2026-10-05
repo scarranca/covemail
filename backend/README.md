@@ -34,6 +34,18 @@ Rollout: the user approved the exact `migrations/002_snoozes.sql`, applied once 
 - The Mac compares its shared record's `updatedAt` with the cloud's; the newest wins, including "forgotten". Failures never block mail or snooze sync.
 - Rollout: statements applied individually on September 29 with verified RLS/force-RLS, the owner policy and DML-only runtime privileges (no TRUNCATE). Cloud Run revision `cove-sync-api-00005-xtt` (image `api:20260929175709`), same pinned secret version 1 and configuration as 00004. `/v1/status` 200; unauthenticated and forged voice requests 401. Backend tests: 17/17 on a disposable loopback Postgres 17 (npm `embedded-postgres`, since Docker is unavailable here; never PlanetScale).
 
+## New-mail push — deployed October 4, 2026
+
+Cove for iPhone/iPad gets new-mail notifications without the server holding any Gmail credential or mail content.
+
+1. The device calls Gmail `users.watch` itself (its own token) for the Inbox, publishing to Pub/Sub topic `projects/cove-mail-20260922/topics/gmail-push` (`gmail-api-push@system.gserviceaccount.com` is its only publisher). The week-long watch renews itself on the device: the notification extension renews it on any push once fewer than three days remain, Background App Refresh does so about twice a day, and opening the app does too. The server cannot renew it (no Gmail credential).
+2. The device registers `PUT /v1/push/devices/<uuid>` `{token, environment: production|sandbox}` with its Google ID token (the iOS client is in `GOOGLE_CLIENT_IDS`). The row stores the APNs token and a SHA-256 of the verified, lowercased address (`cove_sync.push_devices`, migration 004, at most 10 per owner). `DELETE` forgets it.
+3. Push subscription `gmail-push-to-api` delivers `{emailAddress, historyId}` to `POST /v1/gmail/push` with an OIDC token for audience `…/v1/gmail/push` from `cove-gmail-push@cove-mail-20260922.iam.gserviceaccount.com`; the route verifies it (no user token). Under `cove.push_email_hash` RLS it can only read and delete that address's devices.
+4. It sends each device a content-free APNs alert (`New email`, `mutable-content`, the history ID) with the token-based key **Cove Push** (Key ID `Z7S2G2N9NT`, team-scoped, Sandbox & Production) from Secret Manager `cove-apns-key` (version 1, readable only by the runtime service account). 410/BadDeviceToken rows are removed. Malformed or unknown notifications are acknowledged; nothing is logged beyond counts.
+5. The app's notification extension reads the new email with the device's own Google session and shows sender and subject (`NewMailAlert`), or a passive "up to date" placeholder that the next run removes.
+
+Deployment: revision `cove-sync-api-00007-hm7` (image built Oct 5 03:3x UTC), DB secret version 1, `COVE_APNS_SECRET_VERSION=1`; env adds `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC=ai.cove.ios`, `PUSH_AUDIENCE`, `PUSH_SERVICE_ACCOUNT`. Without `APNS_KEY`/`PUSH_AUDIENCE` the push routes answer `push_unavailable` and the rest of the API is unchanged. Checks: backend tests 20/20 on a disposable loopback Postgres (npm `embedded-postgres`); `/v1/status` 200, unauthenticated and forged push requests 401; a synthetic Pub/Sub publish reached the route (204); APNs accepted the provider token in both environments (fake-token `BadDeviceToken`); a real sandbox push to a signed simulator build ran the notification extension.
+
 ## Authentication and isolation
 
 Google ID tokens are verified for signature, issuer, expiry, configured OAuth audiences, verified authoritative Google email, authorized party and the explicit private-pilot email allowlist. Google `sub` selects the tenant; no request may choose a tenant. Tokens are not persisted or logged. Google refresh tokens never leave the Mac.
@@ -42,7 +54,7 @@ The runtime LOGIN role is separately provisioned, inherits only `cove_sync_runti
 
 A per-account row lock allocates revisions in commit order. Optimistic base revisions reject stale concurrent writes. Request UUIDs and keyed payload receipts make network retries idempotent, including identical retries after the cursor advanced. Receipts are cleaned after seven days on writes; content hashes also avoid duplicate upserts and unnecessary body objects. Account UUID generations fence deletion/reconnection against in-flight old uploads. The Mac persists a checkpoint after each batch; a lost response is reconciled against the server cursor and unchanged-content deduplication on retry.
 
-The pilot supports one authoritative uploading Mac. It does not implement multiwriter conflict merging, mobile mail mutations, server Gmail refresh tokens, Gmail push notifications, server-side Jev, or draft synchronization. Do not turn on another uploading Mac as if multi-device mutation were supported.
+The pilot supports one authoritative uploading Mac. It does not implement multiwriter conflict merging, mobile mail mutations, server Gmail refresh tokens, server-side Gmail reading, server-side Jev, or draft synchronization. Gmail push notifications only wake devices (see New-mail push). Do not turn on another uploading Mac as if multi-device mutation were supported.
 
 ## API contract
 

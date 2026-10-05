@@ -323,6 +323,117 @@ import CoveCore
       }
     }
   }
+
+  func testModelBrainUsesContextAppliesExtrasAndLearnsFromUndo() async throws {
+    let (store, _, http) = try fixture()
+    store.mails = [mail(labels: ["INBOX", "UNREAD"])]
+    var prompts: [AIPrompt] = []
+    store.agentBrainWriter = { prompt in
+      prompts.append(prompt)
+      return #"{"choice":"step_1","confidence":0.93,"why":"Acme sent invoice INV-2048 with an amount due.","quote":"Amount due $1250 by July 15."}"#
+    }
+    var agent = replyAgent(action: .label)
+    agent.rules![0].extras = [.flag, .markRead]
+    XCTAssertTrue(store.saveCustomAgent(agent, status: .active))
+    await store.runCustomAgents()
+    let run = try XCTUnwrap(store.customAgents.runs.first)
+    XCTAssertEqual(run.decision?.reason, "Acme sent invoice INV-2048 with an amount due.")
+    XCTAssertEqual(run.appliedLabel, "US EXPENSE")
+    XCTAssertEqual(run.extrasApplied, [.flag, .markRead])
+    XCTAssertTrue(store.mails[0].isStarred); XCTAssertFalse(store.mails[0].isUnread)
+    let prompt = try XCTUnwrap(prompts.first)
+    XCTAssertTrue(prompt.user.contains("step_1: Invoice received"))
+    XCTAssertTrue(prompt.user.contains("Sender: Acme <billing@example.com>"))
+    XCTAssertTrue(prompt.user.contains("untrusted evidence"))
+    XCTAssertTrue(prompt.emails.contains("INV-2048"))
+    let jevCalls = await http.requests.filter { $0.url?.host == "api.typesafe.ai" }.count
+    XCTAssertEqual(jevCalls, 0, "with a writing model, Jev isn't asked")
+    // "Wrong — undo" puts the email back and teaches the agent.
+    await store.rejectAgentRun(run)
+    let undone = try XCTUnwrap(store.customAgents.runs.first)
+    XCTAssertEqual(undone.feedback, .wrong)
+    XCTAssertNil(undone.extrasApplied)
+    XCTAssertEqual(undone.decision?.outcome, .noMatch)
+    XCTAssertFalse(store.mails[0].isStarred); XCTAssertTrue(store.mails[0].isUnread)
+    XCTAssertEqual(store.customAgents.agents.first?.examples?.first?.verdict, "Not a match")
+    // The next decision sees that verdict.
+    store.mails.append(mail("second", offset: 5, labels: ["INBOX", "UNREAD"]))
+    await store.runCustomAgents()
+    XCTAssertTrue(try XCTUnwrap(prompts.last).user.contains("→ Not a match"))
+  }
+
+  func testUnsureEmailWaitsThenYesAppliesTheChosenStep() async throws {
+    let (store, _, _) = try fixture()
+    store.mails = [mail()]
+    store.agentBrainWriter = { _ in #"{"choice":"step_1","confidence":0.55,"why":"Looks like an invoice but no amount is stated."}"# }
+    var agent = replyAgent(action: .label)
+    agent.rules!.append(CustomAgentRule(condition: "A receipt for something already paid", labelName: "Receipts"))
+    XCTAssertTrue(store.saveCustomAgent(agent, status: .active))
+    await store.runCustomAgents()
+    let run = try XCTUnwrap(store.customAgents.runs.first)
+    XCTAssertEqual(run.decision?.outcome, .review)
+    XCTAssertNil(run.appliedLabel, "nothing changes in Gmail while unsure")
+    let saved = try XCTUnwrap(store.customAgents.agents.first)
+    await store.confirmAgentRun(run, ruleID: saved.rules![0].id)
+    let confirmed = try XCTUnwrap(store.customAgents.runs.first)
+    XCTAssertEqual(confirmed.feedback, .correct)
+    XCTAssertEqual(confirmed.appliedLabel, "US EXPENSE")
+    XCTAssertEqual(confirmed.decision?.outcome, .match)
+    XCTAssertEqual(store.customAgents.agents.first?.examples?.first?.verdict, "Step 1: Invoice received")
+  }
+
+  func testRedesignedActivityRenders() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let (store, _, _) = try fixture()
+    var agent = replyAgent(action: .labelAndDraft)
+    agent.rules![0].extras = [.flag]
+    XCTAssertTrue(store.saveCustomAgent(agent, status: .active))
+    agent = try XCTUnwrap(store.customAgents.agents.first)
+    let invoice = mail("a", offset: 10, labels: ["INBOX", "UNREAD"])
+    var receipt = mail("b", offset: 5); receipt.subject = "Your receipt from Acme"; receipt.body = "Payment received, thank you."
+    store.mails = [invoice, receipt] + Samples.mail
+    var review = CustomAgentRun(agent: agent, mail: receipt); review.completed = true; review.sender = "Acme"
+    review.decision = CustomAgentDecision(outcome: .review, confidence: 0.55, excerpt: "Payment received, thank you.", model: "Claude Sonnet", warnings: [],
+                                          reason: "It mentions a payment, but it reads like a receipt rather than an invoice.")
+    var match = CustomAgentRun(agent: agent, mail: invoice); match.completed = true; match.sender = "Acme"
+    match.decision = CustomAgentDecision(outcome: .match, confidence: 0.94, excerpt: "Amount due $1250 by July 15.", model: "Claude Sonnet", warnings: [],
+                                         ruleID: agent.rules![0].id, reason: "Acme sent invoice INV-2048 with $1,250 due July 15.")
+    match.appliedLabel = "US EXPENSE"; match.extrasApplied = [.flag]
+    match.replySuggestion = "Thanks for the invoice. Could you share the purchase order number?"
+    store.customAgents.runs = [review, match]
+    store.agentActivityID = agent.id
+    let host = NSHostingView(rootView: CustomAgentsView(store: store).foregroundStyle(Palette.ink))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = host
+    for _ in 0..<6 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds)); host.cacheDisplay(in: host.bounds, to: bitmap)
+    try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/cove-agent-activity-v2-1280.png"))
+    window.close()
+  }
+
+  func testJevGetsConversationSenderAboutYouAndVerdicts() async throws {
+    let (store, _, http) = try fixture(AgentTestHTTP(choice: "rule_0"))
+    var earlier = mail("earlier", offset: -86_400 * 3); earlier.threadID = "t1"; earlier.body = "We sent the June invoice last week."
+    var current = mail("current", offset: 2, labels: ["INBOX", "UNREAD"]); current.threadID = "t1"
+    store.mails = [earlier, current]
+    store.preferences.personal = { var p = PersonalContext(); p.name = "Santiago"; p.company = "gigstack"; return p }()
+    var agent = replyAgent(action: .label)
+    agent.learn(CustomAgentExample(mail: earlier, verdict: "Step 1: Invoice received"))
+    XCTAssertTrue(store.saveCustomAgent(agent, status: .active))
+    var saved = try XCTUnwrap(store.customAgents.agents.first); saved.examples = agent.examples
+    store.customAgents.agents = [saved]
+    XCTAssertFalse(store.agentsUseModel, "with a TypeSafe key, Jev decides")
+    await store.runCustomAgents()
+    let requests = await http.requests
+    let jevRequest = try XCTUnwrap(requests.first { $0.url?.host == "api.typesafe.ai" })
+    let body = try XCTUnwrap(jevRequest.httpBody.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+    let state = try XCTUnwrap(body["state"] as? [String: Any])
+    XCTAssertTrue((state["sender"] as? String)?.contains("1 earlier emails from them") == true, "\(state["sender"] ?? "")")
+    XCTAssertEqual((state["conversation"] as? [[String: Any]])?.first?["text"] as? String, "We sent the June invoice last week.")
+    XCTAssertTrue((state["aboutUser"] as? String)?.contains("Santiago, gigstack") == true)
+    XCTAssertEqual((state["userVerdicts"] as? [[String: Any]])?.first?["verdict"] as? String, "Step 1: Invoice received")
+    XCTAssertEqual(store.customAgents.runs.first?.appliedLabel, "US EXPENSE")
+  }
 }
 
 actor AgentTestHTTP: HTTPTransport {

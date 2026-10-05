@@ -1,6 +1,10 @@
 #!/bin/zsh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# The Command Line Tools' macOS 27 SDK lacks SwiftUI's macro plugin (@State), so builds use Xcode when installed.
+if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
 swift build
 cove_bin=$(swift build --show-bin-path)
 cove_stage=$(mktemp -d "$PWD/dist/.qa-build.XXXXXX")

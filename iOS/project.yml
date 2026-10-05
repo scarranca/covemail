@@ -18,6 +18,8 @@ targets:
     dependencies:
       - package: Cove
         product: CoveMobile
+      - target: CoveNotifications
+        embed: true
     configFiles:
       Debug: Config/App.xcconfig
       Release: Config/App.xcconfig
@@ -31,11 +33,36 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: CoveMobileApp/CoveMobileApp.entitlements
         DEVELOPMENT_TEAM: 27H459Y2P9
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "10"
         # agvtool (used by Codemagic to set the build number) needs Apple Generic versioning.
         VERSIONING_SYSTEM: apple-generic
+  # Reads the new email with the app's own Google sign-in and turns Cove's content-free push into
+  # "Sender · Subject" (docs/IOS.md → Notifications).
+  CoveNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - CoveNotifications
+    dependencies:
+      - package: Cove
+        product: CoveCore
+    settings:
+      base:
+        PRODUCT_NAME: CoveNotifications
+        PRODUCT_BUNDLE_IDENTIFIER: ai.cove.ios.notifications
+        INFOPLIST_FILE: CoveNotifications/Info.plist
+        CODE_SIGN_ENTITLEMENTS: CoveNotifications/CoveNotifications.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 27H459Y2P9
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "10"
+        VERSIONING_SYSTEM: apple-generic
+        SKIP_INSTALL: YES
 schemes:
   CoveMobileApp:
     build:

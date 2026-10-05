@@ -3,6 +3,7 @@ import CoveCore
 import CryptoKit
 import Foundation
 import Observation
+import UIKit
 
 /// The open account's mail on iPhone. It uses the same encrypted per-email store, Gmail sync and merge
 /// rules as the Mac (`Database`, `GmailClient.synchronize`, `GmailSyncResult.merging`), so local state
@@ -10,21 +11,23 @@ import Observation
 /// Undo window before anything reaches Gmail.
 @MainActor @Observable final class MobileMailbox {
   enum Folder: String, CaseIterable, Identifiable {
-    case inbox, starred, sent, all
+    case inbox, starred, sent, drafts, all
     var id: String { rawValue }
     var title: String {
       switch self {
       case .inbox: "Inbox"
-      case .starred: "Starred"
+      case .starred: "Flagged"
       case .sent: "Sent"
-      case .all: "All mail"
+      case .drafts: "Drafts"
+      case .all: "Archive"
       }
     }
     var systemImage: String {
       switch self {
       case .inbox: "tray"
-      case .starred: "star"
+      case .starred: "flag"
       case .sent: "paperplane"
+      case .drafts: "doc.badge.ellipsis"
       case .all: "archivebox"
       }
     }
@@ -39,6 +42,8 @@ import Observation
   private(set) var mails: [Mail] = []
   var folder: Folder = .inbox
   var inboxTab: InboxSplit = .important
+  /// The Inbox's Unread filter (as on the Mac).
+  var unreadOnly = false
   var splitInbox: Bool {
     didSet { UserDefaults.standard.set(splitInbox, forKey: "mail.splitInbox") }
   }
@@ -55,6 +60,7 @@ import Observation
   var restoredDraft: MobileDraft?
 
   let auth: MobileAuth
+  @ObservationIgnored private let searchIndex = MailSearchIndex()
   private let gmail = GmailClient()
   private var database: Database?
   private var openEmail: String?
@@ -68,7 +74,14 @@ import Observation
   private var pendingCommit: (@MainActor () async -> Void)?
   private var pendingCancel: (@MainActor () -> Void)?
   /// Emails older than this stay in the encrypted store unless starred, drafted or in the Inbox.
-  private let windowStart = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? .distantPast
+  private let windowStart = Calendar.current.date(byAdding: .day, value: -MobileMailbox.historyDays, to: Date()) ?? .distantPast
+  /// How much history the phone keeps loaded and downloads in the background: 90 days or about 600 emails,
+  /// whichever comes first. Contacts, search, suggestions and voice learning all read this mail.
+  static let historyDays = 90
+  static let historyLimit = 600
+  /// Quiet progress of the background history download, for Settings and Contacts.
+  private(set) var historyStatus: String?
+  private(set) var downloadingHistory = false
 
   init(auth: MobileAuth) {
     self.auth = auth
@@ -81,6 +94,30 @@ import Observation
   func openIfNeeded() {
     guard let email = auth.email, email != openEmail else { return }
     close()
+    if auth.isSample {
+      openEmail = email
+      mails = Samples.mail.map { mail in
+        // One formatted sample, to check the Formatted / Text only reader.
+        guard mail.senderEmail.hasPrefix("oliver@") else { return mail }
+        var formatted = mail
+        formatted.htmlBody = """
+          <div style="max-width:560px;margin:0 auto;font-family:Helvetica,Arial,sans-serif">
+          <h1 style="font-size:24px;color:#222">Your workspace, a little faster</h1>
+          <p>A few updates we think you’ll love.</p>
+          <table style="width:100%;border-collapse:collapse"><tr>
+          <td style="padding:12px;background:#f3f4f8;border-radius:8px"><b>Search</b><br>Find anything in a keystroke.</td>
+          <td style="padding:12px;background:#f3f4f8;border-radius:8px"><b>Updates</b><br>Simpler project updates.</td>
+          </tr></table>
+          <p><a href="https://linear.example/changelog">Read the changelog</a></p>
+          <img src="https://linear.example/banner.png" width="560" alt="Banner">
+          <script>alert('never runs')</script>
+          </div>
+          """
+        return formatted
+      }
+      hasOlder = false
+      return
+    }
     do {
       let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                              appropriateFor: nil, create: true)
@@ -123,15 +160,17 @@ import Observation
   // MARK: What's shown
 
   var visible: [Mail] {
-    mails.filter { mail in
+    mails.sorted { $0.date > $1.date }.filter { mail in
       guard !hiddenIDs.contains(mail.id), mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) else { return false }
       switch folder {
       case .inbox:
         guard mail.labels.contains("INBOX") else { return false }
+        if unreadOnly && !mail.isUnread { return false }
         return !splitInbox || InboxSplit.split(mail) == inboxTab
       case .starred: return mail.isStarred
       case .sent: return mail.labels.contains("SENT")
-      case .all: return !mail.labels.contains("DRAFT")
+      case .drafts: return mail.labels.contains("DRAFT") || !mail.draft.isEmpty
+      case .all: return !mail.labels.contains("INBOX") && !mail.labels.contains("DRAFT") && !mail.labels.contains("SENT")
       }
     }
   }
@@ -153,7 +192,7 @@ import Observation
   // MARK: Sync
 
   func sync() async {
-    guard !syncing, let database else { return }
+    guard !syncing, !auth.isSample, let database else { return }
     syncing = true
     defer { syncing = false }
     do {
@@ -181,19 +220,53 @@ import Observation
 
   /// Loads the next page of older mail when the end of the list appears.
   func loadOlder() async {
-    guard !loadingOlder, !syncing, hasOlder, let database, let next = nextPage, !next.isEmpty else { return }
+    do { try await loadOlderPage() } catch { self.error = error.localizedDescription }
+  }
+
+  /// One page (50) of older mail. Emails already stored come back as labels only, so walking pages
+  /// Cove already has is cheap. Returns false when there was nothing to load.
+  @discardableResult
+  private func loadOlderPage() async throws -> Bool {
+    guard !loadingOlder, !syncing, hasOlder, let database, let next = nextPage, !next.isEmpty else { return false }
     loadingOlder = true
     defer { loadingOlder = false }
-    do {
-      let token = try await auth.token()
-      let page = try await gmail.page(token: token, pageToken: next, cachedIDs: (try? database.storedMessageIDs()) ?? [])
-      guard self.database === database else { return }
-      try apply(GmailSyncResult(messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
-                                historyID: historyID ?? "", nextPage: page.next, resetsPagination: true),
-                keepsAll: true)
-    } catch {
-      self.error = error.localizedDescription
+    let token = try await auth.token()
+    let page = try await gmail.page(token: token, pageToken: next, cachedIDs: (try? database.storedMessageIDs()) ?? [])
+    guard self.database === database else { return false }
+    try apply(GmailSyncResult(messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
+                              historyID: historyID ?? "", nextPage: page.next, resetsPagination: true),
+              keepsAll: true)
+    return true
+  }
+
+  /// Downloads older mail in the background after a sync, page by page with a pause between pages,
+  /// until the phone has the last 90 days or about 600 emails. Rate limits and failures stop it quietly;
+  /// the next sync continues where it stopped. Never an alert.
+  func downloadHistory() async {
+    guard !downloadingHistory, !auth.isSample, database != nil else { return }
+    downloadingHistory = true
+    defer { downloadingHistory = false }
+    let target = windowStart
+    while !Task.isCancelled, hasOlder, mails.count < Self.historyLimit,
+          (mails.map(\.date).min() ?? Date()) > target {
+      if syncing || loadingOlder {
+        try? await Task.sleep(for: .seconds(2))
+        continue
+      }
+      historyStatus = "Downloading older mail · \(mails.count) emails on this iPhone"
+      do {
+        guard try await loadOlderPage() else { break }
+      } catch let failure as HTTPFailure where failure.isRateLimited {
+        historyStatus = "Gmail asked Cove to slow down. Older mail continues later."
+        return
+      } catch {
+        historyStatus = nil
+        return
+      }
+      // Gentle on Gmail's per-user budget and the battery.
+      try? await Task.sleep(for: .seconds(1.5))
     }
+    historyStatus = nil
   }
 
   private func apply(_ result: GmailSyncResult, keepsAll: Bool) throws {
@@ -244,12 +317,74 @@ import Observation
       let stored = Dictionary(adopted.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
       searchResults = found.map { live[$0.id] ?? stored[$0.id] ?? $0 }
     } catch is CancellationError {
+    } catch let error as URLError where error.code == .cancelled {
     } catch {
       self.error = error.localizedDescription
     }
   }
 
   func clearSearch() { searchResults = nil }
+
+  /// Reads one email from Gmail (opened from a notification before the next sync) and keeps it.
+  func fetch(id: String) async -> Bool {
+    if auth.isSample { return mail(id: id) != nil }
+    do {
+      let token = try await auth.token()
+      guard let found = try await gmail.message(id: id, token: token), let database else { return false }
+      let adopted = (try? database.adopting([found], live: Set(mails.map(\.id)))) ?? [found]
+      searchResults = (searchResults ?? []) + adopted.filter { candidate in !(searchResults ?? []).contains { $0.id == candidate.id } }
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /// Instant matches in mail already on this iPhone (the Mac's folded byte search), newest first.
+  func localMatches(_ query: String, limit: Int = 50) -> [Mail] {
+    let terms = MailSearchIndex.terms(query)
+    guard !terms.isEmpty else { return [] }
+    return Array(mails.lazy.filter { !self.hiddenIDs.contains($0.id) && $0.labels.isDisjoint(with: ["TRASH", "SPAM"]) }
+      .filter { self.searchIndex.matches($0, terms: terms) }.sorted { $0.date > $1.date }.prefix(limit))
+  }
+
+  /// Every loaded email in the Inbox, newest first (Home's source).
+  var inbox: [Mail] {
+    mails.filter { !hiddenIDs.contains($0.id) && $0.labels.contains("INBOX") && $0.labels.isDisjoint(with: ["TRASH", "SPAM"]) }
+      .sorted { $0.date > $1.date }
+  }
+  var allLoaded: [Mail] { mails.filter { !hiddenIDs.contains($0.id) } }
+
+  // MARK: Writing context
+
+  /// The account's display name, from mail the user sent (Gmail's From name), or nil if none is known.
+  var accountName: String? {
+    let own = ContactDirectory.normalizedEmail(auth.email ?? "")
+    return mails.lazy.filter { ContactDirectory.normalizedEmail($0.senderEmail) == own && !$0.sender.isEmpty && !$0.sender.contains("@") }
+      .map(\.sender).first
+  }
+
+  /// People to suggest while typing an address: name or address contains the text, most emailed first.
+  func contactSuggestions(_ text: String, excluding: Set<String> = [], limit: Int = 5) -> [MailContact] {
+    let query = MailSearchIndex.fold(text.trimmingCharacters(in: .whitespaces))
+    guard !query.isEmpty else { return [] }
+    return ContactDirectory.build(mails: allLoaded, records: [], accountEmail: auth.email ?? "")
+      .filter { !excluding.contains($0.email) && MailSearchIndex.fold($0.name + " " + $0.email).contains(query) }
+      .sorted { $0.messages.count > $1.messages.count }
+      .prefix(limit).map { $0 }
+  }
+
+  /// Excerpts of what the user wrote in Sent, for learning the voice. Reads one page of Sent from Gmail
+  /// when the phone has too few (as the Mac does).
+  func sentSamples() async throws -> [Mail] {
+    let account = auth.email ?? ""
+    var candidates = mails
+    if VoiceProfile.samples(from: candidates, accountEmail: account).count < 15, !auth.isSample {
+      let token = try await auth.token()
+      let page = try await gmail.page(token: token, labelID: "SENT")
+      candidates += page.messages.filter { message in !candidates.contains { $0.id == message.id } }
+    }
+    return VoiceProfile.samples(from: candidates, accountEmail: account)
+  }
 
   // MARK: Label changes
 
@@ -267,6 +402,7 @@ import Observation
     let id = mail.id
     guard !id.hasPrefix("local-") else { return }
     update(id) { $0.labels.formUnion(add); $0.labels.subtract(remove) }
+    if auth.isSample { return }
     var edit = labelEdits[id] ?? (add: [], remove: [])
     edit.add.formUnion(add); edit.add.subtract(remove)
     edit.remove.formUnion(remove); edit.remove.subtract(add)
@@ -302,21 +438,81 @@ import Observation
   // MARK: Trash and send, with Undo
 
   /// Moves to Trash after a five-second Undo window; nothing reaches Gmail before it ends.
-  func trash(_ mail: Mail) {
-    let id = mail.id
-    hiddenIDs.insert(id)
-    schedule(PendingAction(title: "Moved to Trash"), seconds: 5) { [weak self] in
+  func trash(_ mail: Mail) { trash([mail]) }
+
+  /// Moves emails to Trash after one five-second Undo window for all of them (as on the Mac);
+  /// nothing reaches Gmail before it ends.
+  func trash(_ batch: [Mail]) {
+    let ids = batch.map(\.id).filter { !$0.hasPrefix("local-") }
+    guard !ids.isEmpty else { return }
+    hiddenIDs.formUnion(ids)
+    let title = ids.count == 1 ? "Moved to Trash" : "Moved \(ids.count) emails to Trash"
+    schedule(PendingAction(title: title), seconds: 5) { [weak self] in
       guard let self else { return }
-      do {
-        let token = try await self.auth.token()
-        try await self.gmail.trash(id: id, token: token)
-        self.update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
-      } catch {
-        self.error = "Couldn’t move the email to Trash. " + error.localizedDescription
+      var failed = 0
+      for id in ids {
+        if self.auth.isSample {
+          self.update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
+          continue
+        }
+        do {
+          let token = try await self.auth.token()
+          try await self.gmail.trash(id: id, token: token)
+          self.update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
+        } catch {
+          failed += 1
+        }
       }
-      self.hiddenIDs.remove(id)
+      if failed > 0 {
+        self.error = failed == ids.count ? "Couldn’t move the emails to Trash." : "\(failed) of \(ids.count) emails couldn’t be moved to Trash."
+      }
+      self.hiddenIDs.subtract(ids)
     } cancel: { [weak self] in
-      self?.hiddenIDs.remove(id)
+      self?.hiddenIDs.subtract(ids)
+    }
+  }
+
+  // MARK: Several emails at once (two-finger selection)
+
+  func archive(_ batch: [Mail]) { changeMany(batch.filter { $0.labels.contains("INBOX") }, add: [], remove: ["INBOX"]) }
+  func setRead(_ batch: [Mail], _ read: Bool) {
+    changeMany(batch.filter { $0.isUnread == read }, add: read ? [] : ["UNREAD"], remove: read ? ["UNREAD"] : [])
+  }
+  /// Flags all of them, or removes the flag when every one is already flagged.
+  func toggleStar(_ batch: [Mail]) {
+    let flag = !batch.allSatisfy(\.isStarred)
+    changeMany(batch.filter { $0.isStarred != flag }, add: flag ? ["STARRED"] : [], remove: flag ? [] : ["STARRED"])
+  }
+
+  /// One label change for many emails: applied on the phone first, then one Gmail batch request.
+  /// If Gmail refuses, every email gets its labels back and the failure is said once.
+  private func changeMany(_ batch: [Mail], add: Set<String>, remove: Set<String>) {
+    let ids = batch.map(\.id).filter { !$0.hasPrefix("local-") }
+    guard !ids.isEmpty else { return }
+    if ids.count == 1, let mail = batch.first { change(mail, add: add, remove: remove); return }
+    for id in ids {
+      update(id) { $0.labels.formUnion(add); $0.labels.subtract(remove) }
+      var edit = labelEdits[id] ?? (add: [], remove: [])
+      edit.add.formUnion(add); edit.add.subtract(remove)
+      edit.remove.formUnion(remove); edit.remove.subtract(add)
+      labelEdits[id] = edit
+    }
+    if auth.isSample { for id in ids { labelEdits[id] = nil }; return }
+    Task {
+      do {
+        let token = try await auth.token()
+        for start in stride(from: 0, to: ids.count, by: 1000) {
+          try await gmail.batchModify(ids: Array(ids[start..<min(ids.count, start + 1000)]), token: token,
+                                      add: Array(add), remove: Array(remove))
+        }
+        for id in ids { labelEdits[id] = nil }
+      } catch {
+        for id in ids {
+          labelEdits[id] = nil
+          update(id) { $0.labels.subtract(add); $0.labels.formUnion(remove) }
+        }
+        self.error = "Couldn’t update \(ids.count) emails in Gmail. " + error.localizedDescription
+      }
     }
   }
 
@@ -366,14 +562,25 @@ import Observation
   }
 
   /// A new action, closing the account or leaving the app completes the waiting one immediately.
-  func commitPendingNow() {
+  @discardableResult
+  func commitPendingNow() -> Task<Void, Never>? {
     pendingTask?.cancel()
     pendingTask = nil
-    guard let commit = pendingCommit else { return }
+    guard let commit = pendingCommit else { return nil }
     pendingCommit = nil
     pendingCancel = nil
     pending = nil
-    Task { await commit() }
+    // Leaving the app must not cut a Send or Trash short: ask iOS for time to finish it.
+    let background = UIApplication.shared.beginBackgroundTask(withName: "Cove pending change")
+    return Task {
+      await commit()
+      if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
+    }
+  }
+
+  /// Finishes a waiting Send or Trash before the account goes away (sign-out).
+  func finishPending() async {
+    await commitPendingNow()?.value
   }
 }
 #endif

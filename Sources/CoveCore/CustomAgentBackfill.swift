@@ -43,7 +43,11 @@ public struct CustomAgentBackfillPreview: Equatable, Sendable {
   public var items: [CustomAgentBackfillItem] = []
   /// Emails Jev couldn't check (network or evaluation errors). They are never labeled.
   public var failed = 0
+  /// Why the first email couldn't be checked, so a failure is never just a count.
+  public var firstError: String?
   public init(agent: CustomAgent) { self.agent = agent }
+  /// Confident non-matches, for the full list.
+  public var noMatches: [CustomAgentBackfillItem] { items.filter { $0.decision.outcome == .noMatch } }
   /// Confident matches that would label and/or prepare a reply.
   public var matches: [CustomAgentBackfillItem] {
     items.filter { $0.decision.outcome == .match && ($0.decision.label(for: agent) != nil || $0.decision.rule(for: agent)?.action.drafts == true) }

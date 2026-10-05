@@ -32,10 +32,10 @@ struct CustomAgentsView: View {
             VStack(alignment: .leading, spacing: 24) {
               AgentsHeader(store: store, compact: geometry.size.width < 820)
               if showHelp {
-                Text("Jev checks new inbox mail against your rules, in order. The first confident match can apply a Gmail label, prepare a reply, or both. Your writing model prepares replies for review in Activity; nothing sends automatically. Uncertain results stay in Activity for your review, without changing Gmail labels. Agents run during Gmail sync while Cove is open. They cannot send, delete, or make purchases. Tests send the chosen content to TypeSafe but never change Gmail.")
+                Text("Your writing model checks each new Inbox email against your agent’s steps, in order, with the conversation, who the sender is to you, About you and your past answers. The first confident match can label, prepare a reply, archive, flag, mark read or create a task. Unsure emails wait in Activity for a one-tap Yes or No, and every answer teaches the agent. Agents run during Gmail sync while Cove is open. They never send, delete, buy anything or change your calendar. Without a writing model, Jev (TypeSafe) decides instead.")
                   .font(.coveBody).foregroundStyle(Palette.body).lineSpacing(5).padding(18).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
               }
-              if !store.isSample {
+              if !store.isSample && !store.agentsUseModel {
                 JevRequiredBanner(reason: "Agents use Jev to check each new email against your rules. Add your TypeSafe key to create and run them.")
               }
               notices
@@ -482,7 +482,8 @@ struct CustomAgentEditor: View {
     }
     if let testError { Label(testError, systemImage: "exclamationmark.circle").font(.coveSecondary).foregroundStyle(Palette.danger).textSelection(.enabled) }
     if let result, selected != nil { resultCard(result) }
-    Text("Tests send this email and your instructions to TypeSafe; reply steps also use your writing model.")
+    Text(store.agentsUseModel ? "Tests send this email and your instructions to your writing model (\(store.agentModelName))."
+                              : "Tests send this email and your instructions to TypeSafe; reply steps also use your writing model.")
       .font(.coveMetadata).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
   }
   /// Search, then pick from a short list: sender and subject, no menus.
@@ -600,71 +601,6 @@ struct CustomAgentEditor: View {
   }
 }
 
-struct CustomAgentActivity: View {
-  @Bindable var store: AppStore
-  let agent: CustomAgent
-  @State private var reviewOnly = false
-  private var allRuns: [CustomAgentRun] {
-    store.customAgents.runs.filter { $0.agentID == agent.id }.sorted { $0.date > $1.date }
-  }
-  var body: some View {
-    VStack(alignment: .leading, spacing: 24) {
-      Button { store.agentActivityID = nil } label: { Label("All agents", systemImage: "chevron.left") }.buttonStyle(.plain).font(.coveControl)
-        .accessibilityLabel("Back to all agents")
-      HStack {
-        VStack(alignment: .leading, spacing: 8) {
-          Text(agent.name).font(.coveTitle)
-          Text("Activity · " + agent.status.title).font(.coveBody).foregroundStyle(Palette.body)
-        }
-        Spacer()
-        Button("Retry unfinished checks") { Task { await store.runCustomAgents(ignoreCooldown: true, agentID: agent.id) } }.buttonStyle(SecondaryButton()).disabled(store.busy || agent.status != .active)
-      }
-      if let failure = store.agentFailure { Text(failure).foregroundStyle(Palette.danger).font(.coveSecondary) }
-      HStack(spacing: 16) {
-        Button("All checks \(allRuns.count)") { reviewOnly = false }.fontWeight(reviewOnly ? .regular : .semibold)
-        Button("Needs review \(allRuns.filter { $0.decision?.outcome == .review }.count)") { reviewOnly = true }.fontWeight(reviewOnly ? .semibold : .regular)
-      }.buttonStyle(.plain).font(.coveControl)
-      ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          let runs = allRuns.filter { !reviewOnly || $0.decision?.outcome == .review }
-          if runs.isEmpty { Text(reviewOnly ? "No checks need review." : "No checks yet. Active agents check inbox mail received after you turn them on, during Gmail sync.").font(.coveBody).foregroundStyle(Palette.body) }
-          ForEach(runs) { run in
-            VStack(alignment: .leading, spacing: 9) {
-              HStack {
-                Text(run.subject.isEmpty ? "(No subject)" : run.subject).font(.coveSubheading)
-                Spacer()
-                Text(run.date.formatted(date: .abbreviated, time: .shortened)).font(.coveMetadata).foregroundStyle(Palette.muted)
-              }
-              if let error = run.error { Text(error).font(.coveSecondary).foregroundStyle(Palette.danger).textSelection(.enabled) }
-              Text(run.appliedLabel.map { "Applied label: " + $0 } ?? (run.completed ? run.decision?.outcome.title ?? "Checked" : "Awaiting retry")).font(.coveControl)
-              if run.decision?.outcome == .review {
-                Text(run.decision?.warnings.isEmpty == false ? "Some relevant content could not be fully checked." : "Jev wasn’t confident enough to apply this rule.")
-                  .font(.coveSecondary).foregroundStyle(Palette.body)
-              }
-              if let condition = run.matchedCondition { Text("Matched: " + condition).font(.coveSecondary).foregroundStyle(Palette.body) }
-              if let reply = run.replySuggestion {
-                Text(run.replyApplied == true ? "Reply added to your draft" : "Reply ready for review").font(.coveSubheading)
-                Text(reply).font(.coveBody).lineSpacing(4).textSelection(.enabled)
-                  .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
-                if run.replyApplied != true {
-                  Button("Use reply as draft") { store.applyCustomAgentReply(run) }.buttonStyle(PrimaryButton(compact: true))
-                  Text("Opens the reply in its original conversation. You review and send it yourself.").font(.coveMetadata).foregroundStyle(Palette.muted)
-                }
-              }
-              if let excerpt = run.decision?.excerpt { Text(excerpt).font(.coveText).foregroundStyle(Palette.body).lineLimit(5).textSelection(.enabled) }
-              ForEach(run.decision?.warnings ?? [], id: \.self) { Text($0).font(.coveSecondary).foregroundStyle(Palette.body) }
-              if store.mails.contains(where: { $0.id == run.mailID }) {
-                Button("Open email") { store.chooseFolder("All mail"); store.selectedID = run.mailID }.buttonStyle(.plain).font(.coveControl)
-              }
-            }
-            Divider()
-          }
-        }
-      }
-    }.padding(32).background(Palette.canvas)
-  }
-}
-
 private struct AgentTestEmailRow: View {
   let mail: Mail
   let pick: () -> Void
@@ -704,6 +640,26 @@ private struct CustomAgentRuleEditor: View {
       }.font(.coveControl)
       if rule.action.labels {
         TextField("Gmail label, e.g. US EXPENSE", text: $rule.labelName).textFieldStyle(CoveFieldStyle()).accessibilityLabel("Rule \(position) Gmail label")
+      }
+      VStack(alignment: .leading, spacing: 6) {
+        Text("Also").font(.coveControl)
+        HStack(spacing: 8) {
+          ForEach(CustomAgentExtra.allCases, id: \.self) { extra in
+            let on = rule.extras?.contains(extra) == true
+            Button {
+              var extras = rule.extras ?? []
+              if on { extras.removeAll { $0 == extra } } else { extras.append(extra) }
+              rule.extras = extras.isEmpty ? nil : extras
+            } label: {
+              Label(extra.title, systemImage: extra.symbol).font(.coveControl)
+                .foregroundStyle(on ? Palette.canvas : Palette.body)
+                .padding(.horizontal, 10).frame(height: 28)
+                .background(on ? Palette.ink : Palette.canvas, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(on ? Palette.ink : Palette.line))
+            }.buttonStyle(.plain).accessibilityAddTraits(on ? .isSelected : [])
+          }
+        }
+        Text("Only on a confident match. Agents never send, delete or change your calendar.").font(.coveMetadata).foregroundStyle(Palette.muted)
       }
       if rule.action.drafts {
         TextField("What should the reply say? e.g. Acknowledge the invoice and ask for the missing purchase order.", text: $rule.replyInstructions, axis: .vertical)

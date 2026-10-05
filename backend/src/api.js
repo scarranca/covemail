@@ -5,6 +5,7 @@ import { transaction } from './database.js';
 import { newKey, seal, open, context, digest } from './crypto.js';
 import { registerSnoozes } from './snoozes.js';
 import { registerVoice } from './voice.js';
+import { registerPush } from './push.js';
 
 const uuid = z.string().uuid().transform(value => value.toLowerCase());
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);
@@ -26,7 +27,7 @@ const fail = (status, code) => { throw new Failure(status, code); };
 const parse = (schema, value) => { const r = schema.safeParse(value); if (!r.success) fail(400, 'invalid_request'); return r.data; };
 const publicAccount = a => ({accountID: a.account_id, revision: a.revision});
 
-export function createAPI({pool, verifyIdentity, keys, bodies, now = () => new Date()}) {
+export function createAPI({pool, verifyIdentity, keys, bodies, apns = null, verifyPubSub = null, log = () => {}, now = () => new Date()}) {
   const app = Fastify({logger: false, bodyLimit: 1024 * 1024, requestTimeout: 30000,
     ajv: {customOptions: {removeAdditional: false}}});
   const limits = new Map();
@@ -41,6 +42,8 @@ export function createAPI({pool, verifyIdentity, keys, bodies, now = () => new D
   app.addHook('onRequest', async (req, reply) => {
     reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff');
     if (req.url === '/v1/status') return;
+    // Gmail's Pub/Sub push has no user: the route verifies Pub/Sub's own OIDC token instead.
+    if (req.url === '/v1/gmail/push') { limit('pubsub', 600); return; }
     limit('ip:' + req.ip, 120);
     const match = /^Bearer ([^\s]{1,16384})$/.exec(req.headers.authorization ?? '');
     if (!match) fail(401, 'authentication_required');
@@ -186,5 +189,6 @@ export function createAPI({pool, verifyIdentity, keys, bodies, now = () => new D
   });
   registerSnoozes(app, {withOwner, account, keys, parse, fail, uuid, id, revision});
   registerVoice(app, {withOwner, account, keys, parse, fail, uuid, revision});
+  registerPush(app, {pool, withOwner, parse, fail, uuid, apns, verifyPubSub, log});
   return app;
 }

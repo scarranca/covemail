@@ -111,6 +111,8 @@ struct AgentView: View {
             }
           }.frame(maxWidth: 660, alignment: .leading)
           Divider()
+          AboutYouSection(store: store).frame(maxWidth: 660, alignment: .leading)
+          Divider()
           VStack(alignment: .leading, spacing: 24) {
             section("Memories", subtitle: "What Cove knows about you. Edit or forget anything.")
             Toggle("Use my saved memories", isOn: $store.preferences.useMemories).toggleStyle(

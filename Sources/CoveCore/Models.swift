@@ -149,6 +149,8 @@ public struct Preferences: Codable, Sendable {
   public var inboxSenderRules: [String: InboxSplit]?
   /// The From address for new emails when Gmail has more than one (send-as aliases). nil = the account's.
   public var defaultSender: String?
+  /// Who the user is and what they're working on (About you). Optional so older preferences decode.
+  public var personal: PersonalContext?
   public var splitsInbox: Bool { splitInbox ?? true }
   public init() {}
 }
@@ -259,12 +261,16 @@ extension Preferences {
     guard !line.isEmpty else { return nil }
     return String(line.prefix(200))
   }
-  /// Saved memories for writing and assistant prompts, or nil when off or empty.
+  /// About you and saved memories for every writing and assistant prompt, or nil when both are off or
+  /// empty. Each is the user's own words, never facts from email.
   public var memoryPrompt: String? {
-    guard useMemories else { return nil }
-    let lines = memories.compactMap(Self.sanitizedMemory).prefix(30)
-    guard !lines.isEmpty else { return nil }
-    return "The user's saved memories (their own notes about themselves and their preferences, not facts from email; follow them when relevant):\n"
-      + lines.map { "- " + $0 }.joined(separator: "\n")
+    var parts: [String] = []
+    if let about = personal?.promptText { parts.append(about) }
+    let lines = useMemories ? Array(memories.compactMap(Self.sanitizedMemory).prefix(30)) : []
+    if !lines.isEmpty {
+      parts.append("The user's saved memories (their own notes about themselves and their preferences, not facts from email; follow them when relevant):\n"
+        + lines.map { "- " + $0 }.joined(separator: "\n"))
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
   }
 }

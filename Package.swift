@@ -9,6 +9,8 @@ let package = Package(
   products: [
     .executable(name: "Cove", targets: ["Cove"]),
     .library(name: "CoveMobile", targets: ["CoveMobile"]),
+    // The iPhone notification extension links only the shared core.
+    .library(name: "CoveCore", targets: ["CoveCore"]),
   ],
   dependencies: [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")],
   targets: [

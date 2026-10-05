@@ -7,6 +7,9 @@ import { createAPI } from '../src/api.js';
 import { createPool, transaction, assertRuntimeRole } from '../src/database.js';
 import { newKey, seal, open } from '../src/crypto.js';
 import { googleVerifier } from '../src/auth.js';
+import { emailHash } from '../src/push.js';
+import { apnsJWT, newMailPayload } from '../src/apns.js';
+import { generateKeyPairSync, verify as verifySignature } from 'node:crypto';
 
 // Dedicated loopback-only synthetic database. Never point these tests at PlanetScale.
 const admin = new pg.Pool({connectionString:'postgres://postgres:cove-synthetic-test@127.0.0.1:55439/postgres'});
@@ -16,6 +19,12 @@ let clock = new Date('2026-09-25T12:00:00Z');
 const objects = new Map();
 const master = newKey();
 let uploadHook;
+// APNs stand-in: records pushes; tokens starting with "dead" answer 410 like an uninstalled app.
+const pushes = [];
+const fakeAPNs = { async send(p) { pushes.push(p);
+  if (p.deviceToken.startsWith('dead')) return {status:410, reason:'Unregistered'};
+  if (p.deviceToken.startsWith('5105')) return {status:0, reason:'timeout'};
+  return {status:200}; } };
 const keys = {
   async wrap(k, a) { return seal(master, k.toString('base64'), a); },
   async unwrap(k, a) { return Buffer.from(open(master, k, a), 'base64'); }
@@ -27,11 +36,13 @@ before(async () => {
   await admin.query(await readFile(new URL('../migrations/001_sync.sql', import.meta.url),'utf8'));
   await admin.query(await readFile(new URL('../migrations/002_snoozes.sql', import.meta.url),'utf8'));
   await admin.query(await readFile(new URL('../migrations/003_voice_profile.sql', import.meta.url),'utf8'));
+  await admin.query(await readFile(new URL('../migrations/004_push_devices.sql', import.meta.url),'utf8'));
   await admin.query("CREATE ROLE cove_test_api LOGIN PASSWORD 'synthetic-api-only' NOSUPERUSER NOBYPASSRLS; GRANT cove_sync_runtime TO cove_test_api");
   pool = createPool('postgres://cove_test_api:synthetic-api-only@127.0.0.1:55439/postgres',{local:true});
   await assertRuntimeRole(pool);
-  app = createAPI({pool, keys, now:() => clock,
-    verifyIdentity:async token => { if(!token.startsWith('fixture-')) throw new Error('no'); return {sub:token}; },
+  app = createAPI({pool, keys, now:() => clock, apns: fakeAPNs,
+    verifyPubSub: async token => { if (token !== 'pubsub-fixture') throw new Error('no'); },
+    verifyIdentity:async token => { if(!token.startsWith('fixture-')) throw new Error('no'); return {sub:token, email:`${token}@example.com`}; },
     bodies:{ async put(k,v) { if(uploadHook) await uploadHook(); objects.set(k,v); },
       async get(k) { if(!objects.has(k)) throw new Error('missing'); return objects.get(k); } }});
 });
@@ -131,7 +142,7 @@ test('AEAD rejects moved and modified ciphertext',()=>{
 test('identity verifier requires approved audiences, verified email and pilot membership',async()=>{
   let payload={sub:'123',email:'pilot@example.com',email_verified:true,hd:'example.com',azp:'desktop'};
   const verify=googleVerifier({audiences:['desktop'],pilotEmails:['pilot@example.com']},{async verifyIdToken(options){assert.deepEqual(options.audience,['desktop']);return {getPayload:()=>payload}}});
-  assert.deepEqual(await verify('token'),{sub:'123'});
+  assert.deepEqual(await verify('token'),{sub:'123',email:'pilot@example.com'});
   for(const patch of [{email_verified:false},{email:'someone@example.com'},{azp:'attacker'},{hd:undefined}]){
     const original=payload;payload={...payload,...patch};await assert.rejects(verify('token'));payload=original;
   }
@@ -266,4 +277,76 @@ test('voice payloads are strict and bounded; mail content fields are rejected', 
   assert.equal((await request(owner,'PUT','/v1/voice',{...base,profile:voice({summary:'x'.repeat(601)})})).statusCode,400);
   assert.equal((await request(owner,'PUT','/v1/voice',{...base,profile:voice({phrases:Array(9).fill('a')})})).statusCode,400);
   assert.equal((await app.inject({method:'GET',url:`/v1/voice?accountID=${a.accountID}`})).statusCode,401);
+});
+
+const token = (fill = 'a') => fill.repeat(64);
+const pubsub = (email, historyId, auth = 'pubsub-fixture') => app.inject({method:'POST', url:'/v1/gmail/push',
+  headers: auth ? {authorization:`Bearer ${auth}`} : {},
+  payload:{message:{data:Buffer.from(JSON.stringify({emailAddress:email, historyId})).toString('base64'), messageId:'1'}, subscription:'s'}});
+
+test('push devices: owner registration, strict payloads and per-owner isolation', async () => {
+  const id = randomUUID();
+  assert.equal((await request('fixture-push','PUT',`/v1/push/devices/${id}`,{token:token(),environment:'production'})).statusCode,200);
+  assert.equal((await request('fixture-push','PUT',`/v1/push/devices/${id}`,{token:'zz',environment:'production'})).statusCode,400);
+  assert.equal((await request('fixture-push','PUT',`/v1/push/devices/${id}`,{token:token(),environment:'production',email:'x@y.z'})).statusCode,400);
+  assert.equal((await app.inject({method:'PUT',url:`/v1/push/devices/${id}`,payload:{token:token(),environment:'production'}})).statusCode,401);
+  // Another owner can't see or remove it, even through the delivery setting.
+  await transaction(pool,'fixture-other',async c => {
+    assert.equal((await c.query('SELECT * FROM cove_sync.push_devices')).rowCount,0);
+    await c.query("SELECT set_config('cove.push_email_hash','', true)");
+    assert.equal((await c.query('DELETE FROM cove_sync.push_devices')).rowCount,0);
+  });
+  const stored = (await admin.query('SELECT email_hash, apns_token FROM cove_sync.push_devices WHERE owner_sub=$1',['fixture-push'])).rows[0];
+  assert.equal(stored.email_hash, emailHash('fixture-push@example.com'));
+  assert.equal(stored.apns_token, token());
+});
+
+test('gmail push: verified Pub/Sub only, content-free APNs, unregistered devices removed', async () => {
+  pushes.length = 0;
+  const live = randomUUID(), dead = randomUUID();
+  await request('fixture-mailbox','PUT',`/v1/push/devices/${live}`,{token:token('b'),environment:'sandbox'});
+  await request('fixture-mailbox','PUT',`/v1/push/devices/${dead}`,{token:'dead'+token('c').slice(4),environment:'production'});
+  assert.equal((await pubsub('fixture-mailbox@example.com', 99, null)).statusCode,401);
+  assert.equal((await pubsub('fixture-mailbox@example.com', 99, 'forged')).statusCode,401);
+  assert.equal(pushes.length,0);
+  const r = await pubsub('Fixture-Mailbox@Example.com', '12345');
+  assert.equal(r.statusCode,204,r.body);
+  assert.equal(pushes.length,2);
+  const sent = pushes.find(p => p.deviceToken === token('b'));
+  assert.equal(sent.environment,'sandbox');
+  assert.deepEqual(sent.payload.aps.alert,{title:'Cove',body:'New email'});
+  assert.equal(sent.payload.cove.historyID,'12345');
+  assert.ok(!JSON.stringify(sent.payload).includes('fixture-mailbox@'), 'no address in the push');
+  const left = (await admin.query('SELECT device_id FROM cove_sync.push_devices WHERE owner_sub=$1',['fixture-mailbox'])).rows.map(r=>r.device_id);
+  assert.deepEqual(left,[live]);
+  // Unknown addresses and malformed messages are acknowledged without pushes.
+  pushes.length = 0;
+  assert.equal((await pubsub('nobody@example.com', 1)).statusCode,204);
+  assert.equal((await app.inject({method:'POST',url:'/v1/gmail/push',headers:{authorization:'Bearer pubsub-fixture'},
+    payload:{message:{data:'not-base64-json'}}})).statusCode,204);
+  assert.equal(pushes.length,0);
+  assert.equal((await request('fixture-mailbox','DELETE',`/v1/push/devices/${live}`)).statusCode,200);
+});
+
+test('push device limit and APNs token format', async () => {
+  for (let i = 0; i < 10; i++)
+    assert.equal((await request('fixture-many','PUT',`/v1/push/devices/${randomUUID()}`,{token:token(String(i)),environment:'production'})).statusCode,200);
+  assert.equal((await request('fixture-many','PUT',`/v1/push/devices/${randomUUID()}`,{token:token('f'),environment:'production'})).statusCode,409);
+  const {privateKey, publicKey} = generateKeyPairSync('ec', {namedCurve:'P-256'});
+  const jwt = apnsJWT({keyPEM: privateKey.export({type:'pkcs8',format:'pem'}), keyID:'ABCDE12345', teamID:'27H459Y2P9'}, 1_800_000_000_000);
+  const [h, c, sig] = jwt.split('.');
+  assert.deepEqual(JSON.parse(Buffer.from(h,'base64url')), {alg:'ES256', kid:'ABCDE12345'});
+  assert.deepEqual(JSON.parse(Buffer.from(c,'base64url')), {iss:'27H459Y2P9', iat:1_800_000_000});
+  assert.ok(verifySignature('sha256', Buffer.from(`${h}.${c}`), {key:publicKey, dsaEncoding:'ieee-p1363'}, Buffer.from(sig,'base64url')));
+  assert.equal(newMailPayload({historyID:5, account:'x'}).aps['mutable-content'], 1);
+});
+
+test('gmail push asks Pub/Sub to retry when APNs is unreachable', async () => {
+  pushes.length = 0;
+  const id = randomUUID();
+  await request('fixture-flaky','PUT',`/v1/push/devices/${id}`,{token:'5105'+token('d').slice(4),environment:'production'});
+  assert.equal((await pubsub('fixture-flaky@example.com', 7)).statusCode, 503);
+  assert.equal(pushes.length, 1);
+  // The device is kept for the retry.
+  assert.equal((await admin.query('SELECT count(*) FROM cove_sync.push_devices WHERE owner_sub=$1',['fixture-flaky'])).rows[0].count, '1');
 });
