@@ -36,7 +36,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CoveMobileApp/CoveMobileApp.entitlements
         DEVELOPMENT_TEAM: 27H459Y2P9
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "11"
+        CURRENT_PROJECT_VERSION: "12"
         # agvtool (used by Codemagic to set the build number) needs Apple Generic versioning.
         VERSIONING_SYSTEM: apple-generic
   # Reads the new email with the app's own Google sign-in and turns Cove's content-free push into
@@ -60,7 +60,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "11"
+        CURRENT_PROJECT_VERSION: "12"
         VERSIONING_SYSTEM: apple-generic
         SKIP_INSTALL: YES
 schemes:

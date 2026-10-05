@@ -1,5 +1,7 @@
--- About you, synced between a user's iPhone, iPad and Mac. NOT YET APPROVED OR APPLIED: production
--- schema changes need the user's exact-SQL approval (AGENTS.md).
+-- About you, synced between a user's iPhone, iPad and Mac. Approved by the user as exact SQL on
+-- October 5, 2026 and applied to PlanetScale santiagocarranc2/cove/main statement by statement
+-- (pscale sql, admin role), each result checked; RLS, force-RLS, the owner policy and DML-only
+-- runtime privileges (no TRUNCATE) were verified afterwards.
 --
 -- One row per Google identity: the user's own description of themselves (name, role, projects,
 -- notes, sign-off), never mail. Unlike voice_profiles it does not depend on the cloud mail mirror

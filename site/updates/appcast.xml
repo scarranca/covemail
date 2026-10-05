@@ -1,8 +1,21 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Cove</title>
+        <item>
+            <title>0.1.65</title>
+            <pubDate>Mon, 05 Oct 2026 09:53:11 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>67</sparkle:version>
+            <sparkle:shortVersionString>0.1.65</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.65</title></head><body><h1>About you, on all your devices</h1><ul><li>About you can now sync between Cove on your Mac, iPhone and iPad. Turn on “Sync with your iPhone and iPad” in Agent → About you; it’s off until you do, and the newest edit wins.</li><li>It doesn’t need cloud mail sync and sends no email. About you is stored encrypted on Cove’s server, which can decrypt it, and you can remove the server copy at any time.</li></ul></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.65.dmg" length="24317192" type="application/octet-stream" sparkle:edSignature="Ue91o/vhEmk5WzL63SHdVoY32MA/0AjCMPDQ9dLQTrao/Fey1WIZ+V/h6bBRzdsyvtrMDfJRYvalA/2a7iSTBw=="/>
+        </item>
         <item>
             <title>0.1.64</title>
             <pubDate>Sun, 04 Oct 2026 22:09:34 -0700</pubDate>
@@ -12,10 +25,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.64</title></head><body><h1>Smarter agents, and Cove knows who you are</h1><ul><li>Agents think with more context: Jev now sees the whole conversation, how often you hear from the sender, what you told Cove about yourself, and your past answers, and explains each decision in one line.</li><li>Agents can also archive, flag, mark read or create a Google Task when a rule matches.</li><li>A clearer Activity: emails look like your inbox, with the reader beside them and Right / Wrong — undo, Yes and No. Every answer teaches the agent.</li><li>Try it shows what would happen, what's unclear and what didn't match, with the reason for each, and shows errors plainly.</li><li>About you (Agent → About you): who you are, what you're working on, notes and your sign-off, used in every draft and Ask Cove answer. Cove can suggest it from your sent mail.</li></ul></body></html>
 ]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.64.dmg" length="24009033" type="application/octet-stream" sparkle:edSignature="vy6ZwZjaAhhJr0YD1sn1HMnAWcTEREjLIUM+nceoaaGH/Bd9/qnHEZtTlY5n1MSCgQt33AdApvhPHIaeDa3nCw=="></enclosure>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.64.dmg" length="24009033" type="application/octet-stream" sparkle:edSignature="vy6ZwZjaAhhJr0YD1sn1HMnAWcTEREjLIUM+nceoaaGH/Bd9/qnHEZtTlY5n1MSCgQt33AdApvhPHIaeDa3nCw=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: 5PLHuM/FsS1cDooouydggo0EtwP/up64ScjZTFHiEB81yO8HcbbvBfuOwTHJWuN2UE+EeID2qmAIHdVwuT0qBA==
-length: 2061
+</rss>
+<!-- sparkle-signatures:
+edSignature: 4RpH6e1IAj3M5I0a+RN2//BSFFK9Ehp3DQ1yCN9VEl2T5wCyx7j6MqbzElwAW7HX4h7tygwMBIwaYdtp2L9nDQ==
+length: 3265
 -->
