@@ -46,6 +46,8 @@ Cove for iPhone/iPad gets new-mail notifications without the server holding any 
 
 Deployment: revision `cove-sync-api-00007-hm7` (image built Oct 5 03:3x UTC), DB secret version 1, `COVE_APNS_SECRET_VERSION=1`; env adds `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_TOPIC=ai.cove.ios`, `PUSH_AUDIENCE`, `PUSH_SERVICE_ACCOUNT`. Without `APNS_KEY`/`PUSH_AUDIENCE` the push routes answer `push_unavailable` and the rest of the API is unchanged. Checks: backend tests 20/20 on a disposable loopback Postgres (npm `embedded-postgres`); `/v1/status` 200, unauthenticated and forged push requests 401; a synthetic Pub/Sub publish reached the route (204); APNs accepted the provider token in both environments (fake-token `BadDeviceToken`); a real sandbox push to a signed simulator build ran the notification extension.
 
+Oct 5: revision `cove-sync-api-00008-xgz` (same secrets v1 and configuration) fixes #2: both mail quota checks count only live rows (`AND NOT deleted`), so tombstones never trigger `pilot_storage_limit`; a revived tombstone counts again. Backend tests 22/22; `/v1/status` 200; unauthenticated and forged requests 401. Purging old tombstones is still open (#2).
+
 ## Authentication and isolation
 
 Google ID tokens are verified for signature, issuer, expiry, configured OAuth audiences, verified authoritative Google email, authorized party and the explicit private-pilot email allowlist. Google `sub` selects the tenant; no request may choose a tenant. Tokens are not persisted or logged. Google refresh tokens never leave the Mac.
