@@ -48,6 +48,10 @@ Deployment: revision `cove-sync-api-00007-hm7` (image built Oct 5 03:3x UTC), DB
 
 Oct 5: revision `cove-sync-api-00008-xgz` (same secrets v1 and configuration) fixes #2: both mail quota checks count only live rows (`AND NOT deleted`), so tombstones never trigger `pilot_storage_limit`; a revived tombstone counts again. Backend tests 22/22; `/v1/status` 200; unauthenticated and forged requests 401. Purging old tombstones is still open (#2).
 
+## About you sync — built October 5, 2026; migration 005 awaiting approval
+
+`GET/PUT/DELETE /v1/personal` (`src/personal.js`) keeps one About you per Google identity (`PersonalContext`: name, role, company, about, ≤8 projects, ≤20 notes, sign-off; strict, bounded, never mail). Unlike voice it does **not** depend on `cove_sync.accounts` (mail-mirror consent): each row in `cove_sync.personal_contexts` (migration `005_personal_context.sql`) has its own data key wrapped by Cloud KMS with AAD `cove-personal-v1:<owner>`, and forced RLS on `cove.owner_sub`. Writes are compare-and-swap on `baseRevision` (`personal_conflict` 409, including two concurrent first writes); there are no receipts. `DELETE` removes the server copy only. Server keys can decrypt it (not end-to-end). Clients: `CloudPersonalSync` (CoveCore), opt-in per device on the Mac (Agent → About you) and iPhone/iPad (Settings → About you). Backend tests 24/24. The table must exist before a revision with this route is deployed.
+
 ## Authentication and isolation
 
 Google ID tokens are verified for signature, issuer, expiry, configured OAuth audiences, verified authoritative Google email, authorized party and the explicit private-pilot email allowlist. Google `sub` selects the tenant; no request may choose a tenant. Tokens are not persisted or logged. Google refresh tokens never leave the Mac.

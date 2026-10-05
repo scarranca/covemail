@@ -15,6 +15,7 @@ struct AboutYouSection: View {
               updated.updatedAt = Date()
               store.preferences.personal = updated
               store.persistPreferences()
+              store.schedulePersonalSync()
             })
   }
 
@@ -58,7 +59,32 @@ struct AboutYouSection: View {
       Toggle("Use About you in writing and Ask Cove", isOn: context.enabled).toggleStyle(CoveToggleStyle())
       Text("Stored encrypted on this Mac with your mailbox preferences. Sent to your chosen AI model only with a request, as your own words.")
         .font(.coveMetadata).foregroundStyle(Palette.muted)
+      if store.cloudConfigured && !store.isSample { syncCard }
     }
+    .task { await store.syncPersonal() }
+  }
+
+  /// Opt-in sync with the iPhone and iPad through Cove's server.
+  private var syncCard: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Toggle("Sync with your iPhone and iPad", isOn: Binding(get: { store.personalSyncOn },
+                                                            set: { on in Task { await store.setPersonalSync(on) } }))
+        .toggleStyle(CoveToggleStyle()).disabled(store.personalSyncing)
+      Text("When on, About you is kept on Cove’s server, encrypted, so Cove on your iPhone and iPad uses the same. Cove’s server can decrypt it (it isn’t end-to-end encrypted). No email is sent. Turn it on in each device’s About you.")
+        .font(.coveMetadata).foregroundStyle(Palette.muted).fixedSize(horizontal: false, vertical: true)
+      if let status = store.personalSyncStatus {
+        HStack(spacing: 6) {
+          if store.personalSyncing { ProgressView().controlSize(.small) }
+          Text(status).font(.coveSecondary).foregroundStyle(Palette.body)
+        }
+      }
+      if store.personalSyncOn {
+        Button("Remove the copy on Cove’s server") { Task { await store.removePersonalCloudCopy() } }
+          .buttonStyle(SecondaryButton(compact: true)).disabled(store.personalSyncing)
+      }
+    }
+    .padding(14)
+    .background(Palette.sidebar.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
   }
 
   private func labeled<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

@@ -37,6 +37,7 @@ before(async () => {
   await admin.query(await readFile(new URL('../migrations/002_snoozes.sql', import.meta.url),'utf8'));
   await admin.query(await readFile(new URL('../migrations/003_voice_profile.sql', import.meta.url),'utf8'));
   await admin.query(await readFile(new URL('../migrations/004_push_devices.sql', import.meta.url),'utf8'));
+  await admin.query(await readFile(new URL('../migrations/005_personal_context.sql', import.meta.url),'utf8'));
   await admin.query("CREATE ROLE cove_test_api LOGIN PASSWORD 'synthetic-api-only' NOSUPERUSER NOBYPASSRLS; GRANT cove_sync_runtime TO cove_test_api");
   pool = createPool('postgres://cove_test_api:synthetic-api-only@127.0.0.1:55439/postgres',{local:true});
   await assertRuntimeRole(pool);
@@ -364,4 +365,42 @@ test('gmail push asks Pub/Sub to retry when APNs is unreachable', async () => {
   assert.equal(pushes.length, 1);
   // The device is kept for the retry.
   assert.equal((await admin.query('SELECT count(*) FROM cove_sync.push_devices WHERE owner_sub=$1',['fixture-flaky'])).rows[0].count, '1');
+});
+
+const about = (overrides={}) => ({name:'Ana',role:'Founder',company:'Example',about:'Builds tools.',
+  projects:[{id:'6f1d2c4e-8b1a-4c2e-9f3d-1a2b3c4d5e6f',name:'Launch',detail:'Q4'}],notes:['In Mexico City'],
+  signature:'Best,\nAna',enabled:true,...overrides});
+test('About you syncs without the cloud mail mirror, encrypted per owner, ordered by revision', async () => {
+  const owner='fixture-personal';
+  assert.deepEqual((await request(owner,'GET','/v1/personal')).json(),{revision:'0',personal:null,updatedAt:null});
+  const first=await request(owner,'PUT','/v1/personal',{baseRevision:'0',personal:about(),updatedAt:'2026-10-05T10:00:00Z'});
+  assert.equal(first.statusCode,200,first.body);assert.equal(first.json().revision,'1');
+  assert.equal((await admin.query('SELECT count(*) FROM cove_sync.accounts WHERE owner_sub=$1',[owner])).rows[0].count,'0','no mail-mirror consent needed');
+  const stored=(await admin.query('SELECT ciphertext FROM cove_sync.personal_contexts WHERE owner_sub=$1',[owner])).rows[0];
+  assert.ok(!stored.ciphertext.toString('latin1').includes('Founder'),'stored encrypted');
+  const read=(await request(owner,'GET','/v1/personal')).json();
+  assert.deepEqual(read,{revision:'1',personal:about(),updatedAt:'2026-10-05T10:00:00Z'});
+  assert.equal((await request(owner,'PUT','/v1/personal',{baseRevision:'0',personal:about({role:'CEO'}),updatedAt:'2026-10-05T11:00:00Z'})).json().error,'personal_conflict');
+  const second=await request(owner,'PUT','/v1/personal',{baseRevision:'1',personal:about({role:'CEO'}),updatedAt:'2026-10-05T11:00:00Z'});
+  assert.equal(second.json().revision,'2');
+  assert.equal((await request('fixture-personal-other','GET','/v1/personal')).json().revision,'0','other owners see nothing');
+  const rls=await transaction(pool,'fixture-personal-other',c=>c.query('SELECT owner_sub FROM cove_sync.personal_contexts'));
+  assert.equal(rls.rowCount,0,'forced RLS hides other owners');
+  assert.equal((await request(owner,'DELETE','/v1/personal')).statusCode,200);
+  assert.equal((await request(owner,'GET','/v1/personal')).json().revision,'0');
+  const again=await request(owner,'PUT','/v1/personal',{baseRevision:'0',personal:about(),updatedAt:'2026-10-05T12:00:00Z'});
+  assert.equal(again.json().revision,'1');
+});
+test('About you payloads are strict and bounded; concurrent first writes cannot both win', async () => {
+  const owner='fixture-personal-strict';
+  const put = body => request(owner,'PUT','/v1/personal',body);
+  const ok = {baseRevision:'0',personal:about(),updatedAt:'2026-10-05T10:00:00Z'};
+  for (const bad of [{...ok,personal:about({body:'mail text'})},{...ok,personal:about({about:'x'.repeat(401)})},
+    {...ok,personal:about({notes:Array(21).fill('n')})},{...ok,extra:true},{...ok,updatedAt:'yesterday'}])
+    assert.equal((await put(bad)).statusCode,400);
+  assert.equal((await app.inject({method:'GET',url:'/v1/personal'})).statusCode,401);
+  const results=await Promise.all([put(ok),put({...ok,personal:about({name:'Other'})})]);
+  assert.deepEqual(results.map(r=>r.statusCode).sort(),[200,409]);
+  const winner=results.find(r=>r.statusCode===200);
+  assert.equal((await request(owner,'GET','/v1/personal')).json().revision,winner.json().revision);
 });

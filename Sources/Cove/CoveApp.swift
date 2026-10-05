@@ -181,6 +181,7 @@ struct RootView: View {
       if store.needsContentRefresh { await store.sync() }
       await store.pollMailbox()
       store.pollCloud()
+      store.pollPersonal()
       await store.refreshLabels(force: false)
       while !Task.isCancelled {
         do {
@@ -188,6 +189,7 @@ struct RootView: View {
           store.now = Date()
           await store.pollMailbox()
           store.pollCloud()
+          store.pollPersonal()
           await store.refreshLabels(force: false)
         } catch { break }
       }

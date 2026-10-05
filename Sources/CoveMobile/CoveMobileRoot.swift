@@ -76,6 +76,10 @@ public struct CoveMobileRoot: View {
       await mailbox.downloadHistory()
     }
     .task(id: auth.email) {
+      MobileMe.shared.auth = auth
+      await MobileMe.shared.sync()
+    }
+    .task(id: auth.email) {
       // While Cove is open, check Gmail about every two minutes, like the Mac.
       while !Task.isCancelled, auth.email != nil {
         try? await Task.sleep(for: .seconds(120))
@@ -105,6 +109,7 @@ public struct CoveMobileRoot: View {
         ai.refreshStatus()
         Task { await mailbox.sync() }
         Task { await push.appBecameActive() }
+        Task { await MobileMe.shared.sync() }
       case .background:
         // Leaving the app finishes a waiting Trash or Send instead of losing it.
         mailbox.commitPendingNow()

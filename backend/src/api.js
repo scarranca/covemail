@@ -5,6 +5,7 @@ import { transaction } from './database.js';
 import { newKey, seal, open, context, digest } from './crypto.js';
 import { registerSnoozes } from './snoozes.js';
 import { registerVoice } from './voice.js';
+import { registerPersonal } from './personal.js';
 import { registerPush } from './push.js';
 
 const uuid = z.string().uuid().transform(value => value.toLowerCase());
@@ -190,6 +191,7 @@ export function createAPI({pool, verifyIdentity, keys, bodies, apns = null, veri
   });
   registerSnoozes(app, {withOwner, account, keys, parse, fail, uuid, id, revision});
   registerVoice(app, {withOwner, account, keys, parse, fail, uuid, revision});
+  registerPersonal(app, {withOwner, keys, parse, fail, revision});
   registerPush(app, {pool, withOwner, parse, fail, uuid, apns, verifyPubSub, log});
   return app;
 }

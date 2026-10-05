@@ -20,6 +20,12 @@ import SwiftUI
   }
   var cloudMirror = CloudMirrorState()
   var cloudSnoozes = CloudSnoozeState()
+  /// About you sync with the iPhone and iPad (`PersonalSync.swift`), separate from the mail mirror.
+  var personalSync = PersonalSyncState()
+  var personalSyncStatus: String?
+  var personalSyncing = false
+  @ObservationIgnored var personalSyncTask: Task<Void, Never>?
+  @ObservationIgnored var lastPersonalSync = Date.distantPast
   var cloudStatus = "Cloud sync is off"
   var cloudSyncing = false
   private var cloudTask: Task<Void, Never>?
@@ -244,7 +250,7 @@ import SwiftUI
   var postSend: PostSendTaskCheck?
   /// Replaceable only by tests (an in-memory Keychain and isolated defaults).
   @ObservationIgnored var auth = GoogleAuth()
-  private var database: Database?
+  private(set) var database: Database?
   private var gmail = GmailClient()
   private var gmailTokenProvider: (() async throws -> String)?
   private(set) var syncClock: () -> Date = { Date() }
@@ -594,6 +600,9 @@ import SwiftUI
     cloudStatus = cloudMirror.enabled ? "Ready to sync" : "Cloud sync is off"
     database = snapshot.database
     cloudSnoozes = snapshot.cloudSnoozes
+    personalSyncTask?.cancel(); personalSyncTask = nil; personalSyncing = false
+    personalSync = (try? snapshot.database.load(PersonalSyncState.self, key: "personalSync")) ?? PersonalSyncState()
+    personalSyncStatus = nil; lastPersonalSync = .distantPast
     unsubscribedSenders = (try? snapshot.database.load([String: Date].self, key: "unsubscribedSenders")) ?? [:]
     unsubscribeChecked = []
     mails = snapshot.mails.map { cloudSnoozes.applying(to: $0) }
@@ -844,7 +853,7 @@ import SwiftUI
     guard !busy else { return }
     var connected = false
     await run("Connecting to Gmail…") {
-      let pending = try await self.auth.connect(includeCalendar: includeCalendar, includeCloud: self.cloudMirror.enabled,
+      let pending = try await self.auth.connect(includeCalendar: includeCalendar, includeCloud: self.needsGoogleIdentity,
                                                 includeTasks: self.tasksConnected)
       // Nothing in the active account changes until identity, database, and Keychain all succeed.
       let snapshot = try self.loadMailbox(name: pending.session.email)
@@ -1252,7 +1261,7 @@ import SwiftUI
     var connected = false
     await run("Connecting Google Calendar…") {
       let pending = try await self.auth.connect(
-        includeCalendar: true, includeCloud: self.cloudMirror.enabled, includeTasks: self.tasksConnected, loginHint: email)
+        includeCalendar: true, includeCloud: self.needsGoogleIdentity, includeTasks: self.tasksConnected, loginHint: email)
       guard generation == self.mailboxGeneration, email == self.accountEmail else {
         throw CancellationError()
       }
@@ -3241,7 +3250,7 @@ extension AppStore {
 
 extension AppStore {
   var cloudConfigured: Bool { cloudURL != nil }
-  private var cloudURL: URL? {
+  var cloudURL: URL? {
     guard let value = Bundle.main.object(forInfoDictionaryKey: "CoveCloudSyncURL") as? String,
       let url = URL(string: value), url.scheme == "https", url.host?.hasSuffix(".run.app") == true
     else { return nil }
@@ -3774,7 +3783,7 @@ extension AppStore {
     var connected = false
     await run("Connecting Google Tasks…") {
       let pending = try await self.auth.connect(
-        includeCalendar: self.calendarConnected, includeCloud: self.cloudMirror.enabled, includeTasks: true, loginHint: email)
+        includeCalendar: self.calendarConnected, includeCloud: self.needsGoogleIdentity, includeTasks: true, loginHint: email)
       guard generation == self.mailboxGeneration, email == self.accountEmail else { throw CancellationError() }
       try pending.session.requireMailbox(email)
       guard pending.session.tasksConnected == true else {

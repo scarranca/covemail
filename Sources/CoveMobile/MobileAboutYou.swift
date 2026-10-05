@@ -23,8 +23,75 @@ import SwiftUI
   func save(_ updated: PersonalContext) throws {
     var value = updated
     value.updatedAt = Date()
+    try store(value)
+    Task { await sync() }
+  }
+
+  private func store(_ value: PersonalContext) throws {
     try MobileKeychain.save(String(decoding: try Self.encoder.encode(value), as: UTF8.self), name: Self.key)
     context = value
+  }
+
+  // MARK: Sync with the Mac and iPad (opt-in, `/v1/personal`)
+
+  private static let syncKey = "personalSync"
+  @ObservationIgnored weak var auth: MobileAuth?
+  private(set) var syncState: PersonalSyncState = {
+    guard let data = UserDefaults.standard.data(forKey: MobileMe.syncKey),
+          let state = try? MobileMe.decoder.decode(PersonalSyncState.self, from: data) else { return PersonalSyncState() }
+    return state
+  }()
+  private(set) var syncing = false
+  private(set) var syncStatus: String?
+
+  /// Sync is on for the signed-in account.
+  var syncEnabled: Bool { syncState.enabled && syncState.account == auth?.email && auth?.email != nil }
+
+  private func saveSyncState(_ state: PersonalSyncState) {
+    syncState = state
+    if let data = try? Self.encoder.encode(state) { UserDefaults.standard.set(data, forKey: Self.syncKey) }
+  }
+
+  func setSync(_ enabled: Bool) async {
+    var state = PersonalSyncState()
+    state.enabled = enabled
+    state.account = enabled ? auth?.email : nil
+    saveSyncState(state)
+    syncStatus = enabled ? nil : "Sync is off. Your other devices keep their copy."
+    if enabled { await sync() }
+  }
+
+  /// Reads the server copy, then sends this device's edit or takes the newer one.
+  func sync() async {
+    guard syncEnabled, !syncing, let auth, !auth.isSample else { return }
+    syncing = true
+    defer { syncing = false }
+    do {
+      guard let identity = try await auth.identityToken() else { return }
+      let client = try CloudMailClient(baseURL: MobilePush.server)
+      let outcome = try await CloudPersonalSync.sync(local: context, state: syncState, client: client, token: { identity })
+      guard syncEnabled else { return }
+      if let remote = outcome.apply { try store(remote) }
+      saveSyncState(outcome.state)
+      syncStatus = "Up to date with your other devices"
+    } catch let failure as CloudSyncFailure where failure.code == "authentication_required" {
+      syncStatus = "Cove’s server didn’t accept this sign-in. This account must be in the private beta."
+    } catch {
+      syncStatus = "Couldn’t sync just now. Cove will try again when it’s open."
+    }
+  }
+
+  /// Deletes the copy on Cove's server and turns sync off here. Devices keep their own copy.
+  func removeCloudCopy() async {
+    guard let auth, !auth.isSample else { return }
+    do {
+      guard let identity = try await auth.identityToken() else { return }
+      try await CloudMailClient(baseURL: MobilePush.server).removePersonal(token: identity)
+      saveSyncState(PersonalSyncState())
+      syncStatus = "Removed from Cove’s server. This iPhone keeps its copy; turn sync off on your other devices too."
+    } catch {
+      syncStatus = "Couldn’t remove the server copy. Try again."
+    }
   }
 
   /// "Remember …" / "Forget …" from Ask Cove. Returns the confirmation to show.
@@ -57,8 +124,11 @@ struct MobileAboutYouView: View {
   @Environment(\.dismiss) private var dismiss
 
   private var changed: Bool { draft != MobileMe.shared.context }
+  private var me: MobileMe { MobileMe.shared }
+  private var device: String { UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone" }
 
   var body: some View {
+    ScrollViewReader { proxy in
     ScrollView {
       VStack(alignment: .leading, spacing: 22) {
         Text("Cove uses this when it writes for you and answers your questions, so drafts know who you are and what you’re working on.")
@@ -129,14 +199,40 @@ struct MobileAboutYouView: View {
         }
 
         Toggle("Use in writing and Ask Cove", isOn: $draft.enabled).toggleStyle(MobileToggleStyle())
-        Text("Stays on this \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"), encrypted in the Keychain. It goes to your chosen AI model only with a request, as your own words — never as facts from email.")
+        Text("Encrypted in this \(device)’s Keychain. It goes to your chosen AI model only with a request, as your own words — never as facts from email.")
           .font(.mobileMetadata).foregroundStyle(MobilePalette.muted).fixedSize(horizontal: false, vertical: true)
+
+        section("Your other devices") {
+          Toggle("Sync with your Mac and iPad", isOn: Binding(get: { me.syncEnabled }, set: { on in Task { await me.setSync(on) } }))
+            .toggleStyle(MobileToggleStyle()).disabled(me.syncing)
+          Text("When on, About you is kept on Cove’s server, encrypted, so the Cove on your Mac and iPad uses the same. Cove’s server can decrypt it (it isn’t end-to-end encrypted). No email is sent. Turn it on in each device’s About you.")
+            .font(.mobileMetadata).foregroundStyle(MobilePalette.muted).fixedSize(horizontal: false, vertical: true)
+          if let status = me.syncStatus {
+            HStack(spacing: 6) {
+              if me.syncing { ProgressView().controlSize(.small) }
+              Text(status)
+            }.font(.mobileSecondary).foregroundStyle(MobilePalette.body)
+          }
+          if me.syncEnabled {
+            Button("Remove the copy on Cove’s server") { Task { await me.removeCloudCopy() } }
+              .buttonStyle(MobileSecondaryButton(compact: true)).disabled(me.syncing)
+          }
+        }
+        .id("sync")
       }
       .foregroundStyle(MobilePalette.ink)
       .padding(20)
       .frame(maxWidth: 720).frame(maxWidth: .infinity)
     }
+    .onAppear {
+      #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("-CoveAboutSync") { proxy.scrollTo("sync", anchor: .bottom) }
+      #endif
+    }
+    }
     .background(MobilePalette.surface)
+    .task { await me.sync() }
+    .onChange(of: me.context) { old, new in if draft == old { draft = new } }
     .navigationTitle("About you")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {

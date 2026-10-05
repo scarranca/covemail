@@ -115,6 +115,7 @@ public struct CloudSyncFailure: LocalizedError {
     case "authentication_required": return "Reconnect Google for cloud sync. This account must be included in the private pilot."
     case "cloud_not_connected", "connection_changed": return "The cloud copy was disconnected. Enable cloud sync again to reconnect."
     case "revision_conflict": return "The cloud copy changed. Retry sync; use one Mac as the uploader during this pilot."
+    case "personal_conflict": return "About you changed on another device at the same time. Cove will try again."
     case "snooze_conflict": return "A reminder changed on another device. Choose its snooze time again, or Return to inbox, to resolve it."
     case "snooze_storage_limit": return "The cloud pilot’s reminder storage is full. This reminder is saved only on this Mac."
     case "pilot_storage_limit": return "The cloud pilot has reached its storage limit. Remove the cloud copy before starting a new mirror."
