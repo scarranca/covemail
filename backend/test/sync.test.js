@@ -115,6 +115,21 @@ test('unique revisions paginate without losing changes and deletions yield tombs
   assert.deepEqual(tombstones.messages,[{id:'id100',revision:'102',deleted:true}]);
   assert.equal((await request('fixture-pagination','GET',`/v1/messages/id100/body?accountID=${a.accountID}`)).statusCode,404);
 });
+test('mail quota counts live rows only: tombstones never block uploads, a revived tombstone counts again',async () => {
+  const owner='fixture-quota-tombstones';let a=await connect(owner);
+  await admin.query(`INSERT INTO cove_sync.messages(owner_sub,message_id,thread_id,received_at,labels,revision,deleted)
+    SELECT $1,'gone'||n,'thread',now(),'{}',n,true FROM generate_series(1,6000) n`,[owner]);
+  await admin.query(`INSERT INTO cove_sync.messages(owner_sub,message_id,thread_id,received_at,labels,revision)
+    SELECT $1,'live'||n,'thread',now(),'{INBOX}',6000+n FROM generate_series(1,4999) n`,[owner]);
+  await admin.query('UPDATE cove_sync.accounts SET revision=10999 WHERE owner_sub=$1',[owner]);a={...a,revision:'10999'};
+  const fits=await request(owner,'POST','/v1/messages/batch',input(a,[mail('new')]));
+  assert.equal(fits.statusCode,200,fits.body);a={...a,...fits.json()};
+  const full=await request(owner,'POST','/v1/messages/batch',input(a,[mail('newer')]));
+  assert.equal(full.json().error,'pilot_storage_limit');
+  assert.equal((await request(owner,'POST','/v1/messages/batch',input(a,[mail('gone1')]))).json().error,'pilot_storage_limit');
+  const updated=await request(owner,'POST','/v1/messages/batch',input(a,[{...mail('live1'),labels:['INBOX']}],['live2']));
+  assert.equal(updated.statusCode,200,updated.body);
+});
 test('deleted account cannot be recreated by an in-flight upload',async () => {
   const a=await connect('fixture-delete');let resume;let arrived;
   const gate=new Promise(r=>{arrived=r});

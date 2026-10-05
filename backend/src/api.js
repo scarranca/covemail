@@ -101,9 +101,10 @@ export function createAPI({pool, verifyIdentity, keys, bodies, apns = null, veri
     if (a.revision !== input.baseRevision) fail(409, 'revision_conflict');
     // Reject quota violations before allocating objects; recheck under the commit lock below.
     const additional = await withOwner(req, async c => {
+      // Only live rows count: deleted rows are tombstones for /changes, not stored mail.
       const r = await c.query(`SELECT count(*) AS total,
         count(*) FILTER (WHERE message_id = ANY($2::text[])) AS existing
-        FROM cove_sync.messages WHERE owner_sub=$1`, [req.identity.sub, input.messages.map(m => m.id)]);
+        FROM cove_sync.messages WHERE owner_sub=$1 AND NOT deleted`, [req.identity.sub, input.messages.map(m => m.id)]);
       return Number(r.rows[0].total) + input.messages.length - Number(r.rows[0].existing);
     });
     if (additional > 5000) fail(409, 'pilot_storage_limit');
@@ -153,7 +154,7 @@ export function createAPI({pool, verifyIdentity, keys, bodies, apns = null, veri
           [req.identity.sub, deletedID, (rev + 1n).toString()]);
         if (result.rowCount) rev++;
       }
-      const count = (await c.query('SELECT count(*) FROM cove_sync.messages WHERE owner_sub=$1', [req.identity.sub])).rows[0].count;
+      const count = (await c.query('SELECT count(*) FROM cove_sync.messages WHERE owner_sub=$1 AND NOT deleted', [req.identity.sub])).rows[0].count;
       if (Number(count) > 5000) fail(409, 'pilot_storage_limit');
       await c.query('UPDATE cove_sync.accounts SET revision=$2 WHERE owner_sub=$1', [req.identity.sub, rev.toString()]);
       await c.query('INSERT INTO cove_sync.receipts(owner_sub,request_id,request_hash,revision) VALUES($1,$2,$3,$4)', [req.identity.sub,input.requestID,requestHash,rev.toString()]);
