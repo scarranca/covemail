@@ -1,46 +1,21 @@
-<?xml version="1.0" standalone="yes"?>
-<!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
--->
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Cove</title>
         <item>
-            <title>0.1.63</title>
-            <pubDate>Fri, 02 Oct 2026 11:46:21 -0700</pubDate>
+            <title>0.1.64</title>
+            <pubDate>Sun, 04 Oct 2026 22:09:34 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>65</sparkle:version>
-            <sparkle:shortVersionString>0.1.63</sparkle:shortVersionString>
+            <sparkle:version>66</sparkle:version>
+            <sparkle:shortVersionString>0.1.64</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.63</title></head><body><h1>The menu bar icon appears</h1><ul><li>Fixes the menu bar icon not appearing in 0.1.62. Turn it on in Settings → Menu bar to see your next meeting, a countdown, and one-click Join.</li></ul></body></html>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.64</title></head><body><h1>Smarter agents, and Cove knows who you are</h1><ul><li>Agents think with more context: Jev now sees the whole conversation, how often you hear from the sender, what you told Cove about yourself, and your past answers, and explains each decision in one line.</li><li>Agents can also archive, flag, mark read or create a Google Task when a rule matches.</li><li>A clearer Activity: emails look like your inbox, with the reader beside them and Right / Wrong — undo, Yes and No. Every answer teaches the agent.</li><li>Try it shows what would happen, what's unclear and what didn't match, with the reason for each, and shows errors plainly.</li><li>About you (Agent → About you): who you are, what you're working on, notes and your sign-off, used in every draft and Ask Cove answer. Cove can suggest it from your sent mail.</li></ul></body></html>
 ]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.63.dmg" length="22979941" type="application/octet-stream" sparkle:edSignature="lkkq1enJ36oCLra7G3+j1XTo136Op/+LpMFgNusTUzDGOdIfp5XlhcHt/sjZy013Yltyj0xTGyPPLazs1HMKBg=="/>
-        </item>
-        <item>
-            <title>0.1.62</title>
-            <pubDate>Fri, 02 Oct 2026 11:24:07 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>64</sparkle:version>
-            <sparkle:shortVersionString>0.1.62</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.62</title></head><body><h1>Fixes Cove freezing on launch</h1><ul><li>Fixes 0.1.61 freezing right after it opens. If Cove froze for you, install this version from the website: open the DMG and drag Cove to Applications.</li><li>Your next meeting in the menu bar is back, now under its own Settings → Menu bar section. It's off by default.</li></ul><p>Nothing else changes.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.62.dmg" length="22979887" type="application/octet-stream" sparkle:edSignature="4c8pVra0V0uoPqwjdkn6rJkMuGFPFU5UOz8+UWqZ4DsNvNWoREhmUwD1fer77V6OnL+QGKrBwRqVh+6i0BisCw=="/>
-        </item>
-        <item>
-            <title>0.1.61</title>
-            <pubDate>Fri, 02 Oct 2026 10:36:39 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>63</sparkle:version>
-            <sparkle:shortVersionString>0.1.61</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.61</title></head><body><h1>Your next meeting, in the menu bar</h1><ul><li>Turn on Meetings in the menu bar (Settings → Gmail) to see your next meeting at a glance: “Standup in 8m”, then “Join Standup”.</li><li>When a call with other people is about to start, the icon pulses. Join is one click away, for Google Meet, Zoom, Teams and Webex links.</li><li>The panel also lists your later meetings today and opens any of them in Cove.</li></ul><p>It’s off by default, and it stays still with Reduce Motion.</p></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.61.dmg" length="22969948" type="application/octet-stream" sparkle:edSignature="oO8gG0JZ1aoHyspHbQDy5kB20OxcUvVtaRaKR1S7ex1XKLCZxm4cDRhDuVjMDdnmhTnYJG1W6YkO7ASzHAflDg=="/>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.64.dmg" length="24009033" type="application/octet-stream" sparkle:edSignature="vy6ZwZjaAhhJr0YD1sn1HMnAWcTEREjLIUM+nceoaaGH/Bd9/qnHEZtTlY5n1MSCgQt33AdApvhPHIaeDa3nCw=="></enclosure>
         </item>
     </channel>
-</rss>
-<!-- sparkle-signatures:
-edSignature: G7fd7fpibAyPIPLXb5dtAcvSpQwW2Ndyd/CFIjnmdlumE+SNIlE5/NREwKlNrdKzaev0AEek0iwze8I5qhfsDg==
-length: 3837
+</rss><!-- sparkle-signatures:
+edSignature: 5PLHuM/FsS1cDooouydggo0EtwP/up64ScjZTFHiEB81yO8HcbbvBfuOwTHJWuN2UE+EeID2qmAIHdVwuT0qBA==
+length: 2061
 -->
