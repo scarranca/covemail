@@ -30,6 +30,7 @@ struct ReaderView: View {
   @State private var replyFocusRequest = 0
   @State private var replySelection = NSRange(location: 0, length: 0)
   @State private var aiOpen = false
+  @State private var choosingReplyFiles = false
   var current: Mail { store.mails.first { $0.id == mail.id } ?? mail }
   private var replySource: Mail { replyTarget.map { target in store.mails.first { $0.id == target.id } ?? target } ?? current }
   private var replyAllRecipients: (to: String, cc: String)? {
@@ -149,7 +150,15 @@ struct ReaderView: View {
     .task { await store.loadSendingAliasesIfNeeded() }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
     .onChange(of: current.id) { _, _ in askingCove = false; replyFrom = nil; flushReply() }
-    .onDisappear { flushReply() }
+    .onDisappear {
+      flushReply()
+      if store.replyDraftTarget == replySource.id { store.replyDraftTarget = nil }
+    }
+    // A file dropped on the window joins this reply while it's being written.
+    .onChange(of: replying ? replySource.id : nil, initial: true) { _, target in
+      store.replyDraftTarget = target
+      if let target { store.loadAttachments(AttachmentTarget.reply(target)) }
+    }
     // Ask Cove can write the reply while this email is open. Typing keeps both in step, so a difference
     // means the draft was written elsewhere: show it instead of an empty editor.
     .onChange(of: replySource.draft) { _, written in
@@ -596,10 +605,13 @@ struct ReaderView: View {
               aiOpen = false
             }, onConfigure: { store.screen = "integrations" })
         }
+        if !replyFiles.isEmpty || store.attachmentNotice != nil {
+          AttachmentChips(store: store, target: AttachmentTarget.reply(replySource.id))
+        }
         ViewThatFits(in: .horizontal) {
-          HStack(alignment: .center, spacing: 10) { sendButton; templateMenu; Spacer(minLength: 8); discardButton }
+          HStack(alignment: .center, spacing: 10) { sendButton; attachButton; templateMenu; Spacer(minLength: 8); discardButton }
           VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) { sendButton; Spacer(minLength: 8); discardButton }
+            HStack(alignment: .center, spacing: 10) { sendButton; attachButton; Spacer(minLength: 8); discardButton }
             HStack(alignment: .center, spacing: 10) { templateMenu }
           }
         }
@@ -621,13 +633,14 @@ extension ReaderView {
       cancelReplySave()
       savedReply = ""
       store.saveReply(id: source.id, text: "")
-      store.queueSend(to: recipient, subject: subject, body: sentText, reply: source, from: replyFrom ?? store.replySender(for: source), cc: cc)
+      store.queueSend(to: recipient, subject: subject, body: sentText, reply: source, from: replyFrom ?? store.replySender(for: source), cc: cc,
+                      attachmentTarget: AttachmentTarget.reply(source.id))
       reply = ""
       showReply = false
     } label: {
       Label(store.isSample ? "Save sample reply" : "Send reply", systemImage: "paperplane")
     }.buttonStyle(PrimaryButton()).fixedSize().disabled(
-      reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || replyRecipient.isEmpty || store.busy
+      (reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && replyFiles.isEmpty) || replyRecipient.isEmpty || store.busy
         || writingActivity.working || writingActivity.preview != nil)
   }
   private var templateMenu: some View {
@@ -655,9 +668,17 @@ extension ReaderView {
   private var streamingReply: Bool {
     writingActivity.working && !(writingActivity.streaming ?? "").isEmpty
   }
+  private var replyFiles: [OutgoingAttachment] { store.attachments(for: AttachmentTarget.reply(replySource.id)) }
+  private var attachButton: some View {
+    AttachButton { choosingReplyFiles = true }.disabled(store.busy)
+      .fileImporter(isPresented: $choosingReplyFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        if case .success(let urls) = result { store.addAttachments(urls, to: AttachmentTarget.reply(replySource.id)) }
+      }
+  }
   private var discardButton: some View {
     Button {
       cancelReplySave()
+      store.clearAttachments(AttachmentTarget.reply(replySource.id))
       reply = ""
       showReply = false
       store.saveReply(id: replySource.id, text: "")

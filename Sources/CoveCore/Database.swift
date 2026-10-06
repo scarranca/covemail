@@ -240,6 +240,12 @@ public final class Database {
     savedMessages.removeValue(forKey: id)
   }
 
+  /// Removes one record (for example a sent draft's attachments).
+  public func removeRecord(key: String) throws {
+    guard key != Self.keyCheck else { throw CoveError.message("Reserved mailbox record.") }
+    try deleteRecord(key: key)
+  }
+
   private func deleteRecord(key: String) throws {
     var statement: OpaquePointer?
     guard sqlite3_prepare_v2(handle, "DELETE FROM records WHERE key=?", -1, &statement, nil) == SQLITE_OK

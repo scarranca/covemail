@@ -128,6 +128,7 @@ struct Logo: View {
 struct RootView: View {
   @Bindable var store: AppStore
   @State private var availableSize = CGSize(width: 1420, height: 920)
+  @State private var fileDropTargeted = false
   var body: some View {
     Group {
       if store.showConnections {
@@ -169,6 +170,17 @@ struct RootView: View {
       VStack(spacing: 8) { SignInWaitingBar(store: store); SendUndoToast(store: store); MailDeletionToast(store: store) }.padding(.bottom, 22)
     }
     .background(MailDeleteShortcut(store: store).frame(width: 0, height: 0))
+    // Files dropped anywhere on the window join the reply being written, or start a new email.
+    .dropDestination(for: URL.self) { urls, _ in
+      guard store.entered, !urls.isEmpty else { return false }
+      store.attachDropped(urls)
+      return true
+    } isTargeted: { fileDropTargeted = $0 && store.entered }
+    .overlay {
+      if fileDropTargeted {
+        AttachmentDropOverlay(title: store.replyDraftTarget != nil ? "Drop to attach to your reply" : "Drop to start a new email with these files")
+      }
+    }
     .font(.coveBody).tint(Palette.ink).foregroundStyle(Palette.ink).background(Palette.canvas)
     .background {
       GeometryReader { geometry in

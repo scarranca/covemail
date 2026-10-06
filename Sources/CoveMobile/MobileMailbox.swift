@@ -517,16 +517,19 @@ import UIKit
   }
 
   /// Sends after a four-second Undo window (as on the Mac). `onUndo` gets the draft back.
-  func send(to: String, cc: String, subject: String, body: String, reply: Mail?, onUndo: @escaping @MainActor () -> Void) throws {
+  func send(to: String, cc: String, subject: String, body: String, reply: Mail?, attachments: [OutgoingAttachment] = [],
+            onUndo: @escaping @MainActor () -> Void) throws {
     guard let from = auth.email else { throw CoveError.message("Sign in with Google to send mail.") }
-    // Validate now, so a bad address is reported before the composer closes.
+    // Validate now, so a bad address or too many files is reported before the composer closes.
+    try OutgoingAttachment.validate(attachments)
     _ = try GmailClient.rawMessage(from: from, to: to, subject: subject, body: body,
                                    replyMessageID: reply?.messageID, cc: cc)
     schedule(PendingAction(title: "Sending…"), seconds: 4) { [weak self] in
       guard let self else { return }
       do {
         let token = try await self.auth.token()
-        _ = try await self.gmail.send(token: token, from: from, to: to, subject: subject, body: body, reply: reply, cc: cc)
+        _ = try await self.gmail.send(token: token, from: from, to: to, subject: subject, body: body, reply: reply, cc: cc,
+                                      attachments: attachments)
         if let reply { self.update(reply.id) { $0.draft = "" } }
         await self.sync()
       } catch {

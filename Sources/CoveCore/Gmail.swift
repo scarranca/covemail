@@ -330,8 +330,18 @@ public struct GmailClient {
   }
   public static func rawMessage(
     from: String, to: String, subject: String, body: String, replyMessageID: String? = nil,
-    date: Date = Date(), cc: String = ""
+    date: Date = Date(), cc: String = "", attachments: [OutgoingAttachment] = []
   ) throws -> String {
+    try mimeMessage(from: from, to: to, subject: subject, body: body, replyMessageID: replyMessageID,
+                    date: date, cc: cc, attachments: attachments).base64URL
+  }
+
+  /// The RFC 5322 message. Without attachments it is a single text/plain part (unchanged since
+  /// before attachments); with them, multipart/mixed with the text first and one part per file.
+  public static func mimeMessage(
+    from: String, to: String, subject: String, body: String, replyMessageID: String? = nil,
+    date: Date = Date(), cc: String = "", attachments: [OutgoingAttachment] = []
+  ) throws -> Data {
     guard from.rangeOfCharacter(from: .newlines) == nil,
       !from.trimmingCharacters(in: .whitespaces).isEmpty, from.contains("@")
     else {
@@ -367,7 +377,20 @@ public struct GmailClient {
     let encodedBody = Data(body.utf8).base64EncodedString(options: [
       .lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed,
     ])
-    return Data((headers.joined(separator: "\r\n") + "\r\n\r\n" + encodedBody).utf8).base64URL
+    guard !attachments.isEmpty else {
+      return Data((headers.joined(separator: "\r\n") + "\r\n\r\n" + encodedBody).utf8)
+    }
+    try OutgoingAttachment.validate(attachments)
+    let boundary = "cove-" + UUID().uuidString
+    headers.removeAll { $0.hasPrefix("Content-Type:") || $0.hasPrefix("Content-Transfer-Encoding:") }
+    headers.append("Content-Type: multipart/mixed; boundary=\"\(boundary)\"")
+    var parts = ["Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n" + encodedBody]
+    for file in attachments { parts.append(file.mimePart) }
+    // Base64 bodies and the encoded headers can't contain the boundary ("cove-" + UUID).
+    var message = headers.joined(separator: "\r\n") + "\r\n\r\n"
+    for part in parts { message += "--\(boundary)\r\n" + part + "\r\n" }
+    message += "--\(boundary)--\r\n"
+    return Data(message.utf8)
   }
 
   private static func encodedSubject(_ subject: String) -> String {
@@ -389,10 +412,15 @@ public struct GmailClient {
   }
   public func send(
     token: String, from: String, to: String, subject: String, body: String, reply: Mail? = nil,
-    cc: String = ""
+    cc: String = "", attachments: [OutgoingAttachment] = []
   )
     async throws -> String
   {
+    if !attachments.isEmpty {
+      return try await uploadSend(token: token, message: Self.mimeMessage(
+        from: from, to: to, subject: subject, body: body, replyMessageID: reply?.messageID, cc: cc,
+        attachments: attachments), threadID: reply?.threadID)
+    }
     var payload: [String: Any] = [
       "raw": try Self.rawMessage(
         from: from, to: to, subject: subject, body: body, replyMessageID: reply?.messageID, cc: cc)

@@ -102,6 +102,10 @@ struct ComposerView: View {
   @State private var confirmDiscard = false
   @State private var undoSuggestion: String?
   @State private var appliedSuggestion: String?
+  @State private var choosingFiles = false
+  @State private var dropTargeted = false
+  private var attachmentTarget: String? { store.composeID.map(AttachmentTarget.draft) }
+  private var files: [OutgoingAttachment] { attachmentTarget.map { store.attachments(for: $0) } ?? [] }
 
   init(store: AppStore, availableSize: CGSize = CGSize(width: 1100, height: 780), activity: WritingActivity? = nil) {
     self.store = store
@@ -114,7 +118,7 @@ struct ComposerView: View {
   private var compact: Bool { sheetWidth < 900 }
   private var sendDisabled: Bool {
     to.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busy
+      || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty) || store.busy
       || !senderAddresses.contains(sender) || writingActivity.working || writingActivity.preview != nil
   }
 
@@ -126,10 +130,21 @@ struct ComposerView: View {
     }
       .frame(width: sheetWidth, height: sheetHeight)
       .background(Palette.canvas).foregroundStyle(Palette.ink)
+      // Drop files anywhere on the draft to attach them.
+      .dropDestination(for: URL.self) { urls, _ in
+        guard let target = attachmentTarget, !urls.isEmpty else { return false }
+        store.addAttachments(urls, to: target)
+        return true
+      } isTargeted: { dropTargeted = $0 }
+      .overlay { if dropTargeted { AttachmentDropOverlay(title: "Drop to attach to this email") } }
+      .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        if case .success(let urls) = result, let target = attachmentTarget { store.addAttachments(urls, to: target) }
+      }
       .onAppear {
         guard !loaded else { return }
         sender = store.defaultSender
         senderAddresses = store.sendingAliases.isEmpty ? [store.accountEmail] : store.sendingAliases
+        if let target = attachmentTarget { store.loadAttachments(target) }
         if let mail = store.mails.first(where: { $0.id == store.composeID }) {
           to = mail.to; subject = mail.subject; text = mail.body
           sender = mail.senderEmail.isEmpty ? store.defaultSender : mail.senderEmail
@@ -148,6 +163,7 @@ struct ComposerView: View {
         Button("Move to Trash", role: .destructive) {
           save()
           if let mail = store.mails.first(where: { $0.id == store.composeID }) {
+            if let target = attachmentTarget { store.clearAttachments(target) }
             Task { await store.trash(mail); dismiss() }
           }
         }
@@ -255,6 +271,9 @@ struct ComposerView: View {
           }.buttonStyle(.plain).font(.coveControl)
         }.padding(.horizontal, 24).padding(.vertical, 10).background(Palette.summary)
       }
+      if let target = attachmentTarget, !files.isEmpty || store.attachmentNotice != nil {
+        AttachmentChips(store: store, target: target).padding(.horizontal, 24).padding(.bottom, 10)
+      }
       // Collapsed to the ✦ button in the footer until asked for; stays mounted so work isn't lost.
       assistant.padding(.horizontal, 20).padding(.bottom, 12)
       Divider()
@@ -263,6 +282,7 @@ struct ComposerView: View {
           send()
         }.buttonStyle(PrimaryButton()).disabled(sendDisabled)
           .keyboardShortcut(.return, modifiers: .command)
+        AttachButton { choosingFiles = true }.disabled(store.busy || attachmentTarget == nil)
 
         Spacer(minLength: 0)
         Button { confirmDiscard = true } label: {
@@ -387,7 +407,7 @@ struct ComposerView: View {
   private func send() {
     save()
     // No "Send this email?" dialog: a 4-second undo bar instead, like Delete. Undo reopens this draft.
-    store.queueSend(to: to, subject: subject, body: text, draftID: store.composeID, from: sender)
+    store.queueSend(to: to, subject: subject, body: text, draftID: store.composeID, from: sender, attachmentTarget: attachmentTarget)
     dismiss()
   }
 

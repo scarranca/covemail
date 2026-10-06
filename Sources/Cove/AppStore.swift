@@ -209,6 +209,11 @@ import SwiftUI
   var assistantInitialQuery = ""
   var showComposer = false
   var composeID: String?
+  /// Files attached to drafts, by `AttachmentTarget` key; saved as encrypted records (`DraftAttachments.swift`).
+  var draftAttachments: [String: [OutgoingAttachment]] = [:]
+  var attachmentNotice: String?
+  /// The email whose reply is being written in the reader, so a file dropped on the window joins it.
+  var replyDraftTarget: String?
   var nextPage: String?
   private var gmailHistoryID: String?
   /// Emails a rate-limited sync didn't reach; the next sync checks them first.
@@ -600,6 +605,7 @@ import SwiftUI
     cloudStatus = cloudMirror.enabled ? "Ready to sync" : "Cloud sync is off"
     database = snapshot.database
     cloudSnoozes = snapshot.cloudSnoozes
+    draftAttachments = [:]; attachmentNotice = nil; replyDraftTarget = nil
     personalSyncTask?.cancel(); personalSyncTask = nil; personalSyncing = false
     personalSync = (try? snapshot.database.load(PersonalSyncState.self, key: "personalSync")) ?? PersonalSyncState()
     personalSyncStatus = nil; lastPersonalSync = .distantPast
@@ -2418,7 +2424,8 @@ import SwiftUI
     mails[index].body = body
     persistMessage(mails[index])
   }
-  func send(to: String, subject: String, body: String, reply: Mail? = nil, draftID: String? = nil, from: String? = nil, cc: String = "")
+  func send(to: String, subject: String, body: String, reply: Mail? = nil, draftID: String? = nil, from: String? = nil, cc: String = "",
+            attachments: [OutgoingAttachment] = [])
     async -> Bool
   {
     guard entered, !busy, let database else { return false }
@@ -2432,7 +2439,8 @@ import SwiftUI
     var localSaveFailed = false
     await run(isSample ? "Saving sample reply…" : "Sending through Gmail…") {
       _ = try GmailClient.rawMessage(
-        from: sender, to: to, subject: subject, body: body, replyMessageID: reply?.messageID, cc: cc)
+        from: sender, to: to, subject: subject, body: body, replyMessageID: reply?.messageID, cc: cc,
+        attachments: attachments)
       let sentID: String
       if self.isSample {
         guard sender.caseInsensitiveCompare(primary) == .orderedSame else {
@@ -2459,7 +2467,8 @@ import SwiftUI
         guard generation == self.mailboxGeneration else { throw CancellationError() }
         do {
           sentID = try await self.gmail.send(
-            token: token, from: sender, to: to, subject: subject, body: body, reply: reply, cc: cc)
+            token: token, from: sender, to: to, subject: subject, body: body, reply: reply, cc: cc,
+            attachments: attachments)
         } catch let failure as HTTPFailure where (400..<500).contains(failure.statusCode) {
           throw failure
         } catch {
@@ -4227,6 +4236,9 @@ struct PendingSend: Equatable {
   let draftID: String?
   let from: String?
   let cc: String
+  /// Files going with it, and the draft record they came from (removed once Gmail accepts the send).
+  var attachments: [OutgoingAttachment] = []
+  var attachmentTarget: String?
   let deadline: Date
   var delivering = false
 }
@@ -4237,12 +4249,14 @@ extension AppStore {
   /// Send with a short undo window, like Delete: nothing reaches Gmail until it ends, and Undo puts the
   /// text back where it was written. Only one email waits at a time; a second Send delivers the first now.
   func queueSend(to: String, subject: String, body: String, reply: Mail? = nil, draftID: String? = nil,
-                 from: String? = nil, cc: String = "") {
+                 from: String? = nil, cc: String = "", attachmentTarget: String? = nil) {
     if let waiting = pendingSend, !waiting.delivering {
       sendTask?.cancel()
       Task { await deliver(waiting) }
     }
     let item = PendingSend(to: to, subject: subject, body: body, reply: reply, draftID: draftID, from: from, cc: cc,
+                           attachments: attachmentTarget.map { loadAttachments($0); return attachments(for: $0) } ?? [],
+                           attachmentTarget: attachmentTarget,
                            deadline: Date().addingTimeInterval(Self.undoSendSeconds))
     pendingSend = item
     sendTask = Task { @MainActor [weak self] in
@@ -4265,8 +4279,10 @@ extension AppStore {
     _ = await waitUntilIdle()
     guard generation == mailboxGeneration else { if pendingSend?.id == item.id { pendingSend = nil }; return false }
     let sent = await send(to: item.to, subject: item.subject, body: item.body, reply: item.reply,
-                          draftID: item.draftID, from: item.from, cc: item.cc)
+                          draftID: item.draftID, from: item.from, cc: item.cc, attachments: item.attachments)
     if pendingSend?.id == item.id { pendingSend = nil }
+    // Sent: the files leave the draft. Not sent: they stay with it, like the text.
+    if sent, let target = item.attachmentTarget { clearAttachments(target, keeping: item.attachments) }
     if !sent { restoreUnsent(item) }
     return sent
   }

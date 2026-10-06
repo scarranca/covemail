@@ -1,7 +1,9 @@
 #if os(iOS)
 import CoveCore
+import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// What the composer starts with: a new email, a reply to one message, or a forward.
 struct MobileDraft: Identifiable {
@@ -12,6 +14,8 @@ struct MobileDraft: Identifiable {
   var body = ""
   var reply: Mail?
   var forwarding = false
+  /// Files read when attached; they come back with the draft on Undo.
+  var attachments: [OutgoingAttachment] = []
 
   init() {}
   init(replyingTo mail: Mail, all: Bool, accountEmail: String) {
@@ -65,6 +69,11 @@ struct MobileComposeView: View {
   @State private var streamed = false
   @State private var stage = ""
   @State private var voice = MobileVoice.load()
+  @State private var choosingFiles = false
+  @State private var choosingPhotos = false
+  @State private var photoItems: [PhotosPickerItem] = []
+  @State private var attachNotice: String?
+  @State private var loadingPhotos = false
   @FocusState private var focus: Field?
   @Environment(\.dismiss) private var dismiss
 
@@ -91,13 +100,14 @@ struct MobileComposeView: View {
           if showCc || !draft.cc.isEmpty { field("Cc", text: $draft.cc, field: .cc, keyboard: .emailAddress) }
           if focus == .cc { suggestions(for: $draft.cc) }
           field("Subject", text: $draft.subject, field: .subject)
+          attachmentList.padding(.top, 12)
           canvas.padding(.top, 14)
           if let reply = draft.reply {
             Label("Replying to \(reply.sender.isEmpty ? reply.senderEmail : reply.sender)", systemImage: "arrowshape.turn.up.left")
               .font(.mobileMetadata).foregroundStyle(MobilePalette.muted).padding(.top, 12)
           }
           if draft.forwarding {
-            Label("Attachments aren’t forwarded from iPhone yet.", systemImage: "paperclip")
+            Label("The original email’s attachments aren’t forwarded from iPhone yet.", systemImage: "paperclip")
               .font(.mobileMetadata).foregroundStyle(MobilePalette.muted).padding(.top, 12)
           }
           if let sendError {
@@ -112,7 +122,33 @@ struct MobileComposeView: View {
     .confirmationDialog("Discard this email?", isPresented: $confirmDiscard, titleVisibility: .visible) {
       Button("Discard", role: .destructive) { writing?.cancel(); dismiss() }
     }
-    .onAppear { focus = draft.reply == nil ? .to : .body }
+    .onAppear {
+      focus = draft.reply == nil ? .to : .body
+      #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("-CoveAttachSample"), draft.attachments.isEmpty {
+        draft.to = "maya@example.com"; draft.subject = "Launch review"
+        draft.body = "Hi Maya,\n\nThe deck and the budget are attached.\n\nAlex"
+        draft.attachments = [OutgoingAttachment(filename: "Launch deck — final.pdf", data: Data(count: 2_400_000)),
+                             OutgoingAttachment(filename: "Photo 1.jpeg", data: Data(count: 1_800_000))]
+        focus = nil
+      }
+      #endif
+    }
+    .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+      guard case .success(let urls) = result else { return }
+      var read: [OutgoingAttachment] = []
+      var problems: [String] = []
+      for url in urls {
+        do { read.append(try OutgoingAttachment(contentsOf: url)) } catch { problems.append(error.localizedDescription) }
+      }
+      attach(read, problems: problems)
+    }
+    .photosPicker(isPresented: $choosingPhotos, selection: $photoItems, matching: .any(of: [.images, .videos]))
+    .onChange(of: photoItems) { _, items in
+      guard !items.isEmpty else { return }
+      photoItems = []
+      Task { await attachPhotos(items) }
+    }
     .interactiveDismissDisabled(!draft.body.isEmpty && draft.reply == nil)
   }
 
@@ -129,6 +165,13 @@ struct MobileComposeView: View {
         }
       }
       Spacer()
+      Menu {
+        Button { choosingPhotos = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
+        Button { choosingFiles = true } label: { Label("Choose File", systemImage: "folder") }
+      } label: {
+        Image(systemName: "paperclip").font(.system(size: 17)).frame(width: 36, height: 36).contentShape(Rectangle())
+      }
+      .foregroundStyle(MobilePalette.body).accessibilityLabel("Attach")
       Button(action: send) { Label("Send", systemImage: "paperplane") }
         .buttonStyle(MobilePrimaryButton(compact: true)).disabled(!canSend)
     }
@@ -345,7 +388,7 @@ struct MobileComposeView: View {
     let snapshot = draft
     do {
       try mailbox.send(to: snapshot.to, cc: snapshot.cc, subject: snapshot.subject, body: snapshot.body,
-                       reply: snapshot.reply) { [mailbox] in
+                       reply: snapshot.reply, attachments: snapshot.attachments) { [mailbox] in
         // Undo (or a failed send) brings the email back in the composer.
         if let reply = snapshot.reply { mailbox.saveDraft(snapshot.body, for: reply) }
         mailbox.restoredDraft = snapshot
@@ -354,6 +397,74 @@ struct MobileComposeView: View {
     } catch {
       sendError = error.localizedDescription
     }
+  }
+
+  // MARK: Attachments
+
+  @ViewBuilder private var attachmentList: some View {
+    if !draft.attachments.isEmpty || attachNotice != nil || loadingPhotos {
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(draft.attachments) { file in
+          HStack(spacing: 10) {
+            Image(systemName: file.mimeType.hasPrefix("image/") ? "photo" : file.mimeType.hasPrefix("video/") ? "video" : "doc")
+              .font(.system(size: 15)).foregroundStyle(MobilePalette.body).frame(width: 22)
+            VStack(alignment: .leading, spacing: 1) {
+              Text(file.filename).font(.mobileLabel).lineLimit(1).truncationMode(.middle)
+              Text(file.sizeText).font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
+            }
+            Spacer(minLength: 8)
+            Button { draft.attachments.removeAll { $0.id == file.id } } label: {
+              Image(systemName: "xmark.circle.fill").font(.system(size: 18)).foregroundStyle(MobilePalette.muted)
+            }.buttonStyle(.plain).accessibilityLabel("Remove \(file.filename)")
+          }
+          .padding(.horizontal, 12).padding(.vertical, 9)
+          .background(MobilePalette.surface, in: RoundedRectangle(cornerRadius: 8))
+          .overlay(RoundedRectangle(cornerRadius: 8).stroke(MobilePalette.line))
+        }
+        if loadingPhotos {
+          HStack(spacing: 8) { ProgressView(); Text("Adding photos…") }.font(.mobileSecondary).foregroundStyle(MobilePalette.body)
+        }
+        if draft.attachments.count > 1 {
+          Text("\(draft.attachments.count) files · \(ByteCountFormatter.string(fromByteCount: Int64(OutgoingAttachment.totalSize(draft.attachments)), countStyle: .file)) of 25 MB")
+            .font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
+        }
+        if let attachNotice {
+          Text(attachNotice).font(.mobileSecondary).foregroundStyle(MobilePalette.danger).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+  }
+
+  private func attach(_ files: [OutgoingAttachment], problems: [String] = []) {
+    let result = OutgoingAttachment.adding(files, to: draft.attachments)
+    draft.attachments = result.files
+    let all = problems + [result.problem].compactMap { $0 }
+    attachNotice = all.isEmpty ? nil : all.joined(separator: " ")
+  }
+
+  /// Photos come as their original data; HEIC photos become JPEG so every recipient can open them.
+  private func attachPhotos(_ items: [PhotosPickerItem]) async {
+    loadingPhotos = true
+    defer { loadingPhotos = false }
+    var files: [OutgoingAttachment] = []
+    var problems: [String] = []
+    for (index, item) in items.enumerated() {
+      do {
+        guard var data = try await item.loadTransferable(type: Data.self) else { throw CoveError.message("") }
+        var type = item.supportedContentTypes.first ?? .data
+        if type.conforms(to: .image), !type.conforms(to: .jpeg), !type.conforms(to: .png), !type.conforms(to: .gif),
+           let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
+          data = jpeg; type = .jpeg
+        }
+        let number = draft.attachments.count + files.count + 1
+        let ext = type.preferredFilenameExtension ?? "dat"
+        let kind = type.conforms(to: .movie) ? "Video" : "Photo"
+        files.append(OutgoingAttachment(filename: "\(kind) \(number).\(ext)", mimeType: type.preferredMIMEType, data: data))
+      } catch {
+        problems.append("Couldn’t add item \(index + 1) from Photos.")
+      }
+    }
+    attach(files, problems: problems)
   }
 
   private func close() {
