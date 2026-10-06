@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.66</title>
+            <pubDate>Tue, 06 Oct 2026 08:32:42 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>68</sparkle:version>
+            <sparkle:shortVersionString>0.1.66</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.66</title></head><body><h1>Attach files</h1><ul><li>Attach files to new emails and replies with the paperclip beside Send, or drop them anywhere on a draft.</li><li>While you’re writing a reply, drop files anywhere on the window to attach them; with nothing open, dropping files starts a new email with them.</li><li>Files are kept with the draft on this Mac, encrypted, until the email is sent, so Undo and restarts don’t lose them. Gmail allows 25 MB per email.</li></ul></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.66.dmg" length="24503888" type="application/octet-stream" sparkle:edSignature="2w6hW6M6yrwraw/8BczQyT5uBqgVdrjT3fLXJQdPM1kIvkv4x8S17y36Sn1mMQz9HvUS6b8Cm2fFygCClEFKCQ=="/>
+        </item>
+        <item>
             <title>0.1.65</title>
             <pubDate>Mon, 05 Oct 2026 09:53:11 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -30,6 +41,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 4RpH6e1IAj3M5I0a+RN2//BSFFK9Ehp3DQ1yCN9VEl2T5wCyx7j6MqbzElwAW7HX4h7tygwMBIwaYdtp2L9nDQ==
-length: 3265
+edSignature: zF7Tsi0hpHd7l398q4VtMzPQswcRK76rLsW2xSBEUee+TkcsxFOiKAMcFraT8Cc8Uf4BQH3OCOb6vu1jW6UBBw==
+length: 4507
 -->
