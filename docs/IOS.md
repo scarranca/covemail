@@ -137,3 +137,7 @@ October 4, 2026, GitHub Actions **Apple builds** run `37197465161` (macos-26 run
 ## Attachments (Oct 6)
 
 The composer header has a paperclip menu: **Photo Library** (photos and videos; HEIC photos are converted to JPEG) and **Choose File** (Files, security-scoped reads). Files show under Subject with their size, the total against Gmail's 25 MB and a remove button; they travel with the draft through the 4-second Undo and are sent with Gmail's upload endpoint (`OutgoingAttachment`, `GmailClient.uploadSend`). A reply's files are not kept after Cancel (its text is); forwarding still doesn't include the original email's attachments. Screenshot check: `-CoveSample -CoveTab mail -CoveCompose -CoveAttachSample`.
+
+## Notification taps crash (fixed in TestFlight build 14, Oct 6)
+
+Build 13 crashed with SIGABRT when a new-mail notification was tapped: the `async` form of `userNotificationCenter(_:didReceive:)` let iOS run its completion handler off the main thread, and UIKit's main-thread assertion aborted (`@objc closure #1 in MobilePush.userNotificationCenter(_:didReceive:)` on thread 5). `MobilePush` now implements the completion-handler forms of `willPresent` and `didReceive` and calls the handler on the main thread. Don't switch them back to the `async` forms.

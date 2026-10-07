@@ -274,25 +274,36 @@ import UserNotifications
 }
 
 extension MobilePush: UNUserNotificationCenterDelegate {
+  // Completion-handler forms, finished on the main thread: with the async forms iOS runs the hidden
+  // completion off the main thread, and UIKit aborts (TestFlight build 13 crashed on a notification tap).
+
   /// While Cove is open, new mail still shows as a banner (the list may be on another folder).
-  nonisolated public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
-    -> UNNotificationPresentationOptions {
-    notification.request.content.interruptionLevel == .passive ? [] : [.banner, .list, .sound]
+  nonisolated public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                                 withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
+    let options: UNNotificationPresentationOptions = notification.request.content.interruptionLevel == .passive ? [] : [.banner, .list, .sound]
+    DispatchQueue.main.async { completionHandler(options) }
   }
 
-  nonisolated public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-    guard let mailID = response.notification.request.content.userInfo["mailID"] as? String else { return }
+  nonisolated public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                                 withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+    guard let mailID = response.notification.request.content.userInfo["mailID"] as? String else {
+      DispatchQueue.main.async { completionHandler() }
+      return
+    }
     let action = response.actionIdentifier
-    switch action {
-    case "archive", "read", "flag":
-      // Done without opening Cove: the same label change the app makes, straight to Gmail.
-      let (add, remove): ([String], [String]) = action == "archive" ? ([], ["INBOX"]) : action == "read" ? ([], ["UNREAD"]) : (["STARRED"], [])
-      do {
-        let token = try await MobilePushActions.accessToken()
-        try await GmailClient().modify(id: mailID, token: token, add: add, remove: remove)
-      } catch {}
-    default:
-      await MainActor.run { MobilePush.shared.openMailID = mailID }
+    Task { @MainActor in
+      switch action {
+      case "archive", "read", "flag":
+        // Done without opening Cove: the same label change the app makes, straight to Gmail.
+        let (add, remove): ([String], [String]) = action == "archive" ? ([], ["INBOX"]) : action == "read" ? ([], ["UNREAD"]) : (["STARRED"], [])
+        do {
+          let token = try await MobilePushActions.accessToken()
+          try await GmailClient().modify(id: mailID, token: token, add: add, remove: remove)
+        } catch {}
+      default:
+        MobilePush.shared.openMailID = mailID
+      }
+      completionHandler()
     }
   }
 }
