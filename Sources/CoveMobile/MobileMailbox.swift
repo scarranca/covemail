@@ -62,6 +62,8 @@ import UIKit
   let auth: MobileAuth
   @ObservationIgnored private let searchIndex = MailSearchIndex()
   private let gmail = GmailClient()
+  /// Attachment text read this session for Ask Cove, by email ID.
+  @ObservationIgnored var attachmentTextCache: [String: ([AgentAttachmentText], [String])] = [:]
   private var database: Database?
   private var openEmail: String?
   private var historyID: String?

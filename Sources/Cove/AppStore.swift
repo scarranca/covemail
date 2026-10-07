@@ -2805,53 +2805,18 @@ extension AppStore {
     return result
   }
 
-  /// PDFs (Gmail sometimes labels them application/octet-stream) and plain text files.
-  static func isPDF(_ attachment: MailAttachment) -> Bool {
-    attachment.mimeType.lowercased() == "application/pdf" || attachment.filename.lowercased().hasSuffix(".pdf")
-  }
-  static func readableAttachment(_ attachment: MailAttachment) -> Bool {
-    isPDF(attachment) || attachment.mimeType.lowercased().hasPrefix("text/")
-  }
+  static func isPDF(_ attachment: MailAttachment) -> Bool { AttachmentText.isPDF(attachment) }
+  static func readableAttachment(_ attachment: MailAttachment) -> Bool { AttachmentText.readable(attachment) }
 
   private func readAttachmentTexts(_ mail: Mail, synthetic: Bool) async throws -> ([AgentAttachmentText], [String]) {
     let generation = mailboxGeneration
-    var texts: [AgentAttachmentText] = []; var warnings: [String] = []
-    let attachments = mail.availableAttachments
-    if attachments.count > 5 { warnings.append("Only the first five attachments were inspected.") }
-    for attachment in attachments.prefix(5) {
-      try Task.checkCancellation()
-      guard generation == mailboxGeneration, entered else { throw CancellationError() }
-      let pdf = Self.isPDF(attachment)
-      guard Self.readableAttachment(attachment) else {
-        warnings.append("\(attachment.filename): this file type needs manual review."); continue
-      }
-      guard let size = attachment.byteCount, size <= 5_000_000, size >= 0 else {
-        warnings.append("\(attachment.filename): file is too large or its size is unknown."); continue
-      }
-      let data: Data
-      if let embedded = attachment.data, let decoded = Data(base64URL: embedded) { data = decoded }
-      else if synthetic { warnings.append("\(attachment.filename): sample attachment is not available."); continue }
-      else {
-        let token = try await agentToken()
-        guard generation == mailboxGeneration, entered else { throw CancellationError() }
-        data = try await gmail.attachmentData(messageID: mail.id, attachment: attachment, token: token)
-      }
-      guard data.count <= 5_000_000 else { warnings.append("\(attachment.filename): file is too large."); continue }
-      let text: String
-      if pdf {
-        guard let document = PDFDocument(data: data), !document.isLocked else {
-          warnings.append("\(attachment.filename): PDF could not be read."); continue
-        }
-        if document.pageCount > 20 { warnings.append("\(attachment.filename): only the first 20 pages were inspected.") }
-        let pages = (0..<min(document.pageCount, 20)).map { document.page(at: $0)?.string ?? "" }
-        if pages.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { warnings.append("\(attachment.filename): some pages have no readable text.") }
-        text = pages.joined(separator: "\n")
-      } else { text = String(data: data, encoding: .utf8) ?? "" }
-      if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        warnings.append("\(attachment.filename): no readable text; scanned images need manual review.")
-      } else { texts.append(AgentAttachmentText(name: attachment.filename, text: text)) }
+    return try await AttachmentText.read(mail) { attachment in
+      if synthetic { return nil }
+      guard generation == self.mailboxGeneration, self.entered else { throw CancellationError() }
+      let token = try await self.agentToken()
+      guard generation == self.mailboxGeneration, self.entered else { throw CancellationError() }
+      return try await self.gmail.attachmentData(messageID: mail.id, attachment: attachment, token: token)
     }
-    return (texts, warnings)
   }
   func runCustomAgents(ignoreCooldown: Bool = false, agentID: String? = nil) async {
     guard entered, !isSample, !syncing, queuedTrashIDs.isEmpty, !agentsRunning, customAgents.agents.contains(where: { $0.status == .active }) else { return }

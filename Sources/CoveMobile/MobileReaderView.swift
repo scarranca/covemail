@@ -122,7 +122,7 @@ struct MobileReaderView: View {
     }
     .sheet(item: $draft) { draft in MobileComposeView(mailbox: mailbox, ai: ai, draft: draft) }
     .sheet(isPresented: $asking) {
-      MobileAskCoveView(ai: ai, mail: mail, thread: thread) { text in
+      MobileAskCoveView(ai: ai, mailbox: mailbox, mail: mail, thread: thread) { text in
         asking = false
         var reply = MobileDraft(replyingTo: mail, all: false, accountEmail: account)
         reply.body = text
@@ -333,6 +333,7 @@ struct MobileMessageCard: View {
 /// answer container and a composer. Nothing is sent without the user's approval.
 struct MobileAskCoveView: View {
   let ai: MobileAI
+  let mailbox: MobileMailbox
   let mail: Mail
   let thread: [Mail]
   var draftReply: ((String) -> Void)?
@@ -342,6 +343,8 @@ struct MobileAskCoveView: View {
   @State private var running: Task<Void, Never>?
   @State private var drafting = false
   @State private var error: String?
+  @State private var readingFiles = false
+  @State private var filesRead = 0
   @Environment(\.dismiss) private var dismiss
 
   private let suggestions = ["What needs my attention?", "Which dates are mentioned?", "Summarize this conversation"]
@@ -380,12 +383,16 @@ struct MobileAskCoveView: View {
               .frame(maxWidth: .infinity, alignment: .trailing)
             VStack(alignment: .leading, spacing: 14) {
               if running != nil && answer.isEmpty {
-                HStack(spacing: 8) { ProgressView(); Text(drafting ? "Writing a reply…" : "Reading this email…") }
+                HStack(spacing: 8) { ProgressView(); Text(drafting ? "Writing a reply…" : readingFiles ? "Reading attachments…" : "Reading this email…") }
                   .font(.mobileSecondary).foregroundStyle(MobilePalette.body)
               }
               if !answer.isEmpty {
                 Text(Self.markdown(answer)).font(.mobileBody).foregroundStyle(MobilePalette.ink).lineSpacing(4)
                   .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+              }
+              if !answer.isEmpty, filesRead > 0, running == nil {
+                Label("Read \(filesRead) attachment\(filesRead == 1 ? "" : "s")", systemImage: "paperclip")
+                  .font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
               }
               if let error {
                 Text(error).font(.mobileSecondary).foregroundStyle(MobilePalette.danger).fixedSize(horizontal: false, vertical: true)
@@ -462,7 +469,19 @@ struct MobileAskCoveView: View {
     running = Task {
       defer { running = nil; drafting = false }
       do {
-        let prompt = try AIPrompt(intent: intent, instruction: instruction, mails: mails, evidence: MobileMe.shared.prompt ?? "")
+        // Questions about this email also see its PDFs and text files (amounts, capture lines, dates).
+        var files: [AgentAttachmentText] = []
+        var notes: [String] = []
+        if intent == .answer, mail.availableAttachments.contains(where: AttachmentText.readable) {
+          readingFiles = true
+          defer { readingFiles = false }
+          do { (files, notes) = try await mailbox.attachmentTexts(mail) }
+          catch is CancellationError { throw CancellationError() }
+          catch { notes = ["Attachments couldn’t be read: " + error.localizedDescription] }
+        }
+        filesRead = files.count
+        let evidence = (MobileMe.shared.prompt ?? "") + (notes.isEmpty ? "" : "\nAttachment notes: " + notes.joined(separator: " "))
+        let prompt = try AIPrompt(intent: intent, instruction: instruction, mails: mails, evidence: evidence, files: files)
         let result = try await ai.complete(prompt) { partial in if intent == .answer { answer = partial } }
         if intent == .answer { answer = result } else { then?(result.trimmingCharacters(in: .whitespacesAndNewlines)) }
       } catch is CancellationError {

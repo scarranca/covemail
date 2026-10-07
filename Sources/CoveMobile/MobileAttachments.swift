@@ -30,6 +30,21 @@ extension MobileMailbox {
   }
 }
 
+extension MobileMailbox {
+  /// Text of the email's PDF and text attachments for Ask Cove (the Mac's reader, `AttachmentText`),
+  /// read once per email while Cove is open.
+  func attachmentTexts(_ mail: Mail) async throws -> ([AgentAttachmentText], [String]) {
+    if let cached = attachmentTextCache[mail.id] { return cached }
+    let sample = auth.isSample
+    let result = try await AttachmentText.read(mail) { attachment in
+      if sample { return nil }
+      return try await GmailClient().attachmentData(messageID: mail.id, attachment: attachment, token: try await self.auth.token())
+    }
+    attachmentTextCache[mail.id] = result
+    return result
+  }
+}
+
 enum MobileAttachmentFiles {
   static var root: URL { FileManager.default.temporaryDirectory.appendingPathComponent("CoveAttachments", isDirectory: true) }
 
