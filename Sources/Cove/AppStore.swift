@@ -211,6 +211,8 @@ import SwiftUI
   var composeID: String?
   /// Files attached to drafts, by `AttachmentTarget` key; saved as encrypted records (`DraftAttachments.swift`).
   var draftAttachments: [String: [OutgoingAttachment]] = [:]
+  /// Attachment text read this session (`attachmentTexts`), by email ID.
+  @ObservationIgnored var attachmentTextCache: [String: ([AgentAttachmentText], [String])] = [:]
   var attachmentNotice: String?
   /// The email whose reply is being written in the reader, so a file dropped on the window joins it.
   var replyDraftTarget: String?
@@ -605,7 +607,7 @@ import SwiftUI
     cloudStatus = cloudMirror.enabled ? "Ready to sync" : "Cloud sync is off"
     database = snapshot.database
     cloudSnoozes = snapshot.cloudSnoozes
-    draftAttachments = [:]; attachmentNotice = nil; replyDraftTarget = nil
+    draftAttachments = [:]; attachmentNotice = nil; replyDraftTarget = nil; attachmentTextCache = [:]
     personalSyncTask?.cancel(); personalSyncTask = nil; personalSyncing = false
     personalSync = (try? snapshot.database.load(PersonalSyncState.self, key: "personalSync")) ?? PersonalSyncState()
     personalSyncStatus = nil; lastPersonalSync = .distantPast
@@ -2790,6 +2792,28 @@ extension AppStore {
   }
   func customAgentAttachments(_ mail: Mail, agent: CustomAgent, synthetic: Bool = false) async throws -> ([AgentAttachmentText], [String]) {
     guard agent.includeAttachments else { return ([], []) }
+    return try await attachmentTexts(mail, synthetic: synthetic)
+  }
+
+  /// Readable text of an email's PDF and text attachments (first five, 5 MB each, 20 PDF pages), for
+  /// agents and Ask Cove. Images and scans have no text; they come back as warnings, never guesses.
+  /// Kept in memory per email for this session, so follow-up questions don't download again.
+  func attachmentTexts(_ mail: Mail, synthetic: Bool = false) async throws -> ([AgentAttachmentText], [String]) {
+    if let cached = attachmentTextCache[mail.id] { return cached }
+    let result = try await readAttachmentTexts(mail, synthetic: synthetic)
+    attachmentTextCache[mail.id] = result
+    return result
+  }
+
+  /// PDFs (Gmail sometimes labels them application/octet-stream) and plain text files.
+  static func isPDF(_ attachment: MailAttachment) -> Bool {
+    attachment.mimeType.lowercased() == "application/pdf" || attachment.filename.lowercased().hasSuffix(".pdf")
+  }
+  static func readableAttachment(_ attachment: MailAttachment) -> Bool {
+    isPDF(attachment) || attachment.mimeType.lowercased().hasPrefix("text/")
+  }
+
+  private func readAttachmentTexts(_ mail: Mail, synthetic: Bool) async throws -> ([AgentAttachmentText], [String]) {
     let generation = mailboxGeneration
     var texts: [AgentAttachmentText] = []; var warnings: [String] = []
     let attachments = mail.availableAttachments
@@ -2797,8 +2821,8 @@ extension AppStore {
     for attachment in attachments.prefix(5) {
       try Task.checkCancellation()
       guard generation == mailboxGeneration, entered else { throw CancellationError() }
-      let pdf = attachment.mimeType.lowercased() == "application/pdf"
-      guard pdf || attachment.mimeType.lowercased().hasPrefix("text/") else {
+      let pdf = Self.isPDF(attachment)
+      guard Self.readableAttachment(attachment) else {
         warnings.append("\(attachment.filename): this file type needs manual review."); continue
       }
       guard let size = attachment.byteCount, size <= 5_000_000, size >= 0 else {
