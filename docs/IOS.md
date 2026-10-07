@@ -141,3 +141,7 @@ The composer header has a paperclip menu: **Photo Library** (photos and videos; 
 ## Notification taps crash (fixed in TestFlight build 14, Oct 6)
 
 Build 13 crashed with SIGABRT when a new-mail notification was tapped: the `async` form of `userNotificationCenter(_:didReceive:)` let iOS run its completion handler off the main thread, and UIKit's main-thread assertion aborted (`@objc closure #1 in MobilePush.userNotificationCenter(_:didReceive:)` on thread 5). `MobilePush` now implements the completion-handler forms of `willPresent` and `didReceive` and calls the handler on the main thread. Don't switch them back to the `async` forms.
+
+## Received attachments (TestFlight build 15, Oct 7)
+
+In the reader (iPhone and iPad), each attachment shows its size; tapping it previews with Quick Look (Done, and the share button for Save to Files, Print, AirDrop), and the arrow opens "Save to Files" directly (`MobileAttachments.swift`). Like the Mac's Attachment Preview, bytes are fetched from Gmail only on that tap; known files over 25 MB are refused before downloading and checked again after; HTML/SVG files are previewed as text source, never rendered. Copies go to a private temporary folder (complete file protection) that is removed when the preview or export closes, and cleared at launch after a crash. Screenshot check: `-CoveSample -CoveTab mail -CoveOpenFirst -CovePreviewAttachment`.

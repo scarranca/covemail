@@ -58,7 +58,7 @@ struct MobileReaderView: View {
             Text("Conversation · \(thread.count) messages").font(.mobileSection)
           }.foregroundStyle(MobilePalette.ink)
           ForEach(thread) { message in
-            MobileMessageCard(mail: message, accountEmail: account,
+            MobileMessageCard(mailbox: mailbox, mail: message, accountEmail: account,
                               expanded: message.id == mail.id || expanded.contains(message.id)) {
               if expanded.contains(message.id) { expanded.remove(message.id) } else {
                 expanded.insert(message.id)
@@ -69,7 +69,7 @@ struct MobileReaderView: View {
           }
         } else {
           MobileEmailBody(mail: mail)
-          MobileAttachmentList(mail: mail)
+          MobileAttachmentList(mailbox: mailbox, mail: mail)
         }
       }
       .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 32)
@@ -279,27 +279,9 @@ struct MobileMessageBody: View {
   }
 }
 
-struct MobileAttachmentList: View {
-  let mail: Mail
-  var body: some View {
-    if !mail.availableAttachments.isEmpty {
-      VStack(alignment: .leading, spacing: 8) {
-        ForEach(mail.availableAttachments) { attachment in
-          HStack(spacing: 10) {
-            Image(systemName: "doc").font(.system(size: 15)).foregroundStyle(MobilePalette.body)
-              .frame(width: 34, height: 34).background(MobilePalette.sidebar, in: RoundedRectangle(cornerRadius: 6))
-            Text(attachment.filename).font(.mobileLabel).foregroundStyle(MobilePalette.ink).lineLimit(1)
-            Spacer()
-          }
-        }
-        Text("Open attachments in Gmail or Cove on the Mac.").font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
-      }
-    }
-  }
-}
-
 /// One message of a conversation, as the Mac's conversation cards: a header, and the text when expanded.
 struct MobileMessageCard: View {
+  let mailbox: MobileMailbox
   let mail: Mail
   let accountEmail: String
   let expanded: Bool
@@ -330,7 +312,7 @@ struct MobileMessageCard: View {
         .accessibilityHint(expanded ? "Collapse this message" : "Expand this message")
       if expanded {
         MobileEmailBody(mail: mail, heading: mail.htmlBody?.isEmpty == false)
-        MobileAttachmentList(mail: mail)
+        MobileAttachmentList(mailbox: mailbox, mail: mail)
         HStack(spacing: 10) {
           Button { reply(false) } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
             .buttonStyle(MobileSecondaryButton(compact: true))

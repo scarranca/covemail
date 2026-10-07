@@ -14,6 +14,7 @@ public struct CoveMobileRoot: View {
   @Environment(\.horizontalSizeClass) private var sizeClass
 
   public init() {
+    MobileAttachmentFiles.removeAll()
     let auth = MobileAuth()
     #if DEBUG
     if ProcessInfo.processInfo.arguments.contains("-CoveSample") { auth.useSample() }
