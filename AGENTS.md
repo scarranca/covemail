@@ -20,6 +20,12 @@ Some README/status/distribution sections are historical and still mention older 
   - **Apple Intelligence:** `AIProvider.appleIntelligence` (`CoveCore/AppleIntelligence.swift`) on Mac and iPhone. FoundationModels is weak-linked on macOS. Prompts are refitted with `AIPromptLimits.onDevice`; a request that is still too long is reported, never silently cut or rerouted.
   - **Verification:** the Apple builds workflow (Xcode 26.6) compiles the Mac app, the iPhone library and the app shell, and the core tests pass. The app has not run on a device yet; see `docs/IOS.md`.
   - **Codemagic:** `codemagic.yaml` uploads to TestFlight on `main` pushes that touch iPhone or core code, after one-time setup by the account owner (docs/IOS.md).
+- **Unreleased 0.1.68 (October 8, `scarranca/urchin`): speed and recipients.**
+  - To suggestions add a headers-only Gmail lookup (`GmailClient.people`, existing scope, debounced, cached, never retried) after downloaded people, on Mac and iPhone. Gmail matches whole words. Google Contacts via the People API needs a new scope and is the user's decision.
+  - `visible` no longer depends on selection except to keep the open email listed.
+  - The reader refetches a thread at most every 2 minutes and skips no-op mailbox rewrites.
+  - User-initiated page loads use `page(interactive: true)`, which isn't paced.
+  - Evidence and remaining candidates: `docs/qa/0.1.68/AUDIT.md`.
 - **Cove 0.1.67, build 69**, is published (Pages deployment `6a221d07`): Ask Cove reads the selected email's PDF and text attachments on Mac and iPhone/iPad (`AttachmentText`, `AIPrompt(files:)`); TestFlight builds 14 (notification-tap crash fix), 15 (preview/save received attachments) and 16 (this). Evidence: `docs/qa/0.1.67/AUDIT.md`.
 - **Cove 0.1.66, build 68**, was published (Pages deployment `db8f8622`): attach files on Mac (paperclip, drop on a draft or the window) and iPhone/iPad (Photos, Files); TestFlight build 13. Evidence: `docs/qa/0.1.66/AUDIT.md`.
 - **Cove 0.1.65, build 67**, was published (Pages deployment `d2b2bece`): About you syncs between Mac, iPhone and iPad (opt-in per device). Backend `cove-sync-api-00009-lzv` with migration 005 `personal_contexts` (user-approved exact SQL, applied Oct 5); TestFlight build 12. Evidence: `docs/qa/0.1.65/AUDIT.md`.
@@ -184,7 +190,7 @@ Cove is a native macOS Gmail client with Jev organization, optional generative w
 - Preserve Workweek/Week/Month views, current-time scrolling, selected-day agenda, overlap layout, and quiet grid lines. User scrolling remains in control after initial navigation.
 - Unreleased (0.1.51): in the week grids, dragging empty space opens the editor prefilled; dragging an event moves or resizes it (bottom 8 pt), saved immediately with Undo; events with other guests confirm first; only `LocalEvent.canReschedule` events move. The event's drag gesture uses the column's fixed coordinate space (the event follows the pointer via offset). Event details use icon actions like the reader. See `docs/qa/0.1.51/AUDIT.md`.
 - Gmail requests back off on rate limits; never retry non-GET requests after server errors, and never surface provider error text.
-  - Since 0.1.54, `GmailPacer` is a budget of Google's real 6,000 units per user per minute. Every request spends its official cost (`GmailClient.quotaCost`: a read costs 20). Background work waits above a 1,500-unit reserve and runs about 10× slower on battery (`PowerState`).
+  - Since 0.1.54, `GmailPacer` is a budget of Google's real 6,000 units per user per minute. Every request spends its official cost (`GmailClient.quotaCost`: a read costs 20). Background work waits above a 1,500-unit reserve and runs about 10× slower on battery (`PowerState`); pages the user asked for (`page(interactive: true)`) and people lookups don't wait.
   - Sync applies history label changes without re-reading emails (`GmailSyncResult.labelChanges`), reads newest first, and keeps partial progress (`pendingIDs`) when Gmail rate-limits partway.
   - Rate limits are a status line, never an alert.
 - Home surfaces pending invitations with Accept/Maybe/Decline. Ensure controls fit narrow panes, including their loading state.

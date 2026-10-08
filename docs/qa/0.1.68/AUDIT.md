@@ -33,6 +33,18 @@ The user reported that writing and fetching mail feel slow. They also said the T
 - `GmailClient.search` (Ask Cove search, iPhone search) reads results 5 at a time instead of one after another.
 - `page(interactive: true)` skips the background spacing (0.6 s per email on battery) when the user scrolls to load older mail or opens a label (Mac), or scrolls on iPhone. The iPhone history backfill stays paced. Interactive requests still record their cost in `GmailPacer`.
 
+## Cache lifetime
+
+The new in-memory caches are cleared when the mailbox changes: the Mac's `mailboxGeneration` changes on switch, disconnect and erase, and the iPhone runs `MobileMailbox.close()`. These caches are people found in Gmail, inline images, thread refresh times and the iPhone contact directory. A thread counts as refreshed only after its merge is saved, so Retry after a storage failure fetches again.
+
+## Not done (next candidates if it still feels slow)
+
+- Autosave (`saveComposition`/`saveReply`) still encodes, encrypts and writes on the main thread and changes `mails`. The list behind the composer re-filters about once per 600 ms pause.
+- Switching folder or label still waits for a running sync (`MailViews.swift`, `while store.syncing`). `sync(older:)` silently does nothing while a sync runs, so reaching the list end mid-sync may load nothing until the next scroll.
+- Each message still gets its own `WKWebView`; the HTML is hashed per render for the task id.
+- `markViewed`, task checks and unsubscribe detection on open each still change `mails` separately.
+- The Mac Cc field has no suggestions (the iPhone's does).
+
 ## Verification
 
 - `swift build` (Xcode toolchain) and `xcodebuild build -scheme CoveMobile -destination 'generic/platform=iOS Simulator'` both succeed.

@@ -169,6 +169,8 @@ import UIKit
     nextPage = nil
     labelEdits = [:]
     searchResults = nil
+    peopleCache = [:]
+    contactsCache = nil
   }
 
   // MARK: What's shown

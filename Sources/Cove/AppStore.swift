@@ -269,7 +269,10 @@ import SwiftUI
   private(set) var syncClock: () -> Date = { Date() }
   private(set) var jev = JevClient()
   private(set) var jevKeyProvider: (() throws -> String?)?
-  private(set) var mailboxGeneration = UUID()
+  private(set) var mailboxGeneration = UUID() {
+    // A different mailbox (switch, disconnect, erase) drops what was read from the previous one.
+    didSet { peopleCache = [:]; inlineImageCache = []; threadRefreshes = [:] }
+  }
   private var pendingReadTasks: [String: Task<Void, Never>] = [:]
   private var readRevision = 0
   private var readChanges: [String: (revision: Int, unread: Bool)] = [:]
@@ -3651,7 +3654,6 @@ extension AppStore {
     try ensureCurrent()
     let fetched = try await gmail.thread(id: anchor.threadID, token: token)
     try ensureCurrent()
-    threadRefreshes[refreshKey] = Date()
     guard let database else { throw CancellationError() }
     var merged = try GmailSyncResult(messages: fetched, historyID: "").merging(into: mails, store: database)
       .map { cloudSnoozes.applying(to: $0) }
@@ -3665,9 +3667,11 @@ extension AppStore {
     }
     reapplyLabelEdits(to: &merged, since: startingEditRevision)
     // Usually nothing changed: skip rewriting the store and redrawing every list.
-    guard merged != mails else { return }
-    try database.saveMailSnapshot(merged)
-    mails = merged
+    if merged != mails {
+      try database.saveMailSnapshot(merged)
+      mails = merged
+    }
+    threadRefreshes[refreshKey] = Date()
   }
 
   /// Shared by Save and Preview. Validate account lifetime before and after each suspension.
