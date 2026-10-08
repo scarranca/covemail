@@ -30,6 +30,9 @@ final class SnoozePresetTests: XCTestCase {
     XCTAssertNil(SnoozePreset.laterToday.date(from: date(2026, 10, 7, 22), calendar: calendar), "3 h on would be tomorrow")
     XCTAssertEqual(SnoozePreset.available(from: date(2026, 10, 7, 22), calendar: calendar).map(\.preset),
                    [.tomorrowMorning, .thisWeekend, .nextWeek])
+    // At 16:30, "Later today" would be 19:30, after "This evening": the evening is enough.
+    XCTAssertEqual(SnoozePreset.available(from: date(2026, 10, 7, 16, 30), calendar: calendar).map(\.preset),
+                   [.thisEvening, .tomorrowMorning, .thisWeekend, .nextWeek])
   }
 
   func testWeekendAndNextWeekFromTheWeekend() {

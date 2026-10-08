@@ -75,7 +75,11 @@ public enum SnoozePreset: String, CaseIterable, Codable, Sendable, Identifiable 
 
   /// The presets worth offering right now, in menu order, with their dates.
   public static func available(from now: Date = Date(), calendar: Calendar = .current) -> [(preset: SnoozePreset, date: Date)] {
-    allCases.compactMap { preset in preset.date(from: now, calendar: calendar).map { (preset, $0) } }
+    let all = allCases.compactMap { preset in preset.date(from: now, calendar: calendar).map { (preset: preset, date: $0) } }
+    // "Later today" after "This evening" reads backwards; late in the afternoon the evening is enough.
+    guard let later = all.first(where: { $0.preset == .laterToday }), let evening = all.first(where: { $0.preset == .thisEvening }),
+      later.date >= evening.date else { return all }
+    return all.filter { $0.preset != .laterToday }
   }
 
   /// A short description of a snooze time for menus and toasts: "Today 3:15 PM", "Tomorrow 9:00 AM",
