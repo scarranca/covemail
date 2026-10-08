@@ -57,3 +57,18 @@ The new in-memory caches are cleared when the mailbox changes: the Mac's `mailbo
   - live timing on the user's real account;
   - the Gmail lookup against real Gmail;
   - an iPhone simulator or device run.
+
+## Release (October 8)
+
+- **Version:** 0.1.68, build 70.
+- **App notarization:** `ea8f1304-8d3a-4b13-8622-0eb97a0f950b`, Accepted and stapled.
+- **DMG:** built with the designed installer window; the dmgbuild venv was linked from another checkout. Notarization `c1290a5d-e165-492e-80ee-049af03a11ba`, Accepted and stapled. 24,108,237 bytes, SHA-256 `f9ed208110f70c7047cb8ea3b599db343fae71f358a309ddb0da32022e604821`.
+- **Feed:** signed, 47 verified releases; the appcast keeps the newest three entries.
+- **Site:** Cloudflare Pages deployment `3995af9f` (production, `main`). The custom domain took about a minute to serve it.
+- **Public checks:**
+  - `/release.json` reports 0.1.68 (70).
+  - The beta page and `/download/latest` point to 0.1.68.
+  - The downloaded DMG's SHA-256 matches.
+  - The Ed25519 signature verifies with the bundled key, and a one-byte change is rejected.
+  - No headless previous-build update probe was run.
+- **TestFlight:** iPhone/iPad build 18 (0.1.0), archived and uploaded with `xcodebuild -exportArchive`. It still needs the export-compliance answer in App Store Connect if that isn't automatic.

@@ -20,7 +20,7 @@ Some README/status/distribution sections are historical and still mention older 
   - **Apple Intelligence:** `AIProvider.appleIntelligence` (`CoveCore/AppleIntelligence.swift`) on Mac and iPhone. FoundationModels is weak-linked on macOS. Prompts are refitted with `AIPromptLimits.onDevice`; a request that is still too long is reported, never silently cut or rerouted.
   - **Verification:** the Apple builds workflow (Xcode 26.6) compiles the Mac app, the iPhone library and the app shell, and the core tests pass. The app has not run on a device yet; see `docs/IOS.md`.
   - **Codemagic:** `codemagic.yaml` uploads to TestFlight on `main` pushes that touch iPhone or core code, after one-time setup by the account owner (docs/IOS.md).
-- **Unreleased 0.1.68 (October 8, `scarranca/urchin`): speed and recipients.**
+- **Cove 0.1.68, build 70**, is published (Pages deployment `3995af9f`; TestFlight build 18): speed and recipients.
   - To suggestions add a headers-only Gmail lookup (`GmailClient.people`, existing scope, debounced, cached, never retried) after downloaded people, on Mac and iPhone. Gmail matches whole words. Google Contacts via the People API needs a new scope and is the user's decision.
   - `visible` no longer depends on selection except to keep the open email listed.
   - The reader refetches a thread at most every 2 minutes and skips no-op mailbox rewrites.

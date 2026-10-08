@@ -1,46 +1,20 @@
-<?xml version="1.0" standalone="yes"?>
-<!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
--->
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Cove</title>
         <item>
-            <title>0.1.67</title>
-            <pubDate>Wed, 07 Oct 2026 16:54:53 -0700</pubDate>
+            <title>0.1.68</title>
+            <pubDate>Thu, 08 Oct 2026 10:37:32 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>69</sparkle:version>
-            <sparkle:shortVersionString>0.1.67</sparkle:shortVersionString>
+            <sparkle:version>70</sparkle:version>
+            <sparkle:shortVersionString>0.1.68</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.67</title></head><body><h1>Ask Cove reads attachments</h1><ul><li>Ask Cove about an open email and it now reads its PDF and text attachments too: “what are the amounts and capture lines in the PDFs?” gets the exact figures, cited to the email.</li><li>Follow-up questions use the same files without downloading them again. Scanned documents with no text are reported, never guessed.</li><li>The file text goes to your chosen writing model only when you ask about that email.</li></ul></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.67.dmg" length="24570132" type="application/octet-stream" sparkle:edSignature="RofPfKUr+69Fuj+vLaEWcqQ9nOrtdkdzrCzVtSXmKAU0RJHwaYW9yQxzaQlurlVv5C5Y6xJx1M02yhugVJS5Cw=="/>
-        </item>
-        <item>
-            <title>0.1.66</title>
-            <pubDate>Tue, 06 Oct 2026 08:32:42 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>68</sparkle:version>
-            <sparkle:shortVersionString>0.1.66</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.66</title></head><body><h1>Attach files</h1><ul><li>Attach files to new emails and replies with the paperclip beside Send, or drop them anywhere on a draft.</li><li>While you’re writing a reply, drop files anywhere on the window to attach them; with nothing open, dropping files starts a new email with them.</li><li>Files are kept with the draft on this Mac, encrypted, until the email is sent, so Undo and restarts don’t lose them. Gmail allows 25 MB per email.</li></ul></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.66.dmg" length="24503888" type="application/octet-stream" sparkle:edSignature="2w6hW6M6yrwraw/8BczQyT5uBqgVdrjT3fLXJQdPM1kIvkv4x8S17y36Sn1mMQz9HvUS6b8Cm2fFygCClEFKCQ=="/>
-        </item>
-        <item>
-            <title>0.1.65</title>
-            <pubDate>Mon, 05 Oct 2026 09:53:11 -0700</pubDate>
-            <link>https://covemail.xyz/beta/</link>
-            <sparkle:version>67</sparkle:version>
-            <sparkle:shortVersionString>0.1.65</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.65</title></head><body><h1>About you, on all your devices</h1><ul><li>About you can now sync between Cove on your Mac, iPhone and iPad. Turn on “Sync with your iPhone and iPad” in Agent → About you; it’s off until you do, and the newest edit wins.</li><li>It doesn’t need cloud mail sync and sends no email. About you is stored encrypted on Cove’s server, which can decrypt it, and you can remove the server copy at any time.</li></ul></body></html>
-]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.65.dmg" length="24317192" type="application/octet-stream" sparkle:edSignature="Ue91o/vhEmk5WzL63SHdVoY32MA/0AjCMPDQ9dLQTrao/Fey1WIZ+V/h6bBRzdsyvtrMDfJRYvalA/2a7iSTBw=="/>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.68</title></head><body><h1>Faster writing, and everyone in To</h1><ul><li>Typing a new email or a reply, moving between emails and opening a conversation are faster: Cove no longer re-scans the whole mailbox as you go.</li><li>The To field suggests anyone you’ve emailed, not only recent mail. After a short pause, Cove looks up matching names and addresses in Gmail; it never reads the emails’ text for this.</li><li>Loading older mail, label views, search results and images inside emails is faster.</li></ul></body></html>]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.68.dmg" length="24108237" type="application/octet-stream" sparkle:edSignature="ajdVllcnLpB5Wtb3zfAEOexK0G+cmUYZ6ymhKa/0kXhO/SJHWDOs0JyOMpLZ44RZn+buuTAf53zvte/ihQlQCw=="></enclosure>
         </item>
     </channel>
-</rss>
-<!-- sparkle-signatures:
-edSignature: Z4onM+Vtgk9Rm4VHy5fP88EK1/bCM+BUxi8pW7h77OM7iP/jdSls9v85bnl4g74G3KgpVwONudD5uPibo9ofCw==
-length: 4135
+</rss><!-- sparkle-signatures:
+edSignature: 5k0L/AI+nt9OwRdlsU47IsdxiJBrKkT8zTh06QFLHjzzMlQrLK0INhGyPvZnysAyj9DUBmvoeWbKm+53H1CdCA==
+length: 1715
 -->
