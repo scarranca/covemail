@@ -562,7 +562,8 @@ struct TriageUndoToast: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     Group {
-      if let undo = store.triageUndo {
+      // A move to Trash already shows its own countdown toast with Undo; Z still works.
+      if let undo = store.triageUndo, !undo.endsWithTrashWindow {
         HStack(spacing: 12) {
           Text(undo.message).font(.coveControl).lineLimit(1)
           Button { Task { await store.undoLastTriage() } } label: {

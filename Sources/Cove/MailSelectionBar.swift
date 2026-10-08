@@ -151,7 +151,7 @@ struct MailSelectionBar: View {
         barLabel("Snooze", icon: "clock", labels: labels)
       }.buttonStyle(.plain)
       action("Delete", icon: "trash", labels: labels, help: "Move the chosen emails to Trash · 5 seconds to undo (⌘⌫)") {
-        for mail in chosen { store.queueTrash(mail) }
+        store.beginTriage(chosen, .trash)
         store.selectedIDs = []
       }
       Button { store.selectedIDs = [] } label: {

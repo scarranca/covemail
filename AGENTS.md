@@ -20,6 +20,11 @@ Some README/status/distribution sections are historical and still mention older 
   - **Apple Intelligence:** `AIProvider.appleIntelligence` (`CoveCore/AppleIntelligence.swift`) on Mac and iPhone. FoundationModels is weak-linked on macOS. Prompts are refitted with `AIPromptLimits.onDevice`; a request that is still too long is reported, never silently cut or rerouted.
   - **Verification:** the Apple builds workflow (Xcode 26.6) compiles the Mac app, the iPhone library and the app shell, and the core tests pass. The app has not run on a device yet; see `docs/IOS.md`.
   - **Codemagic:** `codemagic.yaml` uploads to TestFlight on `main` pushes that touch iPhone or core code, after one-time setup by the account owner (docs/IOS.md).
+- **Unreleased (branch `scarranca/inbox-zero-triage`, October 8): inbox zero, wave 1.** See `docs/qa/0.1.69/PLAN.md` (the Superhuman gap analysis and wave 2) and `AUDIT.md`.
+  - One triage path on the Mac: `AppStore.triage`/`beginTriage` (`MailTriage.swift`) for archive, Inbox, read, flag, trash and snooze on one email or a chosen set, with auto-advance (the next email is chosen before applying) and one exact Undo (`triageUndo`, Z) reversed through `modify`/`applyBulk`. `archive(_:)` goes through it. Trash keeps its countdown toast; the triage toast hides for it.
+  - Keys: J/K, S, H, X, ⇧↑/↓, ⌘A, Esc, Z, ⇧E, C, `?`. `selectedIDs` is never part of `VisibleKey`.
+  - `SnoozePreset` (CoveCore) is the one list of snooze times on every platform; the Mac chooser is a popover (`MailSelectionBar.swift`); iPhone has snooze, a Snoozed folder and swipe (saved on the device, not synced); `SnoozeNotice`/`SnoozeNotifications`/`MobileSnoozeNotifier` schedule a "Back in your inbox" local notification (sender · subject, never the body).
+  - Read statuses are a deliberate no (privacy). Not released; the user decides.
 - **Cove 0.1.68, build 70**, is published (Pages deployment `3995af9f`; TestFlight build 18): speed and recipients.
   - To suggestions add a headers-only Gmail lookup (`GmailClient.people`, existing scope, debounced, cached, never retried) after downloaded people, on Mac and iPhone. Gmail matches whole words. Google Contacts via the People API needs a new scope and is the user's decision.
   - `visible` no longer depends on selection except to keep the open email listed.

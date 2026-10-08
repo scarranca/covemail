@@ -70,7 +70,8 @@ struct MailDeleteShortcut: NSViewRepresentable {
         mail = store.visible.first { $0.id == id }
       } else { mail = store.selected }
       guard let mail else { return event }
-      store.queueTrash(mail)
+      // A chosen set that includes this email goes together, with one Undo (Z or the toast).
+      store.beginTriage(store.triageTargets(for: mail), .trash)
       return nil
     }
 
