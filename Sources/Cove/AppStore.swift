@@ -140,6 +140,16 @@ import SwiftUI
   var contactGroup = "All contacts"
   var showNewContact = false
   var selectedID: String?
+  // MARK: Triage (0.1.69 seams; implemented in MailTriage.swift)
+  /// Emails chosen with X / Shift+arrows / ⌘A for one bulk action. Never part of `VisibleKey`: choosing
+  /// must not recompute `visible`. Cleared when the folder, search, tab or account changes.
+  var selectedIDs: Set<String> = []
+  /// The last triage action (archive, read, flag, snooze, bulk), offered for Z / Undo until the next one.
+  var triageUndo: TriageUndo?
+  /// The `?` sheet listing every mail shortcut.
+  var showShortcutHelp = false
+  /// H asks the open email's snooze menu to open (the reader or row that shows this id handles it and clears it).
+  var snoozeRequestID: String?
   var folder = "Inbox"
   var search = ""
   var priorityOnly = false
