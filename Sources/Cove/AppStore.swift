@@ -150,9 +150,11 @@ import SwiftUI
   var showShortcutHelp = false
   /// H asks the open email's snooze menu to open (the reader or row that shows this id handles it and clears it).
   var snoozeRequestID: String?
-  var folder = "Inbox"
-  var search = ""
-  var priorityOnly = false
+  // A different list drops the chosen emails (and, for a folder, the last Undo): acting on emails the
+  // user can no longer see would surprise them.
+  var folder = "Inbox" { didSet { if folder != oldValue { clearTriageSelection(); triageUndo = nil } } }
+  var search = "" { didSet { if search != oldValue { clearTriageSelection() } } }
+  var priorityOnly = false { didSet { if priorityOnly != oldValue { clearTriageSelection() } } }
   var screen = "mail"
   var isSample = false
   var entered = false
@@ -281,7 +283,7 @@ import SwiftUI
   private(set) var jevKeyProvider: (() throws -> String?)?
   private(set) var mailboxGeneration = UUID() {
     // A different mailbox (switch, disconnect, erase) drops what was read from the previous one.
-    didSet { peopleCache = [:]; inlineImageCache = []; threadRefreshes = [:] }
+    didSet { peopleCache = [:]; inlineImageCache = []; threadRefreshes = [:]; clearTriageSelection(); triageUndo = nil }
   }
   private var pendingReadTasks: [String: Task<Void, Never>] = [:]
   private var readRevision = 0
@@ -437,7 +439,7 @@ import SwiftUI
   }
   // MARK: Important / Other Inbox split
   /// The Inbox tab. Applies while the split is on, in the Inbox, without a search or Needs attention filter.
-  var inboxTab: InboxSplit = .important
+  var inboxTab: InboxSplit = .important { didSet { if inboxTab != oldValue { clearTriageSelection() } } }
   /// The last Important/Other move, offered for Undo in a small toast.
   var inboxMoveUndo: InboxMoveUndo?
   @ObservationIgnored private var inboxCountsCache: (key: VisibleKey, counts: [InboxSplit: Int])?
@@ -1779,6 +1781,20 @@ import SwiftUI
     if let selectedID, !visible.contains(where: { $0.id == selectedID }) {
       self.selectedID = nil
     }
+    // Chosen emails that left the list (archived, synced away) are no longer part of a bulk action.
+    guard !selectedIDs.isEmpty else { return }
+    let listed = Set(visible.map(\.id))
+    if !selectedIDs.isSubset(of: listed) { selectedIDs.formIntersection(listed) }
+  }
+  /// Only writes when something is chosen, so observers aren't notified on every folder or search change.
+  func clearTriageSelection() { if !selectedIDs.isEmpty { selectedIDs = [] } }
+  /// Whether `mail`, changed as a triage action would change it, still belongs in the current list
+  /// (with the open-email exception for Inbox tabs and Unread). Used to advance before applying.
+  func staysListed(_ mail: Mail) -> Bool {
+    let key = VisibleKey(revision: mailsRevision, folder: folder, search: search, priorityOnly: priorityOnly,
+      unreadOnly: labelUnreadOnly, oldestFirst: labelOldestFirst, selectedID: nil, trash: queuedTrashIDs,
+      minute: Int(now.timeIntervalSince1970 / 60), inboxTab: effectiveInboxTab, senderRules: inboxSenderRules)
+    return visibleFilter(key)(mail, selectedID)
   }
   func moveSelection(by offset: Int) {
     let messages = visible
@@ -1926,7 +1942,11 @@ import SwiftUI
       defer {
         if batch == self.trashBatchID, generation == self.mailboxGeneration {
           self.trashCommitting = false; self.committingTrashIDs = []; self.trashTask = nil
-          if self.queuedTrashIDs.isEmpty { self.trashDeadline = nil }
+          if self.queuedTrashIDs.isEmpty {
+            self.trashDeadline = nil
+            // Once in Trash there is nothing left for Z to cancel, so stop offering it.
+            if self.triageUndo?.endsWithTrashWindow == true { self.triageUndo = nil }
+          }
           else { self.scheduleQueuedTrash(waitTimeout: waitTimeout) }
         }
       }
@@ -1982,11 +2002,9 @@ import SwiftUI
     queuedTrashIDs.removeAll { restored.contains($0) }; trashDeadline = nil
     if screen == "mail", visible.contains(where: { $0.id == first }) { selectedID = first }
   }
+  /// Archive from the reader, rows, Home and Ask Cove: one triage action, so it advances and offers Z.
   func archive(_ mail: Mail) async {
-    guard entered, let current = mails.first(where: { $0.id == mail.id }),
-      current.labels.contains("INBOX"), current.labels.isDisjoint(with: ["TRASH", "DRAFT"])
-    else { return }
-    await modify(current, remove: ["INBOX"])
+    await triage([mail], .archive)
   }
   func trash(_ mail: Mail) async {
     guard entered, mails.contains(where: { $0.id == mail.id && !$0.labels.contains("TRASH") }) else { return }
