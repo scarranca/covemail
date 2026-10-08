@@ -58,6 +58,33 @@ extension AgentNotifying {
     content.threadIdentifier = "cove-agent"
     center.add(UNNotificationRequest(identifier: "cove-agent-" + mailID, content: content, trigger: nil))
   }
+
+  // Snooze returns: time-triggered requests macOS itself holds and delivers.
+  func schedule(identifier: String, title: String, body: String, mailID: String, account: String, at date: Date) {
+    guard let center else { return }
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    // The same keys as agent notifications, so a click opens the email through `open`.
+    content.userInfo = ["coveMailID": mailID, "coveAccount": account]
+    content.threadIdentifier = "cove-snooze"
+    let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+    center.add(UNNotificationRequest(identifier: identifier, content: content,
+                                     trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)))
+  }
+  func cancelPending(identifiers: [String]) {
+    center?.removePendingNotificationRequests(withIdentifiers: identifiers)
+  }
+  /// Pending requests whose identifier starts with `prefix`, with the account each belongs to.
+  func pending(prefix: String) async -> [String: String] {
+    guard let center else { return [:] }
+    let requests = await center.pendingNotificationRequests()
+    return Dictionary(requests.filter { $0.identifier.hasPrefix(prefix) }.map {
+      ($0.identifier, $0.content.userInfo["coveAccount"] as? String ?? "")
+    }, uniquingKeysWith: { first, _ in first })
+  }
+
   private static func permission(_ status: UNAuthorizationStatus) -> AgentNotificationPermission {
     switch status {
     case .authorized, .provisional: .allowed

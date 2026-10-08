@@ -80,6 +80,13 @@ public struct CoveMobileRoot: View {
       MobileMe.shared.auth = auth
       await MobileMe.shared.sync()
     }
+    .task {
+      // Snoozed mail returns to the Inbox when its minute comes.
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(60))
+        mailbox.refreshClock()
+      }
+    }
     .task(id: auth.email) {
       // While Cove is open, check Gmail about every two minutes, like the Mac.
       while !Task.isCancelled, auth.email != nil {
@@ -107,6 +114,7 @@ public struct CoveMobileRoot: View {
     .onChange(of: scenePhase) { _, phase in
       switch phase {
       case .active:
+        mailbox.refreshClock()
         ai.refreshStatus()
         Task { await mailbox.sync() }
         Task { await push.appBecameActive() }

@@ -16,6 +16,7 @@ struct MobileReaderView: View {
   @State private var assessmentHidden = false
   @State private var showEvidence = false
   @State private var taskNotice: String?
+  @State private var pickingDate = false
   /// On iPad the reader is a column: leaving an email (archive, unread, trash) is handled by the list.
   var onLeave: (() -> Void)?
   @Environment(\.dismiss) private var dismiss
@@ -87,6 +88,12 @@ struct MobileReaderView: View {
         } else {
           Button { mailbox.moveToInbox(mail) } label: { Label("Move to Inbox", systemImage: "tray.and.arrow.down") }
         }
+        if mail.labels.contains("INBOX") || mailbox.isSnoozed(mail) {
+          Menu {
+            MobileSnoozeChoices(mail: mail, mailbox: mailbox, onChosen: { leave() }, pickDate: { pickingDate = true })
+            Text(MobileSnoozeCopy.footer(mailbox.snoozeNotificationsAllowed))
+          } label: { Label("Snooze", systemImage: "clock") }
+        }
         Button { mailbox.setRead(mail, false); leave() } label: { Label("Mark unread", systemImage: "envelope.badge") }
         Menu {
           Button { mailbox.toggleStar(mail) } label: {
@@ -121,6 +128,7 @@ struct MobileReaderView: View {
       MobilePush.shared.clearNotification(for: mail.id)
     }
     .sheet(item: $draft) { draft in MobileComposeView(mailbox: mailbox, ai: ai, draft: draft) }
+    .sheet(isPresented: $pickingDate) { MobileSnoozeDatePicker(mail: mail, mailbox: mailbox, onChosen: { leave() }) }
     .sheet(isPresented: $asking) {
       MobileAskCoveView(ai: ai, mailbox: mailbox, mail: mail, thread: thread) { text in
         asking = false

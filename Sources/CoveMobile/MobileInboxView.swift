@@ -20,6 +20,9 @@ struct MobileInboxView: View {
   /// Several emails chosen with two fingers (or Select), for one action on all of them.
   @State private var picked: Set<String> = []
   @State private var editMode: EditMode = .inactive
+  /// The email the snooze chooser is open for (swipe), and the one whose date picker is open.
+  @State private var snoozing: Mail?
+  @State private var pickingDate: Mail?
   private var picking: Bool { editMode.isEditing }
 
   private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -65,6 +68,8 @@ struct MobileInboxView: View {
       .environment(\.defaultMinListRowHeight, 0)
       .refreshable { await mailbox.sync() }
       .toolbar(.hidden, for: .navigationBar)
+      .mobileSnoozeDialog(mail: $snoozing, mailbox: mailbox) { pickingDate = $0 }
+      .sheet(item: $pickingDate) { MobileSnoozeDatePicker(mail: $0, mailbox: mailbox) }
       .sheet(isPresented: $composing) { MobileComposeView(mailbox: mailbox, ai: ai, draft: .init()) }
       .sheet(item: $mailbox.restoredDraft) { draft in MobileComposeView(mailbox: mailbox, ai: ai, draft: draft) }
       #if DEBUG
@@ -186,9 +191,9 @@ struct MobileInboxView: View {
       Group {
         if picking {
           // While choosing, a tap toggles the email instead of opening it.
-          MobileMailRow(mail: mail)
+          MobileMailRow(mail: mail, snoozedNote: snoozedNote(mail))
         } else {
-          Button { open(mail.id) } label: { MobileMailRow(mail: mail) }.buttonStyle(MobileRowButtonStyle())
+          Button { open(mail.id) } label: { MobileMailRow(mail: mail, snoozedNote: snoozedNote(mail)) }.buttonStyle(MobileRowButtonStyle())
         }
       }
         .tag(mail.id)
@@ -209,6 +214,9 @@ struct MobileInboxView: View {
           Button { mailbox.setRead(mail, mail.isUnread) } label: {
             Label(mail.isUnread ? "Read" : "Unread", systemImage: mail.isUnread ? "envelope.open" : "envelope.badge")
           }.tint(Color(white: 0.45))
+          if mail.labels.contains("INBOX") {
+            Button { snoozing = mail } label: { Label("Snooze", systemImage: "clock") }.tint(MobilePalette.body)
+          }
           Button { mailbox.toggleStar(mail) } label: {
             Label(mail.isStarred ? "Unflag" : "Flag", systemImage: mail.isStarred ? "flag.slash" : "flag")
           }.tint(MobilePalette.badgeText)
@@ -217,6 +225,11 @@ struct MobileInboxView: View {
           Button(mail.isStarred ? "Remove follow-up flag" : "Flag for follow-up", systemImage: "flag") { mailbox.toggleStar(mail) }
           if mail.labels.contains("INBOX") {
             Button("Archive", systemImage: "archivebox") { mailbox.archive(mail) }
+          }
+          if mail.labels.contains("INBOX") {
+            Menu("Snooze", systemImage: "clock") {
+              MobileSnoozeChoices(mail: mail, mailbox: mailbox, pickDate: { pickingDate = mail })
+            }
           }
           Button(mail.isUnread ? "Mark as read" : "Mark as unread", systemImage: "envelope") { mailbox.setRead(mail, mail.isUnread) }
           Divider()
@@ -254,6 +267,12 @@ struct MobileInboxView: View {
       .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 24, trailing: 20))
       .listRowSeparator(.hidden).listRowBackground(MobilePalette.surface).selectionDisabled()
     }
+  }
+
+  /// "Until Tomorrow 9:00 AM" on rows in the Snoozed folder.
+  private func snoozedNote(_ mail: Mail) -> String? {
+    guard mailbox.folder == .snoozed, let until = mail.snoozedUntil, until > mailbox.now else { return nil }
+    return "Until " + SnoozePreset.describe(until)
   }
 
   private func endPicking() {
@@ -319,6 +338,9 @@ struct MobileInboxView: View {
         MobileEmptyState(title: "All caught up",
                          detail: mailbox.unreadOnly ? "Nothing unread in \(mailbox.inboxTab.title)." : "Nothing in \(mailbox.inboxTab.title) right now.",
                          systemImage: "sun.horizon")
+      } else if mailbox.folder == .snoozed {
+        MobileEmptyState(title: "Nothing snoozed", detail: "Swipe an email right and choose Snooze to see it again later.",
+                         systemImage: "clock")
       } else {
         MobileEmptyState(title: "A little breathing room", detail: "Messages in \(mailbox.folder.title) will appear here.")
       }
@@ -357,6 +379,8 @@ struct MobileSyncLine: View {
 /// One email, as the Mac's `MailRow`: unread dot, follow-up flag, sender and time, subject and preview.
 struct MobileMailRow: View {
   let mail: Mail
+  /// Set in the Snoozed folder: when the email comes back.
+  var snoozedNote: String?
 
   private var weight: Font.Weight { mail.isUnread ? .bold : .regular }
   private var titleColor: Color { mail.isUnread ? MobilePalette.ink : MobilePalette.mailReadText }
@@ -379,6 +403,9 @@ struct MobileMailRow: View {
         .font(.coveMobile(14, weight: mail.isUnread ? .bold : .regular, relativeTo: .subheadline)).lineLimit(1)
       Text(mail.body.prefix(220).replacingOccurrences(of: "\n", with: " "))
         .font(.mobileSecondary).foregroundStyle(MobilePalette.body).lineLimit(2)
+      if let snoozedNote {
+        Label(snoozedNote, systemImage: "clock").font(.mobileMetadata).foregroundStyle(MobilePalette.body)
+      }
       if !mail.draft.isEmpty || mail.labels.contains("DRAFT") || !mail.availableAttachments.isEmpty {
         HStack(spacing: 6) {
           if !mail.draft.isEmpty { MobileTag(text: "Draft ready", systemImage: "square.and.pencil") }

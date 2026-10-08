@@ -11,12 +11,13 @@ import UIKit
 /// Undo window before anything reaches Gmail.
 @MainActor @Observable final class MobileMailbox {
   enum Folder: String, CaseIterable, Identifiable {
-    case inbox, starred, sent, drafts, all
+    case inbox, starred, snoozed, sent, drafts, all
     var id: String { rawValue }
     var title: String {
       switch self {
       case .inbox: "Inbox"
       case .starred: "Flagged"
+      case .snoozed: "Snoozed"
       case .sent: "Sent"
       case .drafts: "Drafts"
       case .all: "Archive"
@@ -26,6 +27,7 @@ import UIKit
       switch self {
       case .inbox: "tray"
       case .starred: "flag"
+      case .snoozed: "clock"
       case .sent: "paperplane"
       case .drafts: "doc.badge.ellipsis"
       case .all: "archivebox"
@@ -46,9 +48,14 @@ import UIKit
   @ObservationIgnored private var visibleCache: (key: VisibleKey, mails: [Mail])?
   @ObservationIgnored private var unreadCache: (revision: Int, counts: [InboxSplit: Int])?
   private struct VisibleKey: Equatable {
-    var revision: Int; var folder: Folder; var unreadOnly: Bool; var inboxTab: InboxSplit; var splitInbox: Bool
+    var revision: Int; var now: Date; var folder: Folder; var unreadOnly: Bool; var inboxTab: InboxSplit; var splitInbox: Bool
   }
   var folder: Folder = .inbox
+  /// The clock for snoozes, to the minute. Mail snoozed past it is hidden from the Inbox; the app
+  /// refreshes it every minute and when it comes to the front (`refreshClock`).
+  private(set) var now = MobileMailbox.minute(Date())
+  /// Whether iOS lets Cove notify when a snooze ends; nil until the first snooze asked.
+  private(set) var snoozeNotificationsAllowed: Bool?
   var inboxTab: InboxSplit = .important
   /// The Inbox's Unread filter (as on the Mac).
   var unreadOnly = false
@@ -155,6 +162,8 @@ import UIKit
       let version = try db.load(Int.self, key: "mailDecodingVersion") ?? 0
       if version < GmailMessage.decodingVersion { historyID = nil }
       hasOlder = nextPage?.isEmpty == false || mails.isEmpty
+      // A reinstall or a cleared notification list shouldn't lose a snooze's return notice.
+      MobileSnoozeNotifier.reconcile(SnoozeNotice.pending(in: mails), account: email)
     } catch {
       self.error = error.localizedDescription
     }
@@ -177,7 +186,7 @@ import UIKit
 
   var visible: [Mail] {
     // Reading each input here also tells SwiftUI to redraw when any of them changes.
-    let key = VisibleKey(revision: listRevision, folder: folder, unreadOnly: unreadOnly, inboxTab: inboxTab, splitInbox: splitInbox)
+    let key = VisibleKey(revision: listRevision, now: now, folder: folder, unreadOnly: unreadOnly, inboxTab: inboxTab, splitInbox: splitInbox)
     if let visibleCache, visibleCache.key == key { return visibleCache.mails }
     let list = computeVisible()
     visibleCache = (key, list)
@@ -189,10 +198,11 @@ import UIKit
       guard !hiddenIDs.contains(mail.id), mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) else { return false }
       switch folder {
       case .inbox:
-        guard mail.labels.contains("INBOX") else { return false }
+        guard mail.labels.contains("INBOX"), !isSnoozed(mail) else { return false }
         if unreadOnly && !mail.isUnread { return false }
         return !splitInbox || InboxSplit.split(mail) == inboxTab
       case .starred: return mail.isStarred
+      case .snoozed: return mail.snoozedUntil.map { $0 > now } ?? false
       case .sent: return mail.labels.contains("SENT")
       case .drafts: return mail.labels.contains("DRAFT") || !mail.draft.isEmpty
       case .all: return !mail.labels.contains("INBOX") && !mail.labels.contains("DRAFT") && !mail.labels.contains("SENT")
@@ -204,7 +214,7 @@ import UIKit
     let revision = listRevision
     if let unreadCache, unreadCache.revision == revision { return unreadCache.counts[tab] ?? 0 }
     var counts: [InboxSplit: Int] = [:]
-    for mail in mails where mail.labels.contains("INBOX") && mail.isUnread && !hiddenIDs.contains(mail.id) {
+    for mail in mails where mail.labels.contains("INBOX") && mail.isUnread && !hiddenIDs.contains(mail.id) && !isSnoozed(mail) {
       counts[InboxSplit.split(mail), default: 0] += 1
     }
     unreadCache = (revision, counts)
@@ -385,7 +395,7 @@ import UIKit
 
   /// Every loaded email in the Inbox, newest first (Home's source).
   var inbox: [Mail] {
-    mails.filter { !hiddenIDs.contains($0.id) && $0.labels.contains("INBOX") && $0.labels.isDisjoint(with: ["TRASH", "SPAM"]) }
+    mails.filter { !hiddenIDs.contains($0.id) && $0.labels.contains("INBOX") && !isSnoozed($0) && $0.labels.isDisjoint(with: ["TRASH", "SPAM"]) }
       .sorted { $0.date > $1.date }
   }
   var allLoaded: [Mail] { mails.filter { !hiddenIDs.contains($0.id) } }
@@ -459,7 +469,10 @@ import UIKit
   func toggleStar(_ mail: Mail) {
     change(mail, add: mail.isStarred ? [] : ["STARRED"], remove: mail.isStarred ? ["STARRED"] : [])
   }
-  func archive(_ mail: Mail) { change(mail, add: [], remove: ["INBOX"]) }
+  func archive(_ mail: Mail) {
+    change(mail, add: [], remove: ["INBOX"])
+    endSnooze(mail.id)
+  }
   func moveToInbox(_ mail: Mail) { change(mail, add: ["INBOX"], remove: []) }
 
   private func change(_ mail: Mail, add: Set<String>, remove: Set<String>) {
@@ -499,6 +512,47 @@ import UIKit
     update(mail.id) { $0.draft = text }
   }
 
+  // MARK: Snooze
+
+  /// The minute a date falls in, so the clock changes (and the list recomputes) once a minute.
+  private static func minute(_ date: Date) -> Date {
+    Date(timeIntervalSinceReferenceDate: (date.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
+  }
+
+  func isSnoozed(_ mail: Mail) -> Bool { mail.snoozedUntil.map { $0 > now } ?? false }
+
+  /// Refreshes the snooze clock; snoozed mail whose time has passed returns to the Inbox.
+  func refreshClock() {
+    let current = Self.minute(Date())
+    guard current != now else { return }
+    now = current
+    // Counts and lists are cached against the revision; a snooze ending changes both.
+    if mails.contains(where: { $0.snoozedUntil != nil }) { listRevision &+= 1 }
+  }
+
+  /// Hides an email from the Inbox until `date` (nil returns it now). Saved on this iPhone only: the
+  /// Mac's cloud snooze service isn't wired on iPhone, so snoozes don't sync to the Mac yet.
+  func snooze(_ mail: Mail, until date: Date?) {
+    guard !mail.id.hasPrefix("local-") else { return }
+    let date = date.flatMap { $0 > Date() ? $0 : nil }
+    update(mail.id) { $0.snoozedUntil = date }
+    listRevision &+= 1
+    guard let date else { MobileSnoozeNotifier.cancel([mail.id]); return }
+    guard !auth.isSample else { return }
+    let sender = SnoozeNotice.senderName(of: mail), subject = mail.subject
+    Task {
+      snoozeNotificationsAllowed = await MobileSnoozeNotifier.schedule(
+        mailID: mail.id, sender: sender, subject: subject, account: auth.email ?? "", at: date)
+    }
+  }
+
+  /// Archiving or trashing a snoozed email ends its snooze and its pending notification.
+  private func endSnooze(_ id: String) {
+    guard mails.first(where: { $0.id == id })?.snoozedUntil != nil else { return }
+    update(id) { $0.snoozedUntil = nil }
+    MobileSnoozeNotifier.cancel([id])
+  }
+
   // MARK: Trash and send, with Undo
 
   /// Moves to Trash after a five-second Undo window; nothing reaches Gmail before it ends.
@@ -517,12 +571,14 @@ import UIKit
       for id in ids {
         if self.auth.isSample {
           self.update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
+          self.endSnooze(id)
           continue
         }
         do {
           let token = try await self.auth.token()
           try await self.gmail.trash(id: id, token: token)
           self.update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
+          self.endSnooze(id)
         } catch {
           failed += 1
         }
@@ -538,7 +594,11 @@ import UIKit
 
   // MARK: Several emails at once (two-finger selection)
 
-  func archive(_ batch: [Mail]) { changeMany(batch.filter { $0.labels.contains("INBOX") }, add: [], remove: ["INBOX"]) }
+  func archive(_ batch: [Mail]) {
+    let inbox = batch.filter { $0.labels.contains("INBOX") }
+    changeMany(inbox, add: [], remove: ["INBOX"])
+    inbox.forEach { endSnooze($0.id) }
+  }
   func setRead(_ batch: [Mail], _ read: Bool) {
     changeMany(batch.filter { $0.isUnread == read }, add: read ? [] : ["UNREAD"], remove: read ? ["UNREAD"] : [])
   }

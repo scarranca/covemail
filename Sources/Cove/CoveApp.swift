@@ -59,6 +59,7 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
     _store = State(initialValue: store)
     // Owned for the life of the app: nothing in the scene reads it, so @State wouldn't keep it alive.
     MeetingMenuBarModel.start(store: store)
+    SnoozeNotifications.start(store: store)
   }
   var body: some Scene {
     WindowGroup(id: "main") {
