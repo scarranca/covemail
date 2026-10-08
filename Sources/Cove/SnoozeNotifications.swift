@@ -80,9 +80,9 @@ import Observation
 
     let fresh = wanted.filter { scheduled[$0.key] != $0.value.0 }
     guard !fresh.isEmpty, !store.isSample else { return }
-    // Ask on the first snooze, never on launch for snoozes that already existed.
-    var permission = await notifier.permission()
-    if permission == .notDetermined, !initial { permission = await notifier.requestPermission() }
+    // Never asks here: a sync, an autosave or a cloud snooze arriving must not pop the permission
+    // dialog. Only the user's own snooze asks (`requestPermissionIfNeeded`, from `AppStore.snooze`).
+    let permission = await notifier.permission()
     snoozeNotificationsAllowed = Self.allowed(permission)
     guard permission == .allowed else { return }
     for (id, entry) in fresh {
@@ -91,6 +91,15 @@ import Observation
                         body: SnoozeNotice.body(sender: SnoozeNotice.senderName(of: mail), subject: mail.subject),
                         mailID: id, account: account, at: date)
       scheduled[id] = date
+    }
+  }
+
+  /// Asks macOS once, when the user sets a snooze themselves; then schedules what was waiting.
+  func requestPermissionIfNeeded() {
+    Task {
+      guard await notifier.permission() == .notDetermined else { return }
+      snoozeNotificationsAllowed = Self.allowed(await notifier.requestPermission())
+      await reconcile(initial: false)
     }
   }
 

@@ -134,7 +134,8 @@ extension AppStore {
         }
       }
     }
-    clearTriageSelection()
+    // Acting on a chosen set consumes it; a row action outside the set leaves it chosen.
+    if !selectedIDs.isDisjoint(with: ids) { clearTriageSelection() }
 
     let generation = mailboxGeneration
     let work: Task<[String], Never>

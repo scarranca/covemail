@@ -19,6 +19,7 @@ Sonnet for the Mac UI and for iPhone). Branch: `scarranca/inbox-zero-triage`. No
   action; cleared on folder or account change. Trash keeps its five-second countdown toast; the triage
   toast stays hidden for it (`endsWithTrashWindow`) and Z cancels the move.
 - Up to 25 emails go through `modify` side by side; more go through `applyBulk` as one `batchModify`.
+  A row action on an email outside the chosen set leaves the set chosen.
 - `archive(_:)` and `snooze(_:preset:)` go through `triage`, so every existing caller gets Undo and
   advance.
 
@@ -42,7 +43,8 @@ editors, sheets and other screens. The one changed test: ⇧↓ no longer passes
   Read/Unread, Flag/Unflag, Snooze, Delete and ✕ (icon-only when the column is narrow).
 - **Undo toast** on the `InboxMoveToast` pattern with a Z keycap, stacked above it, Reduce Motion
   honored.
-- **Empty Important tab:** "Archive all N in Other" under the dusk scene, only when Other has mail.
+- **Empty Important tab:** "Archive N in Other" under the dusk scene, only when Other has mail. N counts
+  the Other emails downloaded to this Mac; older Other mail still in Gmail is not included.
 - **`?` sheet:** every mail key in five groups. The list footer and the empty reader teach E, H, X, Z
   and `?`.
 
@@ -71,8 +73,9 @@ weekend), Next week (Monday 9:00, never today). Anything within 30 minutes or in
   "sender · subject", never the email's body.
 - Mac: `SnoozeNotifications` (started from `CoveApp`) watches the mailbox and keeps one pending local
   notification per snoozed Inbox email, cancelling it on unsnooze, archive or trash; stale requests from
-  earlier sessions are swept for the open account. Permission is asked on the first new snooze, never
-  on launch; a denied snooze still works. A click opens the email through the agents' notifier.
+  earlier sessions are swept for the open account. Permission is asked only when the user sets a snooze
+  themselves (`AppStore.snooze` → `requestPermissionIfNeeded`), never on launch, from a sync or from a
+  cloud snooze arriving; a denied snooze still works. A click opens the email through the agents' notifier.
 - iPhone: `MobileSnoozeNotifier` does the same with calendar triggers; a tap opens the email through
   the existing push routing.
 
@@ -94,6 +97,10 @@ weekend), Next week (Monday 9:00, never today). Anything within 30 minutes or in
   system-scheduled triggers, which is the documented behavior, but neither was observed.
 - Large sets (more than 25) wait for Gmail before rows change and mark Cove busy for the batch; that
   path isn't protected against a sync running at the same time, as in Ask Cove's bulk path before.
+- Archives from Home or Ask Cove set `triageUndo` too, but the toast and Z live in Mail, so that Undo
+  is reachable only after switching there.
+- `SnoozeNotifications` scans `mails` on every revision, including autosaves; linear and cheap, but it
+  sits beside 0.1.68's autosave item.
 - Account switch clearing the choice and Undo is implemented in `mailboxGeneration`'s didSet but not
   covered by a test.
 

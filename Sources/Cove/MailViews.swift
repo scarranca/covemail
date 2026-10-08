@@ -82,8 +82,8 @@ struct MailboxView: View {
             let other = tab == .important ? store.inboxMails(in: .other) : []
             InboxDuskView(title: "All caught up",
                           detail: store.labelUnreadOnly ? "Nothing unread in \(tab.title)." : "Nothing in \(tab.title) right now.",
-                          actionTitle: other.isEmpty ? nil : "Archive all \(other.count) in Other",
-                          actionHelp: "Archive every email in the Other tab. One Undo brings them back.",
+                          actionTitle: other.isEmpty ? nil : "Archive \(other.count) in Other",
+                          actionHelp: "Archive the Other emails downloaded to this Mac. One Undo brings them back.",
                           action: other.isEmpty ? nil : { Task { await store.triage(other, .archive) } })
               .frame(maxWidth: .infinity, maxHeight: .infinity)
           } else if store.visible.isEmpty {

@@ -2049,6 +2049,8 @@ import SwiftUI
       mails[index] = updated
       reconcileSelection()
       status = until == nil ? "Returned to your inbox · \(snoozeSyncDetail(for: updated))" : snoozeSyncDetail(for: updated)
+      // The user's own snooze is the one moment to ask about "Back in your inbox" notifications.
+      if until != nil, !isSample { SnoozeNotifications.shared?.requestPermissionIfNeeded() }
     } catch { self.error = error.localizedDescription }
   }
   func snoozeUntilTomorrowMorning(_ mail: Mail, from date: Date = Date(), calendar: Calendar = .current) {

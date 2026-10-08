@@ -110,7 +110,7 @@ struct InboxDuskView: View {
   let title: String
   let detail: String
   var previewTime: Double? = nil
-  /// An optional button under the copy, e.g. "Archive all 12 in Other".
+  /// An optional button under the copy, e.g. "Archive 12 in Other".
   var actionTitle: String? = nil
   var actionHelp: String? = nil
   var action: (() -> Void)? = nil
