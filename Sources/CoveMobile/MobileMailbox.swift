@@ -39,7 +39,15 @@ import UIKit
     let title: String
   }
 
-  private(set) var mails: [Mail] = []
+  private(set) var mails: [Mail] = [] { didSet { listRevision &+= 1 } }
+  /// Bumped whenever the loaded mail or hidden set changes; the list and counts are cached against it
+  /// (and the folder and filters), so a redraw doesn't re-sort and re-filter every email.
+  private(set) var listRevision = 0
+  @ObservationIgnored private var visibleCache: (key: VisibleKey, mails: [Mail])?
+  @ObservationIgnored private var unreadCache: (revision: Int, counts: [InboxSplit: Int])?
+  private struct VisibleKey: Equatable {
+    var revision: Int; var folder: Folder; var unreadOnly: Bool; var inboxTab: InboxSplit; var splitInbox: Bool
+  }
   var folder: Folder = .inbox
   var inboxTab: InboxSplit = .important
   /// The Inbox's Unread filter (as on the Mac).
@@ -52,6 +60,8 @@ import UIKit
   private(set) var hasOlder = true
   /// Quiet progress, such as Gmail asking Cove to slow down. Never an alert.
   private(set) var status: String?
+  /// When Gmail last finished a sync for this mailbox, for the list's "Updated …" line.
+  private(set) var lastSynced: Date?
   var error: String?
   private(set) var searchResults: [Mail]?
   private(set) var searching = false
@@ -71,7 +81,7 @@ import UIKit
   private var pendingIDs: Set<String> = []
   /// Label changes still on their way to Gmail, re-applied over every sync result until delivered.
   private var labelEdits: [String: (add: Set<String>, remove: Set<String>)] = [:]
-  private var hiddenIDs: Set<String> = []
+  private var hiddenIDs: Set<String> = [] { didSet { listRevision &+= 1 } }
   private var pendingTask: Task<Void, Never>?
   private var pendingCommit: (@MainActor () async -> Void)?
   private var pendingCancel: (@MainActor () -> Void)?
@@ -81,6 +91,8 @@ import UIKit
   /// whichever comes first. Contacts, search, suggestions and voice learning all read this mail.
   static let historyDays = 90
   static let historyLimit = 600
+  /// Already-downloaded emails one sync re-checks; the rest wait for the next syncs.
+  static let verificationsPerSync = 60
   /// Quiet progress of the background history download, for Settings and Contacts.
   private(set) var historyStatus: String?
   private(set) var downloadingHistory = false
@@ -162,6 +174,15 @@ import UIKit
   // MARK: What's shown
 
   var visible: [Mail] {
+    // Reading each input here also tells SwiftUI to redraw when any of them changes.
+    let key = VisibleKey(revision: listRevision, folder: folder, unreadOnly: unreadOnly, inboxTab: inboxTab, splitInbox: splitInbox)
+    if let visibleCache, visibleCache.key == key { return visibleCache.mails }
+    let list = computeVisible()
+    visibleCache = (key, list)
+    return list
+  }
+
+  private func computeVisible() -> [Mail] {
     mails.sorted { $0.date > $1.date }.filter { mail in
       guard !hiddenIDs.contains(mail.id), mail.labels.isDisjoint(with: ["TRASH", "SPAM"]) else { return false }
       switch folder {
@@ -178,7 +199,14 @@ import UIKit
   }
 
   func unreadCount(_ tab: InboxSplit) -> Int {
-    mails.filter { $0.labels.contains("INBOX") && $0.isUnread && !hiddenIDs.contains($0.id) && InboxSplit.split($0) == tab }.count
+    let revision = listRevision
+    if let unreadCache, unreadCache.revision == revision { return unreadCache.counts[tab] ?? 0 }
+    var counts: [InboxSplit: Int] = [:]
+    for mail in mails where mail.labels.contains("INBOX") && mail.isUnread && !hiddenIDs.contains(mail.id) {
+      counts[InboxSplit.split(mail), default: 0] += 1
+    }
+    unreadCache = (revision, counts)
+    return counts[tab] ?? 0
   }
 
   func mail(id: String) -> Mail? {
@@ -203,7 +231,9 @@ import UIKit
       do {
         result = try await gmail.synchronize(
           token: token, cached: mails, historyID: historyID, refreshContent: historyID == nil && !mails.isEmpty,
-          storedIDs: (try? database.storedMessageIDs()) ?? [], pendingIDs: pendingIDs)
+          storedIDs: (try? database.storedMessageIDs()) ?? [], pendingIDs: pendingIDs,
+          // New mail first: re-checking what's already here is spread over later syncs (60 at a time).
+          maxVerifications: Self.verificationsPerSync)
       } catch let failure as HTTPFailure where failure.isRateLimited {
         status = "Gmail asked Cove to slow down. Mail will finish updating shortly."
         return
@@ -212,7 +242,8 @@ import UIKit
       try apply(result, keepsAll: false)
       pendingIDs = result.pendingIDs
       try database.save(pendingIDs, key: "gmailPendingIDs")
-      status = result.pendingIDs.isEmpty ? nil : "Catching up on mail…"
+      lastSynced = Date()
+      status = result.pendingIDs.isEmpty ? nil : "Checking \(result.pendingIDs.count) older emails…"
       error = nil
     } catch is CancellationError {
     } catch {

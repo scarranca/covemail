@@ -98,10 +98,10 @@ struct MobileIPadRoot: View {
         }
       }
       Spacer(minLength: 0)
-      if mailbox.syncing || mailbox.historyStatus != nil {
+      if mailbox.syncing || mailbox.historyStatus != nil || mailbox.status != nil {
         HStack(spacing: 8) {
-          ProgressView()
-          Text(mailbox.historyStatus ?? "Checking Gmail…").lineLimit(2)
+          if mailbox.syncing || mailbox.historyStatus != nil { ProgressView() }
+          Text(mailbox.status ?? mailbox.historyStatus ?? "Checking Gmail…").lineLimit(3)
         }.font(.mobileMetadata).foregroundStyle(MobilePalette.body)
       }
       VStack(spacing: 2) {

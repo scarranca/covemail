@@ -297,6 +297,53 @@ final class GmailSyncTests: XCTestCase {
     XCTAssertEqual(paths.filter { $0 == "vanished" }.count, 1)
   }
 
+  func testExpiredHistoryShowsNewMailFirstAndSpreadsReChecksOverLaterSyncs() async throws {
+    let cachedIDs = (1...200).map { String(format: "c%03d", $0) }
+    let transport = SyncFixtureHTTP { request in
+      let name = request.url!.lastPathComponent
+      switch name {
+      case "history": return (404, [:])
+      case "profile": return (200, ["historyId": "baseline"])
+      case "messages": return (200, ["messages": [["id": "z-new"]]])
+      case "z-new": return (200, ["id": "z-new", "threadId": "t", "labelIds": ["INBOX", "UNREAD"]])
+      default: return (200, ["labelIds": ["INBOX"]])
+      }
+    }
+    let result = try await GmailClient(transport: transport).synchronize(
+      token: "t", cached: cachedIDs.map { cached($0) }, historyID: "expired", maxVerifications: 60)
+    XCTAssertEqual(result.messages.map(\.id), ["z-new"], "the new email arrives in this sync")
+    let checked = await transport.paths().filter { $0.hasPrefix("c") }
+    XCTAssertEqual(checked.count, 60)
+    XCTAssertEqual(Set(checked), Set(cachedIDs.suffix(60)), "newest first")
+    XCTAssertEqual(result.pendingIDs, Set(cachedIDs.prefix(140)))
+    XCTAssertEqual(result.historyID, "baseline")
+  }
+
+  func testABacklogNeverDelaysNewMailAndWithoutALimitEverythingIsCheckedAsBefore() async throws {
+    let backlog = Set((1...150).map { String(format: "p%03d", $0) })
+    func gmail() -> SyncFixtureHTTP {
+      SyncFixtureHTTP { request in
+        let name = request.url!.lastPathComponent
+        if name == "history" {
+          return (200, ["historyId": "300", "history": [["messagesAdded": [["message": ["id": "n1"]], ["message": ["id": "n2"]]]]]])
+        }
+        return (200, ["id": name, "threadId": "t", "labelIds": ["INBOX"]])
+      }
+    }
+    let limited = gmail()
+    let bounded = try await GmailClient(transport: limited).synchronize(
+      token: "t", cached: [], historyID: "299", pendingIDs: backlog, maxVerifications: 60)
+    XCTAssertTrue(Set(bounded.messages.map(\.id)).isSuperset(of: ["n1", "n2"]))
+    XCTAssertEqual(bounded.messages.count, 62)
+    XCTAssertEqual(bounded.pendingIDs.count, 90)
+    XCTAssertFalse(bounded.pendingIDs.contains("n1"))
+
+    let unlimited = gmail()
+    let all = try await GmailClient(transport: unlimited).synchronize(token: "t", cached: [], historyID: "299", pendingIDs: backlog)
+    XCTAssertEqual(all.messages.count, 152, "the Mac (no limit) still checks everything at once")
+    XCTAssertTrue(all.pendingIDs.isEmpty)
+  }
+
   func testRateLimitPartwayKeepsWhatArrivedAndRemembersTheRest() async throws {
     let ids = (1...9).map { "m\($0)" }
     let limited = SyncFixtureHTTP { request in

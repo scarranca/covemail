@@ -134,6 +134,7 @@ struct MobileInboxView: View {
       .background(MobilePalette.canvas, in: RoundedRectangle(cornerRadius: 7))
       .overlay(RoundedRectangle(cornerRadius: 7).stroke(searchFocused ? MobilePalette.ink : MobilePalette.line))
       if !searching { filterBar }
+      if !mailbox.auth.isSample { MobileSyncLine(mailbox: mailbox) }
     }
     .padding(.bottom, 6)
   }
@@ -329,6 +330,27 @@ struct MobileInboxView: View {
       .font(.mobileSecondary).foregroundStyle(MobilePalette.muted)
       .frame(maxWidth: .infinity).padding(.vertical, 18)
     }
+  }
+}
+
+/// A quiet line under the list header: what sync is doing, or when it last finished. Never an alert.
+struct MobileSyncLine: View {
+  let mailbox: MobileMailbox
+  var body: some View {
+    TimelineView(.periodic(from: .now, by: 30)) { context in
+      HStack(spacing: 6) {
+        if mailbox.syncing { ProgressView().controlSize(.mini) }
+        Text(text(now: context.date)).lineLimit(1)
+      }
+      .font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
+    }
+  }
+  private func text(now: Date) -> String {
+    if let status = mailbox.status { return status }
+    if mailbox.syncing { return "Checking Gmail…" }
+    guard let last = mailbox.lastSynced else { return "Not updated yet · pull down to refresh" }
+    let minutes = Int(now.timeIntervalSince(last) / 60)
+    return minutes < 1 ? "Updated just now" : "Updated \(minutes) min ago"
   }
 }
 

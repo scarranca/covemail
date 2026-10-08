@@ -244,9 +244,12 @@ extension GmailClient {
     }
     return result
   }
+  /// `maxVerifications` bounds how many already-known emails one sync re-checks (the pending backlog,
+  /// or every cached email after Gmail's history expired); the rest stay in `pendingIDs` for later
+  /// syncs, newest first. New emails are always read. Nil (the Mac) checks everything at once.
   public func synchronize(
     token: String, cached: [Mail], historyID: String?, refreshContent: Bool = false,
-    storedIDs: Set<String> = [], pendingIDs: Set<String> = []
+    storedIDs: Set<String> = [], pendingIDs: Set<String> = [], maxVerifications: Int? = nil
   ) async throws
     -> GmailSyncResult
   {
@@ -263,10 +266,17 @@ extension GmailClient {
         // history itself, and new emails already stored (sent from Cove, for example) need nothing.
         let known = storedIDs.union(cachedIDs)
         let unknownLabelled = Set(delta.labelChanges.keys).subtracting(known)
-        let reads = delta.added.subtracting(known).union(unknownLabelled).union(pendingIDs).subtracting(delta.deleted)
         var result = GmailSyncResult(deletedIDs: delta.deleted, historyID: delta.cursor)
         result.labelChanges = delta.labelChanges.filter { known.contains($0.key) && !pendingIDs.contains($0.key) }
-        return try await fetchUpdates(ids: reads, cachedIDs: storedIDs, token: token, into: result)
+        guard let maxVerifications else {
+          let reads = delta.added.subtracting(known).union(unknownLabelled).union(pendingIDs).subtracting(delta.deleted)
+          return try await fetchUpdates(ids: reads, cachedIDs: storedIDs, token: token, into: result)
+        }
+        let fresh = delta.added.subtracting(known).union(unknownLabelled).subtracting(delta.deleted)
+        let (now, later) = Self.split(pendingIDs.subtracting(fresh).subtracting(delta.deleted), first: maxVerifications)
+        result = try await fetchUpdates(ids: fresh.union(now), cachedIDs: storedIDs, token: token, into: result)
+        result.pendingIDs.formUnion(later)
+        return result
       }
     }
     // Capture a baseline BEFORE reading messages, so concurrent changes are replayed next sync.
@@ -281,9 +291,20 @@ extension GmailClient {
       messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
       historyID: baseline.historyId, nextPage: page.next, resetsPagination: true)
     // Missing from a single page is not deletion: verify every previously cached remote ID.
-    return try await fetchUpdates(
-      ids: cachedIDs.union(pendingIDs).subtracting(fetchedIDs), cachedIDs: knownIDs,
-      token: token, into: result)
+    let unverified = cachedIDs.union(pendingIDs).subtracting(fetchedIDs)
+    guard let maxVerifications else {
+      return try await fetchUpdates(ids: unverified, cachedIDs: knownIDs, token: token, into: result)
+    }
+    let (now, later) = Self.split(unverified, first: maxVerifications)
+    var bounded = try await fetchUpdates(ids: now, cachedIDs: knownIDs, token: token, into: result)
+    bounded.pendingIDs.formUnion(later)
+    return bounded
+  }
+
+  /// The newest `first` IDs (Gmail IDs grow with time) and the rest.
+  static func split(_ ids: Set<String>, first: Int) -> (now: Set<String>, later: Set<String>) {
+    let sorted = ids.sorted(by: >)
+    return (Set(sorted.prefix(max(first, 0))), Set(sorted.dropFirst(max(first, 0))))
   }
 }
 

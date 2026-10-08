@@ -145,3 +145,11 @@ Build 13 crashed with SIGABRT when a new-mail notification was tapped: the `asyn
 ## Received attachments (TestFlight build 15, Oct 7)
 
 In the reader (iPhone and iPad), each attachment shows its size; tapping it previews with Quick Look (Done, and the share button for Save to Files, Print, AirDrop), and the arrow opens "Save to Files" directly (`MobileAttachments.swift`). Like the Mac's Attachment Preview, bytes are fetched from Gmail only on that tap; known files over 25 MB are refused before downloading and checked again after; HTML/SVG files are previewed as text source, never rendered. Copies go to a private temporary folder (complete file protection) that is removed when the preview or export closes, and cleared at launch after a crash. Screenshot check: `-CoveSample -CoveTab mail -CoveOpenFirst -CovePreviewAttachment`.
+
+## iPad not loading new mail, and slow (TestFlight build 17, Oct 7)
+
+Two causes, fixed together:
+
+- **Not loading:** after Gmail's history expired (a device not opened for about a week), sync re-checked every downloaded email (up to about 600 on an iPad with history) before showing anything, at Gmail's pace, so new mail could take minutes or never land if the app was left. The same held for a large `pendingIDs` backlog. `GmailClient.synchronize(maxVerifications:)` now reads new mail first and re-checks at most 60 known emails per sync, newest first; the rest stay pending for later syncs. An email deleted in Gmail can therefore stay visible on the device for a few more sync cycles. The Mac passes no limit, so its behavior is unchanged. Tests: `GmailSyncTests.testExpiredHistoryShowsNewMailFirst…`, `testABacklogNeverDelaysNewMail…`.
+- **Slow:** `MobileMailbox.visible` re-sorted and re-filtered all mail on every access (about five per redraw), and the unread counts scanned everything; the iPad draws the sidebar, list and reader together while history downloads every 1.5 s. Both are now cached against `listRevision` (bumped by `mails`/`hiddenIDs`) plus the folder, Unread filter, tab and split setting.
+- **Status:** `status` ("Gmail asked Cove to slow down…", "Checking N older emails…") was never displayed. The list now has a quiet line under its header ("Updated 3 min ago", hidden for the sample mailbox), and the iPad sidebar shows the status too.
