@@ -208,7 +208,7 @@ public struct GmailClient {
   public init(transport: HTTPTransport = LiveHTTP()) { self.transport = transport }
   public func request(
     _ path: String, token: String, method: String = "GET", body: [String: Any]? = nil,
-    query: [URLQueryItem] = []
+    query: [URLQueryItem] = [], retries: Int = 5
   ) async throws -> Data {
     var components = URLComponents(
       string: "https://gmail.googleapis.com/gmail/v1/users/me/\(path)")!
@@ -231,7 +231,7 @@ public struct GmailClient {
       if live { await GmailPacer.shared.spend(cost) }
       do { return try await checked(request, transport: transport) } catch let failure as HTTPFailure {
         let retryable = failure.isRateLimited || (method == "GET" && [500, 502, 503, 504].contains(failure.statusCode))
-        guard retryable, attempt < 5 else { throw failure }
+        guard retryable, attempt < retries else { throw failure }
         let seconds = live ? min(32, pow(2, Double(attempt))) + Double.random(in: 0..<1) : 0
         if live, failure.isRateLimited { await GmailPacer.shared.slowDown(for: seconds) }
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
@@ -253,9 +253,11 @@ public struct GmailClient {
     public var deletedIDs: Set<String> = []
   }
   /// Lists one page. IDs in `cachedIDs` are already stored on this Mac, so only their labels are fetched.
+  /// `interactive` pages (the user scrolled to the end or opened a label) spend from the reserve kept for
+  /// what the user does instead of waiting behind background spacing, which is slow on battery.
   public func page(
     token: String, pageToken: String? = nil, labelID: String? = nil,
-    cachedIDs: Set<String> = []
+    cachedIDs: Set<String> = [], interactive: Bool = false
   ) async throws -> Page {
     struct Entry: Decodable { var id: String }
     struct List: Decodable {
@@ -281,7 +283,7 @@ public struct GmailClient {
       let updates = try await withThrowingTaskGroup(of: MessageUpdate?.self) { group in
         for entry in batch {
           group.addTask {
-            try await pacedBulk()
+            if !interactive { try await pacedBulk() }
             if cachedIDs.contains(entry.id) {
               return try await update(id: entry.id, token: token, cached: true)
             }

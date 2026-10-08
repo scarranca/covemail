@@ -9,7 +9,7 @@ struct ReaderConversation: View {
   @State private var loading = false
   @State private var failure: String?
   @State private var retry = 0
-  private var messages: [Mail] { MailConversation.messages(in: store.mails, anchor: anchor) }
+  private var messages: [Mail] { store.conversation(for: anchor) }
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       if loading && messages.count > 1 {

@@ -74,6 +74,8 @@ struct MobileComposeView: View {
   @State private var photoItems: [PhotosPickerItem] = []
   @State private var attachNotice: String?
   @State private var loadingPhotos = false
+  /// People Gmail found for the name being typed (beyond mail on this iPhone), and the text they match.
+  @State private var remotePeople: (query: String, people: [MailContact]) = ("", [])
   @FocusState private var focus: Field?
   @Environment(\.dismiss) private var dismiss
 
@@ -117,6 +119,15 @@ struct MobileComposeView: View {
       }
       .scrollDismissesKeyboard(.interactively)
       askBar
+    }
+    .task(id: typedRecipient) {
+      // Local matches show at once; Gmail is asked after a short pause in typing.
+      let query = typedRecipient
+      guard MailSearchIndex.fold(query).count >= 2 else { return }
+      try? await Task.sleep(nanoseconds: 300_000_000)
+      guard !Task.isCancelled else { return }
+      let people = await mailbox.lookUpPeople(query)
+      if !Task.isCancelled { remotePeople = (query, people) }
     }
     .background(MobilePalette.canvas)
     .confirmationDialog("Discard this email?", isPresented: $confirmDiscard, titleVisibility: .visible) {
@@ -206,12 +217,21 @@ struct MobileComposeView: View {
     }
   }
 
-  /// People from mail on this iPhone matching what's typed after the last comma.
+  /// What's typed after the last comma in the focused address field.
+  private var typedRecipient: String {
+    let text = focus == .to ? draft.to : focus == .cc ? draft.cc : ""
+    return text.components(separatedBy: ",").last?.trimmingCharacters(in: .whitespaces) ?? ""
+  }
+
+  /// People matching what's typed after the last comma: mail on this iPhone first, then Gmail's matches.
   @ViewBuilder private func suggestions(for text: Binding<String>) -> some View {
     let parts = text.wrappedValue.components(separatedBy: ",")
     let current = parts.last?.trimmingCharacters(in: .whitespaces) ?? ""
     let chosen = Set(parts.dropLast().flatMap { ContactDirectory.addresses($0).map { ContactDirectory.normalizedEmail($0.email) } })
-    let matches = current.count >= 1 ? mailbox.contactSuggestions(current, excluding: chosen) : []
+    // Gmail's results for an earlier prefix stay (filtered) until the newer lookup answers.
+    let remote = !remotePeople.query.isEmpty && MailSearchIndex.fold(current).hasPrefix(MailSearchIndex.fold(remotePeople.query))
+      ? remotePeople.people : []
+    let matches = current.count >= 1 ? mailbox.contactSuggestions(current, excluding: chosen, remote: remote) : []
     if !matches.isEmpty {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(matches) { contact in
@@ -227,8 +247,10 @@ struct MobileComposeView: View {
                 Text(contact.email).font(.mobileMetadata).foregroundStyle(MobilePalette.muted).lineLimit(1)
               }
               Spacer()
-              Text(contact.messages.count == 1 ? "1 email" : "\(contact.messages.count) emails")
-                .font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
+              if !contact.messages.isEmpty {
+                Text(contact.messages.count == 1 ? "1 email" : "\(contact.messages.count) emails")
+                  .font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
+              }
             }.padding(.horizontal, 12).padding(.vertical, 8).contentShape(Rectangle())
           }.buttonStyle(MobileRowButtonStyle())
           if contact.id != matches.last?.id { Divider().overlay(MobilePalette.line).padding(.leading, 50) }

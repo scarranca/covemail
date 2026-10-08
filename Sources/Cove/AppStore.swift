@@ -247,6 +247,12 @@ import SwiftUI
   /// Emails whose unsubscribe headers were already looked up this session.
   var unsubscribeChecked = Set<String>()
   @ObservationIgnored private var contactsCache: (revision: Int, records: [ContactRecord], account: String, value: [MailContact])?
+  /// People Gmail found for a typed name, per account, kept for the session so retyping doesn't search again.
+  @ObservationIgnored private var peopleCache: [String: [MailContact]] = [:]
+  /// Inline images of recently opened emails (account + message id), newest last, kept in memory only.
+  @ObservationIgnored var inlineImageCache: [(key: String, sources: [String: String])] = []
+  /// When each conversation was last fetched for the reader (account + thread id).
+  @ObservationIgnored var threadRefreshes: [String: Date] = [:]
   /// The email whose task suggestions are open.
   var taskSuggestionMail: Mail?
   /// Integrations opens with this connection expanded (from the setup checklist or a gate).
@@ -290,30 +296,59 @@ import SwiftUI
   /// The mail list for the current folder, filters and search. SwiftUI reads this several times per
   /// redraw, so it is memoized per state; search uses a folded index instead of per-keystroke folding.
   var visible: [Mail] {
+    // Selection only matters to keep the open email listed (Inbox tabs, Unread). The list is cached without
+    // it and the open email is added on top, so moving through mail doesn't re-filter and re-sort everything.
+    let selectionMatters = effectiveInboxTab != nil || (unreadFilterApplies && labelUnreadOnly)
     let key = VisibleKey(revision: mailsRevision, folder: folder, search: search, priorityOnly: priorityOnly,
-      unreadOnly: labelUnreadOnly, oldestFirst: labelOldestFirst, selectedID: selectedID, trash: queuedTrashIDs,
+      unreadOnly: labelUnreadOnly, oldestFirst: labelOldestFirst, selectedID: nil, trash: queuedTrashIDs,
       minute: Int(now.timeIntervalSince1970 / 60), inboxTab: effectiveInboxTab, senderRules: inboxSenderRules)
-    if let cached = visibleCache, cached.key == key { return cached.mails }
-    visibleComputations += 1
+    let base = visibleBase(key)
+    guard selectionMatters, let selectedID else { return base }
+    if let cached = visibleSelectionCache, cached.key == key, cached.selectedID == selectedID { return cached.mails }
+    var result = base
+    let oldestFirst = labelOldestFirst && isFocusedMailView
+    if !base.contains(where: { $0.id == selectedID }), let mail = mails.first(where: { $0.id == selectedID }),
+      visibleFilter(key)(mail, selectedID)
+    {
+      let index = result.firstIndex { oldestFirst ? $0.date > mail.date : $0.date < mail.date } ?? result.endIndex
+      result.insert(mail, at: index)
+    }
+    visibleSelectionCache = (key, selectedID, result)
+    return result
+  }
+  @ObservationIgnored private var mailIndexCache: (revision: Int, index: [String: Int])?
+  @ObservationIgnored private var conversationCache: (revision: Int, anchor: Mail, messages: [Mail])?
+  /// The loaded email with this id, without scanning the mailbox (views read this on every keystroke).
+  func mail(id: String) -> Mail? {
+    let revision = mailsRevision
+    if mailIndexCache?.revision != revision {
+      mailIndexCache = (revision, Dictionary(mails.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first }))
+    }
+    guard let position = mailIndexCache?.index[id], mails.indices.contains(position) else { return nil }
+    return mails[position]
+  }
+  /// The reader's conversation for `anchor`, memoized until the mailbox changes.
+  func conversation(for anchor: Mail) -> [Mail] {
+    if let cached = conversationCache, cached.revision == mailsRevision, cached.anchor == anchor { return cached.messages }
+    let messages = MailConversation.messages(in: mails, anchor: anchor)
+    conversationCache = (mailsRevision, anchor, messages)
+    return messages
+  }
+  @ObservationIgnored private var visibleSelectionCache: (key: VisibleKey, selectedID: String, mails: [Mail])?
+
+  /// Whether a mail belongs in the list for `key`; `kept` is the open email, which stays listed in an
+  /// Inbox tab or the Unread filter until selection moves on.
+  private func visibleFilter(_ key: VisibleKey) -> (Mail, String?) -> Bool {
     let terms = MailSearchIndex.terms(search)
     let trash = Set(queuedTrashIDs)
     let labelID = selectedLabelID
     let jevFlag = selectedJevFlag
     let unreadApplies = unreadFilterApplies
-    let oldestFirst = labelOldestFirst && isFocusedMailView
     let tab = key.inboxTab
     let rules = key.senderRules
-    // Typing extends the query: narrow the previous results instead of scanning every email again.
-    var candidates = mails
-    if let cached = visibleCache, !cached.key.search.isEmpty,
-      MailSearchIndex.fold(search).hasPrefix(MailSearchIndex.fold(cached.key.search)),
-      VisibleKey(revision: key.revision, folder: key.folder, search: cached.key.search, priorityOnly: key.priorityOnly,
-        unreadOnly: key.unreadOnly, oldestFirst: key.oldestFirst, selectedID: key.selectedID, trash: key.trash, minute: key.minute,
-        inboxTab: key.inboxTab, senderRules: key.senderRules) == cached.key
-    {
-      candidates = cached.mails
-    }
-    let result = candidates.filter { mail in
+    let folder = folder, now = now, priorityOnly = priorityOnly, labelUnreadOnly = labelUnreadOnly
+    let searchIndex = searchIndex
+    return { mail, kept in
       let snoozed = (mail.snoozedUntil ?? .distantPast) > now
       let inFolder: Bool
       switch folder {
@@ -333,11 +368,31 @@ import SwiftUI
       return !trash.contains(mail.id) && mail.labels.isDisjoint(with: folder == "Spam" ? ["TRASH"] : ["TRASH", "SPAM"]) && inFolder
         && (!priorityOnly || mail.isPriority)
         // A vote on the open message keeps it listed until selection moves on, like reading it.
-        && (tab == nil || mail.id == selectedID || InboxSplit.split(mail, senderRules: rules) == tab)
+        && (tab == nil || mail.id == kept || InboxSplit.split(mail, senderRules: rules) == tab)
         // The open message stays listed after it is marked read, until selection moves on.
-        && (!unreadApplies || !labelUnreadOnly || mail.isUnread || mail.id == selectedID)
+        && (!unreadApplies || !labelUnreadOnly || mail.isUnread || mail.id == kept)
         && searchIndex.matches(mail, terms: terms)
-    }.sorted { oldestFirst ? $0.date < $1.date : $0.date > $1.date }
+    }
+  }
+
+  /// The list for `key` without the open-email exception, memoized per state.
+  private func visibleBase(_ key: VisibleKey) -> [Mail] {
+    if let cached = visibleCache, cached.key == key { return cached.mails }
+    visibleComputations += 1
+    let terms = MailSearchIndex.terms(search)
+    let oldestFirst = labelOldestFirst && isFocusedMailView
+    // Typing extends the query: narrow the previous results instead of scanning every email again.
+    var candidates = mails
+    if let cached = visibleCache, !cached.key.search.isEmpty,
+      MailSearchIndex.fold(search).hasPrefix(MailSearchIndex.fold(cached.key.search)),
+      VisibleKey(revision: key.revision, folder: key.folder, search: cached.key.search, priorityOnly: key.priorityOnly,
+        unreadOnly: key.unreadOnly, oldestFirst: key.oldestFirst, selectedID: key.selectedID, trash: key.trash, minute: key.minute,
+        inboxTab: key.inboxTab, senderRules: key.senderRules) == cached.key
+    {
+      candidates = cached.mails
+    }
+    let belongs = visibleFilter(key)
+    let result = candidates.filter { belongs($0, nil) }.sorted { oldestFirst ? $0.date < $1.date : $0.date > $1.date }
     if terms.isEmpty { searchIndex.retain(ids: Set(mails.map(\.id))) }
     visibleCache = (key, result)
     return result
@@ -1424,7 +1479,7 @@ import SwiftUI
       if older {
         guard let next = self.nextPage else { return }
         let page = try await self.gmail.page(
-          token: token, pageToken: next, cachedIDs: self.storedRemoteMailIDs)
+          token: token, pageToken: next, cachedIDs: self.storedRemoteMailIDs, interactive: true)
         result = GmailSyncResult(
           messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
           historyID: self.gmailHistoryID ?? "", nextPage: page.next, resetsPagination: true)
@@ -1573,6 +1628,26 @@ import SwiftUI
       if let slot = try window.firstSlot(events: events, now: now) { return slot }
     }
     return nil
+  }
+
+  /// People matching `text` anywhere in Gmail (headers only), beyond the downloaded mail the contact
+  /// directory is built from, as Gmail's own To field finds them. Quiet on failure: local suggestions stay.
+  func lookUpPeople(_ text: String) async -> [MailContact] {
+    let folded = MailSearchIndex.fold(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    guard entered, !isSample, folded.count >= 2 else { return [] }
+    let email = accountEmail
+    let key = email + "\n" + folded
+    if let cached = peopleCache[key] { return cached }
+    do {
+      let token: String
+      if let gmailTokenProvider { token = try await gmailTokenProvider() } else { token = try await auth.token() }
+      try Task.checkCancellation()
+      let found = try await gmail.people(matching: text, token: token, accountEmail: email)
+      try Task.checkCancellation()
+      guard email == accountEmail else { return [] }
+      peopleCache[key] = found
+      return found
+    } catch { return [] }
   }
 
   func aiSearchMail(_ query: String) async throws -> [Mail] {
@@ -3208,7 +3283,7 @@ extension AppStore {
       if let provider = gmailTokenProvider { token = try await provider() }
       else { token = try await auth.token() }
       let page = try await gmail.page(
-        token: token, pageToken: pageToken, labelID: labelID, cachedIDs: storedRemoteMailIDs)
+        token: token, pageToken: pageToken, labelID: labelID, cachedIDs: storedRemoteMailIDs, interactive: true)
       var visited = older ? labelVisitedPages[labelID] ?? [] : []
       if let pageToken { visited.insert(pageToken) }
       if let next = page.next, visited.contains(next) { throw CoveError.message("Gmail repeated a page. Refresh this view to continue.") }
@@ -3566,12 +3641,17 @@ extension AppStore {
       guard generation == mailboxGeneration, entered, !isSample, selectedID == anchor.id else { throw CancellationError() }
     }
     try ensureCurrent()
+    // Moving back and forth between emails doesn't fetch the same conversation again within two minutes;
+    // sync brings new replies meanwhile.
+    let refreshKey = accountEmail + "\n" + anchor.threadID
+    if let last = threadRefreshes[refreshKey], Date().timeIntervalSince(last) < 120 { return }
     let token: String
     if let provider = gmailTokenProvider { token = try await provider() }
     else { token = try await auth.token() }
     try ensureCurrent()
     let fetched = try await gmail.thread(id: anchor.threadID, token: token)
     try ensureCurrent()
+    threadRefreshes[refreshKey] = Date()
     guard let database else { throw CancellationError() }
     var merged = try GmailSyncResult(messages: fetched, historyID: "").merging(into: mails, store: database)
       .map { cloudSnoozes.applying(to: $0) }
@@ -3584,6 +3664,8 @@ extension AppStore {
       }
     }
     reapplyLabelEdits(to: &merged, since: startingEditRevision)
+    // Usually nothing changed: skip rewriting the store and redrawing every list.
+    guard merged != mails else { return }
     try database.saveMailSnapshot(merged)
     mails = merged
   }

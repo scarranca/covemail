@@ -16,17 +16,21 @@ extension GmailClient {
       URLQueryItem(name: "includeSpamTrash", value: "false"),
     ])
     let entries = try JSONDecoder().decode(Results.self, from: response).messages ?? []
-    var found: [Mail] = []
     var seen = Set<String>()
-    for entry in entries.prefix(limit) where seen.insert(entry.id).inserted {
+    let ids = entries.prefix(limit).map(\.id).filter { seen.insert($0).inserted }
+    var found: [Mail] = []
+    // The user is waiting: read a few at a time instead of one after another.
+    for start in stride(from: 0, to: ids.count, by: 5) {
       try Task.checkCancellation()
-      if let mail = try await message(id: entry.id, token: token),
-        mail.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"])
-      {
-        found.append(mail)
+      let batch = ids[start..<min(start + 5, ids.count)]
+      found += try await withThrowingTaskGroup(of: Mail?.self) { group in
+        for id in batch { group.addTask { try await message(id: id, token: token) } }
+        var values: [Mail] = []
+        for try await mail in group { if let mail { values.append(mail) } }
+        return values
       }
     }
-    return found.sorted { $0.date > $1.date }
+    return found.filter { $0.labels.isDisjoint(with: ["TRASH", "SPAM", "DRAFT"]) }.sorted { $0.date > $1.date }
   }
 }
 

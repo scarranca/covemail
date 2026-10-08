@@ -253,18 +253,19 @@ import UIKit
 
   /// Loads the next page of older mail when the end of the list appears.
   func loadOlder() async {
-    do { try await loadOlderPage() } catch { self.error = error.localizedDescription }
+    do { try await loadOlderPage(interactive: true) } catch { self.error = error.localizedDescription }
   }
 
   /// One page (50) of older mail. Emails already stored come back as labels only, so walking pages
   /// Cove already has is cheap. Returns false when there was nothing to load.
   @discardableResult
-  private func loadOlderPage() async throws -> Bool {
+  private func loadOlderPage(interactive: Bool = false) async throws -> Bool {
     guard !loadingOlder, !syncing, hasOlder, let database, let next = nextPage, !next.isEmpty else { return false }
     loadingOlder = true
     defer { loadingOlder = false }
     let token = try await auth.token()
-    let page = try await gmail.page(token: token, pageToken: next, cachedIDs: (try? database.storedMessageIDs()) ?? [])
+    let page = try await gmail.page(token: token, pageToken: next, cachedIDs: (try? database.storedMessageIDs()) ?? [],
+                                    interactive: interactive)
     guard self.database === database else { return false }
     try apply(GmailSyncResult(messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
                               historyID: historyID ?? "", nextPage: page.next, resetsPagination: true),
@@ -396,14 +397,42 @@ import UIKit
       .map(\.sender).first
   }
 
-  /// People to suggest while typing an address: name or address contains the text, most emailed first.
-  func contactSuggestions(_ text: String, excluding: Set<String> = [], limit: Int = 5) -> [MailContact] {
-    let query = MailSearchIndex.fold(text.trimmingCharacters(in: .whitespaces))
-    guard !query.isEmpty else { return [] }
-    return ContactDirectory.build(mails: allLoaded, records: [], accountEmail: auth.email ?? "")
-      .filter { !excluding.contains($0.email) && MailSearchIndex.fold($0.name + " " + $0.email).contains(query) }
-      .sorted { $0.messages.count > $1.messages.count }
-      .prefix(limit).map { $0 }
+  /// Everyone in loaded mail, rebuilt only when the loaded mail changes (not on every keystroke).
+  var contacts: [MailContact] {
+    let account = auth.email ?? ""
+    if let contactsCache, contactsCache.revision == listRevision, contactsCache.account == account {
+      return contactsCache.value
+    }
+    let value = ContactDirectory.build(mails: allLoaded, records: [], accountEmail: account)
+    contactsCache = (listRevision, account, value)
+    return value
+  }
+  @ObservationIgnored private var contactsCache: (revision: Int, account: String, value: [MailContact])?
+  /// People Gmail found for a typed name, kept for the session so retyping doesn't search again.
+  @ObservationIgnored private var peopleCache: [String: [MailContact]] = [:]
+
+  /// People to suggest while typing an address, from mail on this iPhone (instant).
+  func contactSuggestions(_ text: String, excluding: Set<String> = [], remote: [MailContact] = [],
+                          limit: Int = 6) -> [MailContact] {
+    guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+    return ContactDirectory.suggestions(text, local: contacts, remote: remote, excluding: excluding, limit: limit)
+  }
+
+  /// People matching `text` anywhere in Gmail, beyond the mail downloaded here, as Gmail's To field
+  /// finds them. Quiet on failure: the local suggestions stay.
+  func lookUpPeople(_ text: String) async -> [MailContact] {
+    let folded = MailSearchIndex.fold(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    guard !auth.isSample, folded.count >= 2 else { return [] }
+    let key = (auth.email ?? "") + "\n" + folded
+    if let cached = peopleCache[key] { return cached }
+    do {
+      let token = try await auth.token()
+      try Task.checkCancellation()
+      let found = try await gmail.people(matching: text, token: token, accountEmail: auth.email ?? "")
+      try Task.checkCancellation()
+      peopleCache[key] = found
+      return found
+    } catch { return [] }
   }
 
   /// Excerpts of what the user wrote in Sent, for learning the voice. Reads one page of Sent from Gmail

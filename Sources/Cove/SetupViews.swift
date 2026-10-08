@@ -104,6 +104,14 @@ struct ComposerView: View {
   @State private var appliedSuggestion: String?
   @State private var choosingFiles = false
   @State private var dropTargeted = false
+  /// Everyone in downloaded mail, read once when the composer opens: autosaves change the mailbox, and
+  /// rebuilding the directory after each one made typing in To lag.
+  @State private var directory: [MailContact] = []
+  /// People Gmail found for the typed name (beyond downloaded mail), and the text they match.
+  @State private var remotePeople: (query: String, people: [MailContact]) = ("", [])
+  /// Recent mail with the recipients and their names, for the writer; refreshed when To changes, not per keystroke.
+  @State private var recipientContext: [Mail] = []
+  @State private var recipientNames = ""
   private var attachmentTarget: String? { store.composeID.map(AttachmentTarget.draft) }
   private var files: [OutgoingAttachment] { attachmentTarget.map { store.attachments(for: $0) } ?? [] }
 
@@ -149,9 +157,28 @@ struct ComposerView: View {
           to = mail.to; subject = mail.subject; text = mail.body
           sender = mail.senderEmail.isEmpty ? store.defaultSender : mail.senderEmail
         }
+        directory = store.contacts
         loaded = true
       }
       .task { await loadSenders() }
+      .task(id: to) {
+        // Writer context follows the recipients after a short pause in typing.
+        if loaded { try? await Task.sleep(nanoseconds: 250_000_000) }
+        guard !Task.isCancelled else { return }
+        recipientContext = WritingContext.recentMail(to: to, mails: store.mails)
+        let recipients = Set(WritingContext.recipients(to))
+        recipientNames = directory.filter { recipients.contains($0.email) }
+          .map { "\($0.name) <\($0.email)>" }.joined(separator: "; ")
+      }
+      .task(id: recipientFocused ? recipientQuery : "") {
+        // Downloaded people show at once; Gmail is asked after a short pause in typing in To.
+        let query = recipientQuery
+        guard recipientFocused, MailSearchIndex.fold(query).count >= 2 else { return }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        guard !Task.isCancelled else { return }
+        let people = await store.lookUpPeople(query)
+        if !Task.isCancelled { remotePeople = (query, people) }
+      }
       // Saved after a short pause, not on every keystroke (that re-sorted the whole mailbox each time).
       .onChange(of: sender) { _, _ in scheduleSave() }
       .onChange(of: to) { _, _ in scheduleSave() }
@@ -297,10 +324,15 @@ struct ComposerView: View {
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
   private var suggestedContacts: [MailContact] {
-    Array(store.contacts.filter {
-      recipientQuery.isEmpty || $0.name.localizedCaseInsensitiveContains(recipientQuery)
-        || $0.email.localizedCaseInsensitiveContains(recipientQuery)
-    }.sorted { ($0.lastMessage ?? .distantPast) > ($1.lastMessage ?? .distantPast) }.prefix(4))
+    let chosen = Set(WritingContext.recipients(String(to.split(separator: ",", omittingEmptySubsequences: false).dropLast().joined(separator: ","))))
+    guard !recipientQuery.isEmpty else {
+      return Array(directory.lazy.filter { !chosen.contains($0.email) }
+        .sorted { ($0.lastMessage ?? .distantPast) > ($1.lastMessage ?? .distantPast) }.prefix(4))
+    }
+    // Gmail's results for an earlier prefix stay (filtered) until the newer lookup answers.
+    let remote = !remotePeople.query.isEmpty
+      && MailSearchIndex.fold(recipientQuery).hasPrefix(MailSearchIndex.fold(remotePeople.query)) ? remotePeople.people : []
+    return ContactDirectory.suggestions(recipientQuery, local: directory, remote: remote, excluding: chosen, limit: 6)
   }
   private func chooseRecipient(_ contact: MailContact) {
     var pieces = to.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
@@ -321,9 +353,9 @@ struct ComposerView: View {
           Image(systemName: "person.crop.circle.badge.plus").padding(5).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel("Choose a contact")
       }.padding(.horizontal, 24).frame(height: 46)
-      if recipientFocused && !suggestedContacts.isEmpty {
+      if recipientFocused, case let suggestions = suggestedContacts, !suggestions.isEmpty {
         VStack(spacing: 0) {
-          ForEach(suggestedContacts) { contact in
+          ForEach(suggestions) { contact in
             Button { chooseRecipient(contact) } label: {
               HStack(spacing: 12) {
                 Text(contact.initials).font(.coveMetadata).frame(width: 28, height: 28)
@@ -357,14 +389,11 @@ struct ComposerView: View {
   }
 
   private var writingEnvelope: String {
-    let recipients = Set(WritingContext.recipients(to))
-    let names = store.contacts.filter { recipients.contains($0.email) }
-      .map { "\($0.name) <\($0.email)>" }.joined(separator: "; ")
-    return "From: \(sender)\nTo: \(to)\nRecipient names: \(names)\nSubject: \(subject)"
+    "From: \(sender)\nTo: \(to)\nRecipient names: \(recipientNames)\nSubject: \(subject)"
   }
 
   private var assistant: some View {
-    AIWritingPanel(draft: $text, selection: selection, context: WritingContext.recentMail(to: to, mails: store.mails), availableContext: store.mails,
+    AIWritingPanel(draft: $text, selection: selection, context: recipientContext, availableContext: store.mails,
       voice: store.preferences.voice, instructions: store.preferences.instructions,
       voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt,
       store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: true, inline: true, onClose: { aiOpen = false },

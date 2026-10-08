@@ -31,8 +31,8 @@ struct ReaderView: View {
   @State private var replySelection = NSRange(location: 0, length: 0)
   @State private var aiOpen = false
   @State private var choosingReplyFiles = false
-  var current: Mail { store.mails.first { $0.id == mail.id } ?? mail }
-  private var replySource: Mail { replyTarget.map { target in store.mails.first { $0.id == target.id } ?? target } ?? current }
+  var current: Mail { store.mail(id: mail.id) ?? mail }
+  private var replySource: Mail { replyTarget.map { target in store.mail(id: target.id) ?? target } ?? current }
   private var replyAllRecipients: (to: String, cc: String)? {
     MailConversation.replyAllRecipients(for: replySource, accountEmail: store.accountEmail)
   }

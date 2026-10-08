@@ -31,7 +31,7 @@ struct MobileContactsView: View {
   static func emails(_ count: Int) -> String { count == 1 ? "1 email" : "\(count) emails" }
 
   private var contacts: [MailContact] {
-    ContactDirectory.build(mails: mailbox.allLoaded, records: [], accountEmail: mailbox.auth.email ?? "")
+    mailbox.contacts
   }
 
   var body: some View {
