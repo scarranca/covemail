@@ -23,8 +23,8 @@ import XCTest
     try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
       windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
   }
-  private func letter(_ text: String, code: UInt16, window: NSWindow) throws -> NSEvent {
-    try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+  private func letter(_ text: String, code: UInt16, window: NSWindow, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+    try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
       windowNumber: window.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code))
   }
   func testUTogglesReadEArchivesThenOpensTheNextAndRReplies() async throws {
@@ -92,7 +92,8 @@ import XCTest
     XCTAssertNil(view.handle(down)); XCTAssertEqual(store.selectedID, "mail-0")
     store.selectedID = nil
     window.makeFirstResponder(nil)
-    for flags in [NSEvent.ModifierFlags.command, .option, .shift, .control] {
+    // ⇧↓ extends the selection (testSelectionKeys); the other modifiers stay native.
+    for flags in [NSEvent.ModifierFlags.command, .option, .control, [.shift, .option], [.shift, .command]] {
       XCTAssertNotNil(view.handle(try event(125, window: window, modifiers: flags)))
     }
     for screen in ["home", "calendar", "agents", "integrations"] {
@@ -107,6 +108,100 @@ import XCTest
     window.beginSheet(sheet)
     XCTAssertNotNil(view.handle(down)); window.endSheet(sheet); sheet.close()
     XCTAssertNil(store.selectedID)
+  }
+  private func host(_ store: AppStore, onReturnToList: @escaping () -> Void = {}) -> (MailNavigationShortcut.ShortcutView, NSWindow) {
+    let view = MailNavigationShortcut.ShortcutView(store: store, onReturnToList: onReturnToList)
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = view
+    return (view, window)
+  }
+  private func wait(_ condition: () -> Bool) async throws {
+    for _ in 0..<100 where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+  }
+  func testJKSHCAndQuestionMarkKeys() async throws {
+    _ = NSApplication.shared
+    let store = try fixture()
+    let (view, window) = host(store)
+    defer { window.close() }
+    let j = try letter("j", code: 38, window: window), k = try letter("k", code: 40, window: window)
+    XCTAssertNil(view.handle(j)); XCTAssertEqual(store.selectedID, "mail-0")
+    XCTAssertNil(view.handle(j)); XCTAssertEqual(store.selectedID, "mail-1")
+    XCTAssertNil(view.handle(k)); XCTAssertEqual(store.selectedID, "mail-0")
+    let s = try letter("s", code: 1, window: window)
+    XCTAssertNil(view.handle(s))
+    try await wait { store.mail(id: "mail-0")?.isStarred == true }
+    XCTAssertTrue(store.mail(id: "mail-0")!.isStarred, "S flags the open email")
+    XCTAssertEqual(store.selectedID, "mail-0", "flagging stays on the email")
+    XCTAssertNil(view.handle(s))
+    try await wait { store.mail(id: "mail-0")?.isStarred == false }
+    XCTAssertFalse(store.mail(id: "mail-0")!.isStarred, "S again removes the flag")
+    XCTAssertNil(view.handle(try letter("h", code: 4, window: window)))
+    XCTAssertEqual(store.snoozeRequestID, "mail-0", "H asks the open email's snooze menu to open")
+    XCTAssertNil(view.handle(try letter("?", code: 44, window: window, modifiers: .shift)))
+    XCTAssertTrue(store.showShortcutHelp, "? opens the shortcut reference")
+    let drafts = store.mails.count
+    XCTAssertNil(view.handle(try letter("c", code: 8, window: window)))
+    XCTAssertEqual(store.mails.count, drafts + 1); XCTAssertTrue(store.showComposer, "C writes a new email")
+    XCTAssertNotNil(view.handle(j), "the composer keeps its keys")
+    store.showComposer = false
+    // Shift only reaches the keys that use it.
+    XCTAssertNotNil(view.handle(try letter("S", code: 1, window: window, modifiers: .shift)))
+    XCTAssertNotNil(view.handle(try letter("j", code: 38, window: window, modifiers: .option)))
+  }
+  func testSelectionKeysEscAndSelectAll() throws {
+    _ = NSApplication.shared
+    let store = try fixture()
+    var returned = 0
+    let (view, window) = host(store, onReturnToList: { returned += 1 })
+    defer { window.close() }
+    let x = try letter("x", code: 7, window: window)
+    XCTAssertNotNil(view.handle(x), "nothing open or hovered: X passes through")
+    store.selectedID = "mail-0"
+    XCTAssertNil(view.handle(x)); XCTAssertEqual(store.selectedIDs, ["mail-0"])
+    XCTAssertNil(view.handle(x)); XCTAssertEqual(store.selectedIDs, [], "X again lets go")
+    let shiftDown = try event(125, window: window, modifiers: .shift)
+    XCTAssertNil(view.handle(shiftDown)); XCTAssertNil(view.handle(shiftDown))
+    XCTAssertEqual(store.selectedID, "mail-2"); XCTAssertEqual(store.selectedIDs, ["mail-0", "mail-1", "mail-2"])
+    XCTAssertNil(view.handle(try event(126, window: window, modifiers: .shift)))
+    XCTAssertEqual(store.selectedID, "mail-1"); XCTAssertEqual(store.selectedIDs.count, 3)
+    let escape = try event(53, window: window)
+    XCTAssertNil(view.handle(escape)); XCTAssertEqual(store.selectedIDs, [], "Esc lets go of the chosen emails first")
+    XCTAssertEqual(store.selectedID, "mail-1"); XCTAssertEqual(returned, 0)
+    XCTAssertNil(view.handle(escape)); XCTAssertNil(store.selectedID, "then closes the reader"); XCTAssertEqual(returned, 1)
+    let selectAll = try letter("a", code: 0, window: window, modifiers: .command)
+    XCTAssertNil(view.handle(selectAll)); XCTAssertEqual(store.selectedIDs, Set(store.visible.map(\.id)))
+    store.selectedIDs = []
+    let text = NSTextView(frame: view.bounds); text.isEditable = false
+    view.addSubview(text); window.makeFirstResponder(text)
+    XCTAssertNotNil(view.handle(selectAll), "selectable email text keeps Select All")
+    XCTAssertTrue(store.selectedIDs.isEmpty)
+    text.isEditable = true
+    for typed in [x, try letter("j", code: 38, window: window), try letter("s", code: 1, window: window),
+      try letter("z", code: 6, window: window), try letter("c", code: 8, window: window), try letter("h", code: 4, window: window)] {
+      XCTAssertNotNil(view.handle(typed), "typing is just typing")
+    }
+    XCTAssertNotNil(view.handle(try letter("?", code: 44, window: window, modifiers: .shift)))
+    XCTAssertFalse(store.showShortcutHelp); XCTAssertFalse(store.showComposer)
+  }
+  func testSelectionClearsWhenTheListChanges() throws {
+    let store = try fixture()
+    store.selectedIDs = ["mail-0", "mail-1"]
+    store.folder = "Inbox"
+    XCTAssertEqual(store.selectedIDs.count, 2, "setting the same folder keeps the chosen emails")
+    store.folder = "Starred"
+    XCTAssertTrue(store.selectedIDs.isEmpty, "another folder lets go")
+    store.folder = "Inbox"; store.selectedIDs = ["mail-0"]
+    store.search = "update"; XCTAssertTrue(store.selectedIDs.isEmpty, "a search lets go")
+    store.search = ""; store.selectedIDs = ["mail-0"]
+    store.inboxTab = store.inboxTab == .important ? .other : .important
+    XCTAssertTrue(store.selectedIDs.isEmpty, "another Inbox tab lets go")
+    store.inboxTab = store.inboxTab == .important ? .other : .important
+    XCTAssertTrue(store.visible.contains { $0.id == "mail-0" })
+    store.selectedIDs = ["mail-0", "mail-1"]
+    store.queueTrash(store.mails[1], delay: 600)
+    defer { store.undoQueuedTrash() }
+    store.reconcileSelection()
+    XCTAssertEqual(store.selectedIDs, ["mail-0"], "an email that leaves the list leaves the selection")
   }
   func testFilteredAndRemovedMessagesAreNotNavigationTargets() throws {
     _ = NSApplication.shared
