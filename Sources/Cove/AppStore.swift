@@ -1942,7 +1942,11 @@ import SwiftUI
       defer {
         if batch == self.trashBatchID, generation == self.mailboxGeneration {
           self.trashCommitting = false; self.committingTrashIDs = []; self.trashTask = nil
-          if self.queuedTrashIDs.isEmpty { self.trashDeadline = nil }
+          if self.queuedTrashIDs.isEmpty {
+            self.trashDeadline = nil
+            // Once in Trash there is nothing left for Z to cancel, so stop offering it.
+            if self.triageUndo?.endsWithTrashWindow == true { self.triageUndo = nil }
+          }
           else { self.scheduleQueuedTrash(waitTimeout: waitTimeout) }
         }
       }

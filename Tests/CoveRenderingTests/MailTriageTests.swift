@@ -29,8 +29,8 @@ import XCTest
     try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
       windowNumber: window.windowNumber, context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code))
   }
-  private func wait(_ condition: () -> Bool) async throws {
-    for _ in 0..<200 where !condition() { try await Task.sleep(for: .milliseconds(10)) }
+  private func wait(seconds: Double = 2, _ condition: () -> Bool) async throws {
+    for _ in 0..<Int(seconds * 100) where !condition() { try await Task.sleep(for: .milliseconds(10)) }
   }
   private func inInbox(_ store: AppStore, _ id: String) -> Bool { store.mail(id: id)?.labels.contains("INBOX") == true }
 
@@ -137,6 +137,12 @@ import XCTest
     XCTAssertTrue(store.queuedTrashIDs.isEmpty, "Z cancels the pending move to Trash")
     XCTAssertTrue(store.visible.contains { $0.id == "mail-2" })
     XCTAssertEqual(store.selectedID, "mail-2")
+    // After the five-second window the email is in Trash, and Z no longer offers to bring it back.
+    await store.triage([store.mails[4]], .trash)
+    XCTAssertNotNil(store.triageUndo)
+    try await wait(seconds: 8) { store.queuedTrashIDs.isEmpty }
+    XCTAssertTrue(store.mail(id: "mail-4")!.labels.contains("TRASH"))
+    XCTAssertNil(store.triageUndo, "a committed Trash has nothing left to undo")
   }
 
   func testLargeSetsGoAsOneBatchAndUndoTogether() async throws {

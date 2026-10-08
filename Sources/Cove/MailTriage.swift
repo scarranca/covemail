@@ -72,6 +72,8 @@ struct TriageUndo: Identifiable {
   /// The email to reopen after Undo, if it was open.
   var reselect: String?
   var restore: @MainActor () async -> Void
+  /// A move to Trash can only be undone in its five-second window; the offer ends when it commits.
+  var endsWithTrashWindow = false
 }
 
 extension AppStore {
@@ -183,7 +185,7 @@ extension AppStore {
             _ = await self.applyTriageLabels(reverted, add: change.remove, remove: change.add, label: "Undoing")
           }
         }
-      })
+      }, endsWithTrashWindow: action == .trash)
     return Task { _ = await work.value }
   }
 
