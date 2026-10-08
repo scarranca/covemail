@@ -70,13 +70,21 @@ struct MailboxView: View {
             }
           }.padding(.horizontal, 22).padding(.top, 24).padding(.bottom, 18)
           Divider()
+          if !store.selectedIDs.isEmpty {
+            MailSelectionBar(store: store)
+            Divider()
+          }
           if let error = store.labelMailError, store.isFocusedMailView {
             Text(error).font(.coveMetadata).foregroundStyle(Palette.danger)
               .fixedSize(horizontal: false, vertical: true).padding(12)
           }
           if store.visible.isEmpty, let tab = store.effectiveInboxTab {
+            let other = tab == .important ? store.inboxMails(in: .other) : []
             InboxDuskView(title: "All caught up",
-                          detail: store.labelUnreadOnly ? "Nothing unread in \(tab.title)." : "Nothing in \(tab.title) right now.")
+                          detail: store.labelUnreadOnly ? "Nothing unread in \(tab.title)." : "Nothing in \(tab.title) right now.",
+                          actionTitle: other.isEmpty ? nil : "Archive all \(other.count) in Other",
+                          actionHelp: "Archive every email in the Other tab. One Undo brings them back.",
+                          action: other.isEmpty ? nil : { Task { await store.triage(other, .archive) } })
               .frame(maxWidth: .infinity, maxHeight: .infinity)
           } else if store.visible.isEmpty {
             VStack(spacing: 12) {
@@ -132,18 +140,22 @@ struct MailboxView: View {
               .font(.coveMetadata).foregroundStyle(Palette.body).padding(.horizontal, 12).padding(.vertical, 10)
           }
           Divider()
-          HStack(spacing: 6) {
-            if store.busy || store.syncing { ProgressView().controlSize(.mini) }
-            Text(
-              store.status.isEmpty
-                ? (store.isSample ? "Sample mailbox" : "Gmail · saved locally") : store.status
-            ).lineLimit(2)
-            Spacer()
-            Text("↑ ↓ emails · R reply · E done · U unread").fixedSize()
-              .help("Up and Down select emails. R replies. E archives and opens the next email. U marks read or unread. ⌘Delete moves to Trash with Undo. Escape or Left returns to the list. Shortcuts pause while you type.")
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+              if store.busy || store.syncing { ProgressView().controlSize(.mini) }
+              Text(
+                store.status.isEmpty
+                  ? (store.isSample ? "Sample mailbox" : "Gmail · saved locally") : store.status
+              ).lineLimit(2)
+              Spacer()
+            }
+            Text("↑↓ emails · E done · H snooze · X select · Z undo · ? all shortcuts").lineLimit(1).minimumScaleFactor(0.75)
+              .help("Up and Down select emails. E archives and opens the next email. H snoozes. X selects. Z undoes the last action. R replies, U marks read or unread, ⌘Delete moves to Trash. Press ? for every shortcut. Shortcuts pause while you type.")
           }.font(.coveMetadata).foregroundStyle(Palette.muted).padding(12)
         }.frame(width: min(392, max(300, geometry.size.width * 0.328))).background(Palette.surface)
-          .overlay(alignment: .bottom) { InboxMoveToast(store: store).padding(.bottom, 58) }
+          .overlay(alignment: .bottom) {
+            VStack(spacing: 8) { TriageUndoToast(store: store); InboxMoveToast(store: store) }.padding(.bottom, 58)
+          }
           .focusable().focusEffectDisabled().focused($listFocused)
         Divider()
         if let mail = store.selected {
@@ -154,6 +166,7 @@ struct MailboxView: View {
         }
       }
     }
+    .sheet(isPresented: $store.showShortcutHelp) { ShortcutHelpView { store.showShortcutHelp = false } }
     .background(MailNavigationShortcut(store: store) { listFocused = true }.frame(width: 0, height: 0))
     .background(Button("") { searching = true }.keyboardShortcut("k").hidden())
     .task(id: store.folder) {
@@ -224,6 +237,7 @@ struct MailRow: View {
   let mail: Mail
   let selected: Bool
   var hovered = false
+  var chosen = false
   var actionsVisible = false
   var labelView = false
   var categoryLabels: [GmailLabel] = []
@@ -246,7 +260,7 @@ struct MailRow: View {
     }.font(.coveText).foregroundStyle(titleColor)
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, 22).padding(.vertical, 12).frame(minHeight: 106, alignment: .top)
-      .background(rowColor).contentShape(Rectangle())
+      .background { rowColor; if chosen { Palette.selection.opacity(0.5) } }.contentShape(Rectangle())
       .accessibilityElement(children: .combine).accessibilityValue(mail.isUnread ? "Unread" : "Read")
   }
   private var senderLine: some View {
@@ -287,40 +301,61 @@ struct MailListRow: View {
   let mail: Mail
   var onSelect: () -> Void = {}
   @State private var hovered = false
+  @State private var snoozeOpen = false
   @FocusState private var actionFocused: Bool
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var selected: Bool { store.selectedID == mail.id }
-  private var actionsVisible: Bool { hovered || selected || actionFocused }
+  private var chosen: Bool { store.selectedIDs.contains(mail.id) }
+  private var actionsVisible: Bool { hovered || selected || actionFocused || snoozeOpen }
+  /// The check shows on hover, and on every row once something is chosen so the next one is one click away.
+  private var checkVisible: Bool { hovered || chosen || !store.selectedIDs.isEmpty }
+  private var canSnooze: Bool { mail.labels.contains("INBOX") && !mail.labels.contains("DRAFT") }
   var body: some View {
     ZStack(alignment: .topTrailing) {
       Button { store.select(mail); onSelect() } label: {
-        MailRow(mail: mail, selected: selected, hovered: hovered, actionsVisible: actionsVisible, labelView: store.selectedLabelID != nil, categoryLabels: store.agentLabels(on: mail), isSample: store.isSample)
+        MailRow(mail: mail, selected: selected, hovered: hovered, chosen: chosen, actionsVisible: actionsVisible, labelView: store.selectedLabelID != nil, categoryLabels: store.agentLabels(on: mail), isSample: store.isSample)
       }.buttonStyle(.plain).accessibilityLabel("Open \(mail.subject.isEmpty ? "message" : mail.subject) from \(mail.sender)")
         .accessibilityAddTraits(selected ? .isSelected : [])
       HStack(spacing: 2) {
         MailRowAction(title: mail.isStarred ? "Remove follow-up flag" : "Flag for follow-up", icon: mail.isStarred ? "flag.fill" : "flag") {
-          Task { await store.toggleFlag(mail) }
+          Task { await store.triage([mail], mail.isStarred ? .unflag : .flag) }
         }.disabled(store.busy || mail.labels.contains("DRAFT"))
-        MailRowAction(title: "Archive email", icon: "archivebox") { Task { await store.archive(mail) } }
+        MailRowAction(title: "Archive email (E)", icon: "archivebox") { Task { await store.triage([mail], .archive) } }
           .disabled(store.busy || !mail.labels.contains("INBOX") || mail.labels.contains("DRAFT"))
+        SnoozeTrigger(store: store, targets: { [mail] }, isOpen: $snoozeOpen, help: "Snooze email (H)") {
+          MailRowGlyph(icon: "clock")
+        }.buttonStyle(.plain).accessibilityLabel("Snooze email")
+          .disabled(store.busy || !canSnooze)
         MailRowAction(title: mail.isUnread ? "Mark as read" : "Mark as unread", icon: mail.isUnread ? "envelope.open" : "envelope.badge") {
-          Task { await store.modify(mail, add: mail.isUnread ? [] : ["UNREAD"], remove: mail.isUnread ? ["UNREAD"] : []) }
+          Task { await store.triage([mail], mail.isUnread ? .markRead : .markUnread) }
         }.disabled(store.busy || mail.labels.contains("DRAFT"))
         MailRowAction(title: "Delete email · 5 seconds to undo", icon: "trash") { store.queueTrash(mail) }.disabled(store.busy)
       }.focused($actionFocused).padding(.trailing, 17).padding(.top, 6)
         .opacity(actionsVisible ? 1 : 0).allowsHitTesting(actionsVisible).accessibilityHidden(!actionsVisible)
+      Button { toggleChosen() } label: {
+        Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 14)).foregroundStyle(chosen ? Palette.ink : Palette.inputBorder)
+          .frame(width: 22, height: 26).contentShape(Rectangle())
+      }.buttonStyle(.plain).padding(.leading, 1).padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .opacity(checkVisible ? 1 : 0).allowsHitTesting(checkVisible)
+        .help(chosen ? "Deselect this email (X)" : "Select this email (X)")
+        .accessibilityLabel(chosen ? "Deselect email" : "Select email").accessibilityHidden(!checkVisible)
     }.background(MailRowPointerTarget(mailID: mail.id))
       .onHover { hovered = $0 }
       .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: actionsVisible)
       .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: hovered)
+      .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: chosen)
       .contextMenu {
         Button(mail.isStarred ? "Remove follow-up flag" : "Flag for follow-up", systemImage: mail.isStarred ? "flag.fill" : "flag") {
-          Task { await store.toggleFlag(mail) }
+          Task { await store.triage([mail], mail.isStarred ? .unflag : .flag) }
         }.disabled(store.busy || mail.labels.contains("DRAFT"))
-        Button("Archive", systemImage: "archivebox") { Task { await store.archive(mail) } }
+        Button("Archive", systemImage: "archivebox") { Task { await store.triage([mail], .archive) } }
           .disabled(store.busy || !mail.labels.contains("INBOX") || mail.labels.contains("DRAFT"))
+        Button("Snooze…", systemImage: "clock") { snoozeOpen = true }.disabled(store.busy || !canSnooze)
+        Button(chosen ? "Deselect" : "Select", systemImage: chosen ? "checkmark.circle" : "circle") { toggleChosen() }
         Button(mail.isUnread ? "Mark as read" : "Mark as unread", systemImage: "envelope") {
-          Task { await store.modify(mail, add: mail.isUnread ? [] : ["UNREAD"], remove: mail.isUnread ? ["UNREAD"] : []) }
+          Task { await store.triage([mail], mail.isUnread ? .markRead : .markUnread) }
         }.disabled(store.busy || mail.labels.contains("DRAFT"))
         InboxSplitMenuItems(store: store, mail: mail)
         Divider()
@@ -332,6 +367,22 @@ struct MailListRow: View {
         }
         Button("Delete", systemImage: "trash", role: .destructive) { store.queueTrash(mail) }.disabled(store.busy)
       }
+  }
+}
+extension MailListRow {
+  fileprivate func toggleChosen() {
+    if chosen { store.selectedIDs.remove(mail.id) } else { store.selectedIDs.insert(mail.id) }
+  }
+}
+/// The icon of a row action, for controls that bring their own button (the snooze popover anchor).
+struct MailRowGlyph: View {
+  let icon: String
+  @State private var hovered = false
+  var body: some View {
+    Image(systemName: icon).font(.system(size: 12)).frame(width: 26, height: 26)
+      .foregroundStyle(Palette.body)
+      .background(hovered ? Palette.canvas : .clear, in: RoundedRectangle(cornerRadius: 5))
+      .contentShape(Rectangle()).onHover { hovered = $0 }
   }
 }
 private struct MailRowAction: View {
@@ -502,5 +553,32 @@ struct InboxMoveToast: View {
           .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
       }
     }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.inboxMoveUndo?.id)
+  }
+}
+
+/// Undo for archive, read, flag and snooze (Z), on the look of `InboxMoveToast`.
+struct TriageUndoToast: View {
+  @Bindable var store: AppStore
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var body: some View {
+    Group {
+      if let undo = store.triageUndo {
+        HStack(spacing: 12) {
+          Text(undo.message).font(.coveControl).lineLimit(1)
+          Button { Task { await store.undoLastTriage() } } label: {
+            HStack(spacing: 6) {
+              Text("Undo").font(.coveControl)
+              Text("Z").font(.coveMetadata).padding(.horizontal, 4)
+                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+            }.padding(.horizontal, 10).padding(.vertical, 6)
+              .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 5))
+          }.buttonStyle(.plain).help("Undo (Z)").accessibilityLabel("Undo")
+        }.foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 9)
+          .background(Palette.ink, in: RoundedRectangle(cornerRadius: 10))
+          .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+          .padding(.horizontal, 16)
+          .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+      }
+    }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.triageUndo?.id)
   }
 }

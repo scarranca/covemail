@@ -68,6 +68,8 @@ struct ReaderView: View {
   private func cancelReplySave() {
     replySaveTask?.cancel(); replySaveTask = nil; pendingReplyID = nil
   }
+  @State private var snoozeOpen = false
+  @State private var remindOpen = false
   private var position: Int? { store.visible.firstIndex { $0.id == mail.id } }
   private var localDraft: Bool { current.labels.contains("DRAFT") && current.id.hasPrefix("local-") }
   private var conversationCount: Int { MailConversation.messages(in: store.mails, anchor: current).count }
@@ -147,6 +149,12 @@ struct ReaderView: View {
     }
     .task { if !store.isSample { await AIProviderSettings.shared.restoreWritingConnection() } }
     .task { await store.loadTasksIfNeeded() }
+    // H (from the keyboard handler) asks for the chooser; this is the only place that opens it.
+    .onChange(of: store.snoozeRequestID, initial: true) { _, id in
+      guard id == current.id else { return }
+      store.snoozeRequestID = nil
+      snoozeOpen = true
+    }
     .task { await store.loadSendingAliasesIfNeeded() }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
     .onChange(of: current.id) { _, _ in askingCove = false; replyFrom = nil; flushReply() }
@@ -177,16 +185,16 @@ struct ReaderView: View {
           actionLabel("Not spam", icon: "tray.and.arrow.down", compact: compact)
         }.disabled(store.busy).help("Move back to the Inbox")
       } else {
-        Button { Task { await store.archive(current) } } label: {
+        Button { Task { await store.triage([current], .archive) } } label: {
           actionLabel("Archive", icon: "archivebox", compact: compact)
-        }.disabled(store.busy).help("Archive email")
+        }.disabled(store.busy).help("Archive email (E)")
       }
       snoozeMenu(compact: compact)
       Button {
-        Task { await store.modify(current, add: current.isUnread ? [] : ["UNREAD"], remove: current.isUnread ? ["UNREAD"] : []) }
+        Task { await store.triage([current], current.isUnread ? .markRead : .markUnread) }
       } label: {
         actionLabel(current.isUnread ? "Mark read" : "Mark unread", icon: current.isUnread ? "envelope.open" : "envelope", compact: compact)
-      }.disabled(store.busy)
+      }.disabled(store.busy).help(current.isUnread ? "Mark as read (U)" : "Mark as unread (U)")
       if let route = store.unsubscribeRoute(for: current) {
         if store.hasUnsubscribed(from: current) {
           actionLabel("Unsubscribed", icon: "bell.slash.fill", compact: compact).foregroundStyle(Palette.muted)
@@ -250,24 +258,17 @@ struct ReaderView: View {
       .padding(.horizontal, compact ? 0 : 9).contentShape(Rectangle()).accessibilityLabel(title)
   }
 
-  private func snoozeMenu(compact: Bool = false, title: String = "Snooze") -> some View {
-    Menu {
-      Button("In one hour") { store.snooze(current, until: Date().addingTimeInterval(3600)) }
-      Button("Tomorrow morning") {
-        store.snoozeUntilTomorrowMorning(current)
-      }
-      if current.snoozedUntil != nil || store.cloudSnoozes.pending[current.id] != nil {
-        Button("Return to inbox") { store.snooze(current, until: nil) }
-      }
-      Divider()
-      Text(store.snoozeSyncDetail(for: current))
-      Text("Notifications are not available yet")
-    } label: { actionLabel(title, icon: "clock", compact: compact) }
-      .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-      .padding(.horizontal, title == "Remind me" ? 12 : 0).frame(height: 40)
-      .background(title == "Remind me" ? Palette.canvas : .clear, in: RoundedRectangle(cornerRadius: 6))
-      .overlay(RoundedRectangle(cornerRadius: 6).stroke(title == "Remind me" ? Palette.inputBorder : .clear))
-      .disabled(store.busy).help("\(title)").accessibilityLabel(title)
+  /// A popover, not a Menu, so H can open it. Remind me (in the assessment) is the same chooser.
+  @ViewBuilder private func snoozeMenu(compact: Bool = false, title: String = "Snooze") -> some View {
+    if title == "Remind me" {
+      SnoozeTrigger(store: store, targets: { [current] }, isOpen: $remindOpen, help: "Remind me about this email") {
+        Label(title, systemImage: "clock")
+      }.buttonStyle(SecondaryButton()).disabled(store.busy).accessibilityLabel(title)
+    } else {
+      SnoozeTrigger(store: store, targets: { [current] }, isOpen: $snoozeOpen, help: "Snooze (H)") {
+        actionLabel(title, icon: "clock", compact: compact)
+      }.disabled(store.busy).accessibilityLabel(title)
+    }
   }
 
   private func moreMenu(compact: Bool) -> some View {

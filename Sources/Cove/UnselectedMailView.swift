@@ -37,15 +37,14 @@ struct UnselectedMailView: View {
         .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 390)
 
-        HStack(spacing: 7) {
-          keycap("↑")
-          keycap("↓")
-          Text("to move through your inbox").font(.coveMetadata)
-            .fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: 8) {
+          hint([(["↑", "↓"], "to move through your inbox")])
+          hint([(["E"], "done"), (["H"], "snooze"), (["X"], "select")])
+          hint([(["Z"], "undo"), (["?"], "all shortcuts")])
         }
         .foregroundStyle(Palette.muted).padding(.top, 8)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Use the Up Arrow and Down Arrow keys to move through your inbox.")
+        .accessibilityLabel("Use the Up and Down Arrow keys to move through your inbox. E marks done, H snoozes, X selects, Z undoes and question mark lists every shortcut.")
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -78,9 +77,15 @@ struct UnselectedMailView: View {
       : "Your agent is ready to help. Nothing sends without you."
   }
 
-  private func keycap(_ key: String) -> some View {
-    Text(key).font(.coveSecondary).frame(width: 24, height: 24)
-      .background(Palette.surface, in: RoundedRectangle(cornerRadius: 4))
-      .overlay(RoundedRectangle(cornerRadius: 4).stroke(Palette.line, lineWidth: 1))
+  /// One or more "key + meaning" pairs on a line.
+  private func hint(_ items: [(keys: [String], text: String)]) -> some View {
+    return HStack(spacing: 14) {
+      ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+        HStack(spacing: 5) {
+          ForEach(item.keys, id: \.self) { ShortcutKeycap(key: $0) }
+          Text(item.text).font(.coveMetadata).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
   }
 }

@@ -110,6 +110,10 @@ struct InboxDuskView: View {
   let title: String
   let detail: String
   var previewTime: Double? = nil
+  /// An optional button under the copy, e.g. "Archive all 12 in Other".
+  var actionTitle: String? = nil
+  var actionHelp: String? = nil
+  var action: (() -> Void)? = nil
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
 
@@ -140,8 +144,11 @@ struct InboxDuskView: View {
         Text(title).font(.coveSubheading).foregroundStyle(Palette.ink)
         Text(detail).font(.coveSecondary).foregroundStyle(Palette.body).multilineTextAlignment(.center)
       }
+      if let actionTitle, let action {
+        Button(actionTitle, action: action).buttonStyle(SecondaryButton()).help(actionHelp ?? actionTitle)
+      }
     }
     .padding(.horizontal, 24)
-    .accessibilityElement(children: .combine)
+    .accessibilityElement(children: action == nil ? .combine : .contain)
   }
 }
