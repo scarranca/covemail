@@ -80,8 +80,10 @@ change. Four agents (Opus 5.5 for the store, Sonnet for CoveCore, the Mac UI and
 
 ## Verification
 
-- `swift build` and the iPhone library build (`xcodebuild … -scheme CoveMobile`) succeed on the merged
-  branch.
+- `swift build`, the iPhone library (`xcodebuild … -scheme CoveMobile`) and the full app shell with its
+  notification extension (`-scheme CoveMobileApp`, simulator, unsigned) all build on the merged branch.
+- Every `sync()` caller outside `AppStore.swift` is a button (⌘R, the list, Home, Contacts, Settings,
+  the tag's Retry), so the interactive default is right; automatic callers pass `interactive: false`.
 - Full Mac suite on the merged branch: **340 core tests (1 skipped) and 450 rendering tests (7 skipped), 0 failures.**
   `BENCH` lines from that run: load 4,000 encrypted emails 75 ms; HTML opens 34, 26, 26, 28, 25, 25, 24, 26, 26, 26 ms
   with 2 views created for 10 opens; reply autosave + layout 24 ms; composer autosave + layout 2.2 ms; list
