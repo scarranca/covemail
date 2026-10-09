@@ -72,7 +72,7 @@ struct ReaderView: View {
   @State private var remindOpen = false
   private var position: Int? { store.visible.firstIndex { $0.id == mail.id } }
   private var localDraft: Bool { current.labels.contains("DRAFT") && current.id.hasPrefix("local-") }
-  private var conversationCount: Int { MailConversation.messages(in: store.mails, anchor: current).count }
+  private var conversationCount: Int { store.conversation(for: current).count }
   private var isConversation: Bool { conversationCount > 1 }
 
   var body: some View {
@@ -158,6 +158,8 @@ struct ReaderView: View {
     .task { await store.loadSendingAliasesIfNeeded() }
     .task(id: current.id) { unsubscribeNote = nil; await store.loadUnsubscribeIfNeeded(for: current) }
     .onChange(of: current.id) { _, _ in askingCove = false; replyFrom = nil; flushReply() }
+    // Quitting never runs onDisappear: save the pending reply when the app is about to terminate.
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in flushReply() }
     .onDisappear {
       flushReply()
       if store.replyDraftTarget == replySource.id { store.replyDraftTarget = nil }

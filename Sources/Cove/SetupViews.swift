@@ -184,6 +184,7 @@ struct ComposerView: View {
       .onChange(of: to) { _, _ in scheduleSave() }
       .onChange(of: subject) { _, _ in scheduleSave() }
       .onChange(of: text) { _, _ in scheduleSave() }
+      .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in save() }
       .onDisappear { save() }
       .interactiveDismissDisabled(store.busy)
       .confirmationDialog("Move this draft to Trash?", isPresented: $confirmDiscard, titleVisibility: .visible) {

@@ -18,6 +18,40 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
+  /// The running app's store, set once by `CoveApp`; the delegate needs it to settle work before quitting.
+  @MainActor static weak var store: AppStore?
+  /// How long quitting waits for a send, queued Gmail writes or a Trash move to finish.
+  static let quitSettleTimeout = Duration.seconds(8)
+
+  /// Pure decision, testable without an app: quitting waits only when something the user already asked
+  /// for hasn't reached Gmail yet (a send in its Undo window, queued label edits, a Trash move).
+  static func quitNeedsSettling(pendingSend: Bool, queuedTrash: Bool, trashCommitting: Bool, labelWork: Bool = false) -> Bool {
+    pendingSend || queuedTrash || trashCommitting || labelWork
+  }
+
+  /// Waits for `settle` (bounded by its own timeout), then answers AppKit's deferred quit. The reply
+  /// is always sent after the wait: a failed or timed-out settle must still let the user quit.
+  @MainActor static func settleThenReply(settle: () async -> Bool, reply: () -> Void) async {
+    _ = await settle()
+    reply()
+  }
+
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    MainActor.assumeIsolated {
+      guard let store = Self.store,
+        Self.quitNeedsSettling(
+          pendingSend: store.pendingSend != nil, queuedTrash: !store.queuedTrashIDs.isEmpty,
+          trashCommitting: store.trashCommitting)
+      else { return .terminateNow }
+      Task { @MainActor in
+        await Self.settleThenReply(
+          settle: { await store.settleBeforeLeavingMailbox(timeout: Self.quitSettleTimeout) },
+          reply: { NSApp.reply(toApplicationShouldTerminate: true) })
+      }
+      return .terminateLater
+    }
+  }
+
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
     MainActor.assumeIsolated { Self.showMainWindow(in: Self.mainWindows.allObjects) }
     return false
@@ -57,6 +91,7 @@ final class CoveAppDelegate: NSObject, NSApplicationDelegate {
     DesignAssets.registerFonts()
     let store = AppStore()
     _store = State(initialValue: store)
+    CoveAppDelegate.store = store
     // Owned for the life of the app: nothing in the scene reads it, so @State wouldn't keep it alive.
     MeetingMenuBarModel.start(store: store)
     SnoozeNotifications.start(store: store)
