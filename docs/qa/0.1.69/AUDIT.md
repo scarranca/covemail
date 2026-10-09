@@ -1,8 +1,8 @@
-# Cove 0.1.69 (unreleased) — inbox zero, wave 1
+# Cove 0.1.69 — inbox zero, wave 1
 
 The analysis and the plan are in `PLAN.md` beside this file. The user asked for the gap against
 Superhuman to be analyzed, planned and built with parallel agents (Opus 5.5 for the Mac triage core,
-Sonnet for the Mac UI and for iPhone). Branch: `scarranca/inbox-zero-triage`. Not released, not pushed.
+Sonnet for the Mac UI and for iPhone). Branch: `scarranca/inbox-zero-triage`. Released as 0.1.69 (see `AUDIT-speed.md` → Release).
 
 ## What changed
 

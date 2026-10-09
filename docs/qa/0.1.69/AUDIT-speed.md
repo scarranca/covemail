@@ -1,8 +1,8 @@
-# Cove 0.1.69 (unreleased) — speed and error avoidance, wave 1
+# Cove 0.1.69 — speed and error avoidance, wave 1
 
 The assessment and plan are in `PLAN-speed.md`; the baseline numbers there were measured before any
 change. Four agents (Opus 5.5 for the store, Sonnet for CoveCore, the Mac UI and iPhone) built this on
-`scarranca/inbox-zero-triage`. Not released, not pushed.
+`scarranca/inbox-zero-triage`. Released as 0.1.69 (see Release below).
 
 ## Numbers (debug builds, Apple silicon; `BENCH` lines from the committed benchmarks)
 
@@ -114,3 +114,18 @@ change. Four agents (Opus 5.5 for the store, Sonnet for CoveCore, the Mac UI and
 - iPhone and Mac label-edit queues are separate shapes (per platform); snoozes stay per device.
 - Further reader costs noted, not done: `tasks(for:)` and `unsubscribeRoute(for:)` scan `mails` per
   render.
+
+## Release (October 8)
+
+- **Version:** 0.1.69, build 71 (both waves on this branch: inbox zero and speed/error avoidance).
+- **App notarization:** `5e6b2b43-a70c-4c41-9df0-ec0f794821bb`, Accepted and stapled.
+- **DMG:** notarization `8c764ab5-a778-4ae7-879a-2e623d392128`, Accepted and stapled. 24,773,516 bytes, SHA-256 `6141a863e4d364f65ef1099aa7b474c38d04a878a8e4e8d76e2e404860a1a441`.
+- **Feed:** signed, 48 verified releases.
+- **Site:** Cloudflare Pages deployment `0d941844` (production, `main`).
+- **Public checks:**
+  - `/release.json` reports 0.1.69 (71); the beta page and `/download/latest` point to 0.1.69.
+  - The downloaded DMG's size and SHA-256 match.
+  - The Ed25519 signature verifies with the bundled key, and a one-byte change is rejected.
+  - No headless previous-build update probe was run.
+- **TestFlight:** iPhone/iPad build 19 (0.1.0), archived and uploaded with `xcodebuild -exportArchive`. It still needs the export-compliance answer in App Store Connect if that isn't automatic.
+- The full suite was not rerun after the version bump; nothing else changed since the 340/450 run.

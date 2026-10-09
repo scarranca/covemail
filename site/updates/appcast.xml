@@ -1,8 +1,21 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Cove</title>
+        <item>
+            <title>0.1.69</title>
+            <pubDate>Thu, 08 Oct 2026 22:11:26 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>71</sparkle:version>
+            <sparkle:shortVersionString>0.1.69</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.69</title></head><body><h1>Inbox zero, faster and quieter</h1><ul><li>Work through your inbox from the keyboard: J and K move between emails, E or X archives, S snoozes, H moves to the Inbox, Shift-E marks read, C composes. Press ? to see every shortcut.</li><li>Choose several emails with Shift-arrows or ⌘A and archive, snooze, flag or trash them together. Z undoes your last change exactly.</li><li>Snooze offers Later today, This evening, Tomorrow morning, This weekend and Next week. Cove reminds you when an email is back in your inbox (sender and subject only).</li><li>One click archives everything in Other.</li><li>Cove opens faster: a large mailbox loads about seven times quicker, and opening an HTML email takes a third of the time.</li><li>Archiving, marking read or labeling while offline keeps your change and sends it to Gmail when you’re back. Background sync never interrupts you; if Google signs you out, Cove shows one “Sign in to Google again” button.</li><li>Quitting Cove saves what you were typing and finishes a pending send first.</li><li>iPhone: snooze with a swipe, a Snoozed folder, offline changes that keep, and a quieter sync.</li></ul></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.69.dmg" length="24773516" type="application/octet-stream" sparkle:edSignature="5UOe1a2sgGiBvyHjwc98QuaQK8+MA2fuAzxVJk+shf31ghsYhOcaAkkV5Dg9D/7YLmDs1Ny5RYca1Sl7ey4KBw=="/>
+        </item>
         <item>
             <title>0.1.68</title>
             <pubDate>Thu, 08 Oct 2026 10:37:32 -0700</pubDate>
@@ -11,10 +24,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:shortVersionString>0.1.68</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.68</title></head><body><h1>Faster writing, and everyone in To</h1><ul><li>Typing a new email or a reply, moving between emails and opening a conversation are faster: Cove no longer re-scans the whole mailbox as you go.</li><li>The To field suggests anyone you’ve emailed, not only recent mail. After a short pause, Cove looks up matching names and addresses in Gmail; it never reads the emails’ text for this.</li><li>Loading older mail, label views, search results and images inside emails is faster.</li></ul></body></html>]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.68.dmg" length="24108237" type="application/octet-stream" sparkle:edSignature="ajdVllcnLpB5Wtb3zfAEOexK0G+cmUYZ6ymhKa/0kXhO/SJHWDOs0JyOMpLZ44RZn+buuTAf53zvte/ihQlQCw=="></enclosure>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.68.dmg" length="24108237" type="application/octet-stream" sparkle:edSignature="ajdVllcnLpB5Wtb3zfAEOexK0G+cmUYZ6ymhKa/0kXhO/SJHWDOs0JyOMpLZ44RZn+buuTAf53zvte/ihQlQCw=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: 5k0L/AI+nt9OwRdlsU47IsdxiJBrKkT8zTh06QFLHjzzMlQrLK0INhGyPvZnysAyj9DUBmvoeWbKm+53H1CdCA==
-length: 1715
+</rss>
+<!-- sparkle-signatures:
+edSignature: GQbVVoov+0PFJ3YAnOCEkTmHa2o9XNAjVF7RBVmF9nGQjTH1+b2D2doAYDPqEwKmrIG6Ye1y9Xed5JDlTCedDQ==
+length: 3649
 -->
