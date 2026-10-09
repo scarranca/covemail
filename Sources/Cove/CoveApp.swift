@@ -226,7 +226,7 @@ struct RootView: View {
       }
     }
     .task {
-      if store.needsContentRefresh { await store.sync() }
+      if store.needsContentRefresh { await store.sync(interactive: false) }
       await store.pollMailbox()
       store.pollCloud()
       store.pollPersonal()

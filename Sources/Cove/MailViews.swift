@@ -32,7 +32,7 @@ struct MailboxView: View {
                 Task { if store.mailScopeLabelID != nil { await store.loadLabelMail() } else { await store.sync() } }
               } label: {
                 Image(systemName: "arrow.clockwise")
-              }.buttonStyle(.plain).help("Sync Gmail (⌘R)").disabled(store.syncing)
+              }.buttonStyle(.plain).help("Sync Gmail (⌘R)").disabled(store.syncing || store.loadingLabelMail)
             }
             if store.isFocusedMailView {
               Text("\(store.focusedMails.count) downloaded · \(store.focusedMails.filter(\.isUnread).count) unread")
@@ -142,7 +142,7 @@ struct MailboxView: View {
           Divider()
           VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-              if store.busy || store.syncing { ProgressView().controlSize(.mini) }
+              if store.busy || store.syncing || store.loadingLabelMail || store.loadingOlderMail { ProgressView().controlSize(.mini) }
               Text(
                 store.status.isEmpty
                   ? (store.isSample ? "Sample mailbox" : "Gmail · saved locally") : store.status
@@ -171,11 +171,8 @@ struct MailboxView: View {
     .background(Button("") { searching = true }.keyboardShortcut("k").hidden())
     .task(id: store.folder) {
       guard store.mailScopeLabelID != nil else { return }
-      do {
-        while store.syncing { try await Task.sleep(for: .milliseconds(100)) }
-        try Task.checkCancellation()
-        await store.loadLabelMail()
-      } catch {}
+      // A label view loads beside a running background sync; it never waits for it.
+      await store.loadLabelMail()
     }
     .onAppear { listFocused = true }
     .onChange(of: store.search) { _, _ in store.reconcileSelection(); resetPaginationEnd() }
