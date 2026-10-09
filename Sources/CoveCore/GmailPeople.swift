@@ -92,29 +92,10 @@ extension GmailClient {
 
 extension ContactDirectory {
   /// Suggestions for an address field: people from downloaded mail first (best match, then most emailed),
-  /// then people Gmail found beyond it, without duplicates or addresses already chosen.
+  /// then people Gmail found beyond it, without duplicates or addresses already chosen. This folds `local`
+  /// on every call: for the whole directory, build a `ContactSearchIndex` once and ask it instead.
   public static func suggestions(_ text: String, local: [MailContact], remote: [MailContact],
                                  excluding: Set<String> = [], limit: Int = 6) -> [MailContact] {
-    let query = MailSearchIndex.fold(text.trimmingCharacters(in: .whitespacesAndNewlines))
-    let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
-    func rank(_ contact: MailContact) -> Int? {
-      let name = MailSearchIndex.fold(contact.name)
-      let email = MailSearchIndex.fold(contact.email)
-      guard terms.allSatisfy({ name.contains($0) || email.contains($0) }) else { return nil }
-      if name.hasPrefix(query) || email.hasPrefix(query) { return 0 }
-      if name.split(separator: " ").contains(where: { $0.hasPrefix(terms.first ?? "") }) { return 1 }
-      return 2
-    }
-    var seen = excluding
-    var result: [MailContact] = []
-    let ranked = local.compactMap { contact in rank(contact).map { (contact, $0) } }.sorted { lhs, rhs in
-      if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
-      if lhs.0.messages.count != rhs.0.messages.count { return lhs.0.messages.count > rhs.0.messages.count }
-      return (lhs.0.lastMessage ?? .distantPast) > (rhs.0.lastMessage ?? .distantPast)
-    }.map(\.0)
-    for contact in ranked + remote.filter({ rank($0) != nil }) where result.count < limit && seen.insert(contact.email).inserted {
-      result.append(contact)
-    }
-    return result
+    ContactSearchIndex(local).suggestions(text, remote: remote, excluding: excluding, limit: limit)
   }
 }

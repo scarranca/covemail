@@ -2585,6 +2585,20 @@ import SwiftUI
     contactsCache = (mailsRevision, contactRecords, accountEmail, value)
     return value
   }
+  /// The contact directory and its To-field search index for a composer, built off the main thread
+  /// (opening a composer built the directory on it, about 160 ms for 4,000 emails). A fresh cache is reused.
+  func contactSearchForWriting() async -> (directory: [MailContact], index: ContactSearchIndex) {
+    let mails = self.mails, records = contactRecords, account = accountEmail, revision = mailsRevision
+    let cached = contactsCache.flatMap { $0.revision == revision && $0.records == records && $0.account == account ? $0.value : nil }
+    let built = await Task.detached(priority: .userInitiated) { () -> ([MailContact], ContactSearchIndex) in
+      let directory = cached ?? ContactDirectory.build(mails: mails, records: records, accountEmail: account)
+      return (directory, ContactSearchIndex(directory))
+    }.value
+    if cached == nil, revision == mailsRevision, records == contactRecords, account == accountEmail {
+      contactsCache = (revision, records, account, built.0)
+    }
+    return built
+  }
   var contactGroups: [String] {
     Array(Set(contactRecords.map(\.group).filter { !$0.isEmpty })).sorted {
       $0.localizedCaseInsensitiveCompare($1) == .orderedAscending

@@ -541,11 +541,19 @@ import UIKit
   /// People Gmail found for a typed name, kept for the session so retyping doesn't search again.
   @ObservationIgnored private var peopleCache: [String: [MailContact]] = [:]
 
-  /// People to suggest while typing an address, from mail on this iPhone (instant).
-  func contactSuggestions(_ text: String, excluding: Set<String> = [], remote: [MailContact] = [],
-                          limit: Int = 6) -> [MailContact] {
-    guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
-    return ContactDirectory.suggestions(text, local: contacts, remote: remote, excluding: excluding, limit: limit)
+  /// The To-field search index over everyone in mail on this iPhone, built off the main thread (building
+  /// the directory on it at the first keystroke, and again whenever mail arrived, made typing in To stall).
+  /// A fresh directory cache is reused.
+  func contactSearchForWriting() async -> ContactSearchIndex {
+    let account = auth.email ?? "", revision = listRevision
+    let cached = contactsCache.flatMap { $0.revision == revision && $0.account == account ? $0.value : nil }
+    let mails = cached == nil ? allLoaded : []
+    let built = await Task.detached(priority: .userInitiated) { () -> ([MailContact], ContactSearchIndex) in
+      let directory = cached ?? ContactDirectory.build(mails: mails, records: [], accountEmail: account)
+      return (directory, ContactSearchIndex(directory))
+    }.value
+    if cached == nil, revision == listRevision, account == (auth.email ?? "") { contactsCache = (revision, account, built.0) }
+    return built.1
   }
 
   /// People matching `text` anywhere in Gmail, beyond the mail downloaded here, as Gmail's To field

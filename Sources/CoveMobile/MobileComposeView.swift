@@ -76,6 +76,8 @@ struct MobileComposeView: View {
   @State private var loadingPhotos = false
   /// People Gmail found for the name being typed (beyond mail on this iPhone), and the text they match.
   @State private var remotePeople: (query: String, people: [MailContact]) = ("", [])
+  /// Everyone in mail on this iPhone, folded once when the composer opens, so typing in To stays instant.
+  @State private var contactSearch = ContactSearchIndex([])
   @FocusState private var focus: Field?
   @Environment(\.dismiss) private var dismiss
 
@@ -120,11 +122,12 @@ struct MobileComposeView: View {
       .scrollDismissesKeyboard(.interactively)
       askBar
     }
+    .task { contactSearch = await mailbox.contactSearchForWriting() }
     .task(id: typedRecipient) {
       // Local matches show at once; Gmail is asked after a short pause in typing.
       let query = typedRecipient
       guard MailSearchIndex.fold(query).count >= 2 else { return }
-      try? await Task.sleep(nanoseconds: 300_000_000)
+      try? await Task.sleep(nanoseconds: 200_000_000)
       guard !Task.isCancelled else { return }
       let people = await mailbox.lookUpPeople(query)
       if !Task.isCancelled { remotePeople = (query, people) }
@@ -231,7 +234,7 @@ struct MobileComposeView: View {
     // Gmail's results for an earlier prefix stay (filtered) until the newer lookup answers.
     let remote = !remotePeople.query.isEmpty && MailSearchIndex.fold(current).hasPrefix(MailSearchIndex.fold(remotePeople.query))
       ? remotePeople.people : []
-    let matches = current.count >= 1 ? mailbox.contactSuggestions(current, excluding: chosen, remote: remote) : []
+    let matches = current.count >= 1 ? contactSearch.suggestions(current, remote: remote, excluding: chosen) : []
     if !matches.isEmpty {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(matches) { contact in

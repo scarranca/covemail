@@ -107,6 +107,8 @@ struct ComposerView: View {
   /// Everyone in downloaded mail, read once when the composer opens: autosaves change the mailbox, and
   /// rebuilding the directory after each one made typing in To lag.
   @State private var directory: [MailContact] = []
+  /// The directory folded once, so each keystroke in To compares bytes instead of re-folding everyone.
+  @State private var contactSearch = ContactSearchIndex([])
   /// People Gmail found for the typed name (beyond downloaded mail), and the text they match.
   @State private var remotePeople: (query: String, people: [MailContact]) = ("", [])
   /// Recent mail with the recipients and their names, for the writer; refreshed when To changes, not per keystroke.
@@ -157,12 +159,16 @@ struct ComposerView: View {
           to = mail.to; subject = mail.subject; text = mail.body
           sender = mail.senderEmail.isEmpty ? store.defaultSender : mail.senderEmail
         }
-        directory = store.contacts
         loaded = true
       }
       .task { await loadSenders() }
-      .task(id: to) {
-        // Writer context follows the recipients after a short pause in typing.
+      .task {
+        let built = await store.contactSearchForWriting()
+        directory = built.directory
+        contactSearch = built.index
+      }
+      .task(id: "\(to)\n\(directory.count)") {
+        // Writer context follows the recipients after a short pause in typing, and the directory once it's built.
         if loaded { try? await Task.sleep(nanoseconds: 250_000_000) }
         guard !Task.isCancelled else { return }
         recipientContext = WritingContext.recentMail(to: to, mails: store.mails)
@@ -174,7 +180,7 @@ struct ComposerView: View {
         // Downloaded people show at once; Gmail is asked after a short pause in typing in To.
         let query = recipientQuery
         guard recipientFocused, MailSearchIndex.fold(query).count >= 2 else { return }
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        try? await Task.sleep(nanoseconds: 200_000_000)
         guard !Task.isCancelled else { return }
         let people = await store.lookUpPeople(query)
         if !Task.isCancelled { remotePeople = (query, people) }
@@ -326,14 +332,11 @@ struct ComposerView: View {
   }
   private var suggestedContacts: [MailContact] {
     let chosen = Set(WritingContext.recipients(String(to.split(separator: ",", omittingEmptySubsequences: false).dropLast().joined(separator: ","))))
-    guard !recipientQuery.isEmpty else {
-      return Array(directory.lazy.filter { !chosen.contains($0.email) }
-        .sorted { ($0.lastMessage ?? .distantPast) > ($1.lastMessage ?? .distantPast) }.prefix(4))
-    }
+    guard !recipientQuery.isEmpty else { return contactSearch.recent(excluding: chosen, limit: 4) }
     // Gmail's results for an earlier prefix stay (filtered) until the newer lookup answers.
     let remote = !remotePeople.query.isEmpty
       && MailSearchIndex.fold(recipientQuery).hasPrefix(MailSearchIndex.fold(remotePeople.query)) ? remotePeople.people : []
-    return ContactDirectory.suggestions(recipientQuery, local: directory, remote: remote, excluding: chosen, limit: 6)
+    return contactSearch.suggestions(recipientQuery, remote: remote, excluding: chosen, limit: 6)
   }
   private func chooseRecipient(_ contact: MailContact) {
     var pieces = to.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
