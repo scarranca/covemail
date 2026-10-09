@@ -19,6 +19,9 @@ import UIKit
   private(set) var tasksConnected = false
   /// A sample mailbox for screenshots and design checks (DEBUG builds, `-CoveSample`). Nothing reaches Google.
   private(set) var isSample = false
+  /// Google refused the saved sign-in (revoked or expired). Background work keeps quiet and the inbox
+  /// shows one banner with a Sign in button; cleared by a successful refresh or sign-in.
+  private(set) var needsSignIn = false
   private var session: GoogleAccountSession?
   private var access: String?
   private var expiration = Date.distantPast
@@ -55,6 +58,17 @@ import UIKit
   #endif
 
   var isConfigured: Bool { clientID != nil }
+
+  /// The saved sign-in no longer works; the message is the one the alert has always shown.
+  struct SignInExpired: LocalizedError {
+    var errorDescription: String? { "Your Google sign-in has expired. Sign out and sign in again." }
+  }
+
+  /// Gmail refused a fresh token too: the saved sign-in must be renewed.
+  func requireSignIn() { needsSignIn = true }
+
+  /// Forgets the cached access token, after Gmail answered 401 for it; the next `token()` refreshes.
+  func discardAccessToken() { access = nil; expiration = .distantPast }
 
   /// Signs in with Gmail, Calendar and Tasks. With `hint` (the signed-in address), it adds the scopes
   /// that are missing to the current account instead of choosing another one.
@@ -98,6 +112,7 @@ import UIKit
       email = verifiedEmail
       calendarConnected = newSession.calendarConnected
       tasksConnected = newSession.tasksConnected ?? false
+      needsSignIn = false
     case .denied?: throw CoveError.message("Google sign-in was not authorized.")
     case nil: throw CoveError.message("Google sign-in returned an unexpected response. Try again.")
     }
@@ -115,10 +130,12 @@ import UIKit
       access = result.access_token
       identity = result.id_token ?? identity
       expiration = Date().addingTimeInterval(result.expires_in - 60)
+      needsSignIn = false
       return result.access_token
     } catch let failure as HTTPFailure where failure.statusCode == 400 || failure.statusCode == 401 {
       // Revoked or expired sign-in: Google answers invalid_grant. Ask for a new sign-in.
-      throw CoveError.message("Your Google sign-in has expired. Sign out and sign in again.")
+      needsSignIn = true
+      throw SignInExpired()
     }
   }
 
@@ -143,6 +160,7 @@ import UIKit
     email = nil
     calendarConnected = false
     tasksConnected = false
+    needsSignIn = false
   }
 
   private func present(url: URL, scheme: String) async throws -> URL {

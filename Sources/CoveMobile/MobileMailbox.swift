@@ -64,6 +64,11 @@ import UIKit
   }
   private(set) var syncing = false
   private(set) var loadingOlder = false
+  /// The last page of older mail failed to load. The list shows "Couldn’t load more · Try again" instead of
+  /// asking again by itself; `retryLoadOlder()` clears it.
+  private(set) var loadOlderFailed = false
+  /// The encrypted store is being opened and decoded off the main thread; the list isn't empty, just not here yet.
+  private(set) var opening = false
   private(set) var hasOlder = true
   /// Quiet progress, such as Gmail asking Cove to slow down. Never an alert.
   private(set) var status: String?
@@ -87,7 +92,21 @@ import UIKit
   private var nextPage: String?
   private var pendingIDs: Set<String> = []
   /// Label changes still on their way to Gmail, re-applied over every sync result until delivered.
-  private var labelEdits: [String: (add: Set<String>, remove: Set<String>)] = [:]
+  /// Persisted (`pendingLabelEdits`) so a change made offline still reaches Gmail after a relaunch.
+  private var labelEdits: [String: PendingLabelEdit] = [:]
+  /// Emails moved to Trash on the phone (Undo window over) that Gmail hasn't confirmed; they stay hidden.
+  private var queuedTrash: Set<String> = []
+  @ObservationIgnored private var flushTask: Task<Void, Never>?
+  @ObservationIgnored private var flushToken = UUID()
+  @ObservationIgnored private var retryTask: Task<Void, Never>?
+  @ObservationIgnored private var retryAttempts = 0
+  /// Bumped by `close()`, so an open that finishes after the account changed is dropped.
+  @ObservationIgnored private var openGeneration = 0
+  static let openingStatus = "Opening your mailbox…"
+  static let offlineStatus = "You’re offline · showing downloaded mail"
+  static let queuedOfflineStatus = "You’re offline · changes will send when you’re back"
+  static let rateLimitStatus = "Gmail asked Cove to slow down. Mail will finish updating shortly."
+  static let syncFailedStatus = "Couldn’t check Gmail · pull to retry"
   private var hiddenIDs: Set<String> = [] { didSet { listRevision &+= 1 } }
   private var pendingTask: Task<Void, Never>?
   private var pendingCommit: (@MainActor () async -> Void)?
@@ -111,8 +130,50 @@ import UIKit
 
   // MARK: Opening
 
-  /// Opens (or reopens) the signed-in account's encrypted store and shows what it already has.
-  func openIfNeeded() {
+  /// What `open` reads from the encrypted store. The `Database` is created and used on a background
+  /// thread for the heavy decrypt-and-decode, then handed to the main actor in this box.
+  /// `@unchecked Sendable` is sound because the box is built once, the background task ends when it
+  /// returns it, and from then on only the main actor touches the database: it is never used from two
+  /// threads at once.
+  private struct OpenedStore: @unchecked Sendable {
+    let database: Database
+    let mails: [Mail]
+    let historyID: String?
+    let nextPage: String?
+    let pendingIDs: Set<String>
+    let edits: [String: PendingLabelEdit]
+    let trash: Set<String>
+
+    static func load(email: String, windowStart: Date) throws -> OpenedStore {
+      let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                             appropriateFor: nil, create: true)
+        .appendingPathComponent("Cove", isDirectory: true)
+      let filename = SHA256.hash(data: Data(email.lowercased().utf8)).map { String(format: "%02x", $0) }.joined()
+      let url = root.appendingPathComponent(filename + ".sqlite")
+      let keyName = "mailboxEncryptionKey." + filename
+      let key = try MailboxEncryptionKey.load(
+        existingEncryptedStore: Database.requiresEncryptionKey(at: url),
+        read: { try MobileKeychain.read(keyName) }, write: { try MobileKeychain.insert($0, name: keyName) })
+      let db = try Database(url: url, encryptionKey: key, namespace: filename)
+      // Mail stays readable while the phone is locked, as it must for a background refresh.
+      try? (url as NSURL).setResourceValue(URLFileProtection.completeUntilFirstUserAuthentication,
+                                           forKey: .fileProtectionKey)
+      let mails = try db.loadMail(since: windowStart)
+      var historyID = try db.load(String.self, key: "gmailHistoryID")
+      let version = try db.load(Int.self, key: "mailDecodingVersion") ?? 0
+      if version < GmailMessage.decodingVersion { historyID = nil }
+      return OpenedStore(
+        database: db, mails: mails, historyID: historyID, nextPage: try db.load(String.self, key: "gmailNextPage"),
+        pendingIDs: try db.load(Set<String>.self, key: "gmailPendingIDs") ?? [],
+        edits: (try? db.load([String: PendingLabelEdit].self, key: "pendingLabelEdits")) ?? [:],
+        trash: (try? db.load(Set<String>.self, key: "pendingTrash")) ?? [])
+    }
+  }
+
+  /// Opens (or reopens) the signed-in account's encrypted store and shows what it already has. The
+  /// decrypting and decoding of every row runs off the main thread; `sync()` waits for it (it needs the
+  /// database), so it can't start first.
+  func openIfNeeded() async {
     guard let email = auth.email, email != openEmail else { return }
     close()
     if auth.isSample {
@@ -139,38 +200,48 @@ import UIKit
       hasOlder = false
       return
     }
-    do {
-      let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                             appropriateFor: nil, create: true)
-        .appendingPathComponent("Cove", isDirectory: true)
-      let filename = SHA256.hash(data: Data(email.lowercased().utf8)).map { String(format: "%02x", $0) }.joined()
-      let url = root.appendingPathComponent(filename + ".sqlite")
-      let keyName = "mailboxEncryptionKey." + filename
-      let key = try MailboxEncryptionKey.load(
-        existingEncryptedStore: Database.requiresEncryptionKey(at: url),
-        read: { try MobileKeychain.read(keyName) }, write: { try MobileKeychain.insert($0, name: keyName) })
-      let db = try Database(url: url, encryptionKey: key, namespace: filename)
-      // Mail stays readable while the phone is locked, as it must for a background refresh.
-      try? (url as NSURL).setResourceValue(URLFileProtection.completeUntilFirstUserAuthentication,
-                                           forKey: .fileProtectionKey)
-      database = db
-      openEmail = email
-      mails = try db.loadMail(since: windowStart)
-      historyID = try db.load(String.self, key: "gmailHistoryID")
-      nextPage = try db.load(String.self, key: "gmailNextPage")
-      pendingIDs = try db.load(Set<String>.self, key: "gmailPendingIDs") ?? []
-      let version = try db.load(Int.self, key: "mailDecodingVersion") ?? 0
-      if version < GmailMessage.decodingVersion { historyID = nil }
+    openEmail = email
+    let generation = openGeneration
+    opening = true
+    status = Self.openingStatus
+    let window = windowStart
+    let loaded = await Task.detached(priority: .userInitiated) {
+      Result { try OpenedStore.load(email: email, windowStart: window) }
+    }.value
+    guard openEmail == email, generation == openGeneration else { return }
+    opening = false
+    if status == Self.openingStatus { status = nil }
+    switch loaded {
+    case .failure(let failure):
+      openEmail = nil
+      self.error = failure.localizedDescription
+    case .success(let opened):
+      labelEdits = opened.edits
+      queuedTrash = opened.trash
+      hiddenIDs.formUnion(opened.trash)
+      historyID = opened.historyID
+      nextPage = opened.nextPage
+      pendingIDs = opened.pendingIDs
+      mails = opened.mails
+      database = opened.database
       hasOlder = nextPage?.isEmpty == false || mails.isEmpty
       // A reinstall or a cleared notification list shouldn't lose a snooze's return notice.
       MobileSnoozeNotifier.reconcile(SnoozeNotice.pending(in: mails), account: email)
-    } catch {
-      self.error = error.localizedDescription
+      // Changes made offline in an earlier session go to Gmail now (or wait for the connection).
+      flushQueued(immediately: true)
     }
   }
 
   func close() {
     commitPendingNow()
+    openGeneration &+= 1
+    opening = false
+    if status == Self.openingStatus { status = nil }
+    flushTask?.cancel(); flushTask = nil
+    retryTask?.cancel(); retryTask = nil
+    retryAttempts = 0
+    queuedTrash = []
+    loadOlderFailed = false
     database = nil
     openEmail = nil
     mails = []
@@ -233,39 +304,86 @@ import UIKit
 
   // MARK: Sync
 
-  func sync() async {
+  /// Checks Gmail. Background callers (the two-minute loop, coming to the front) never raise an alert:
+  /// trouble becomes a status line, or the sign-in banner. Only a pull-to-refresh (`interactive`) may
+  /// alert, and only for a definitive failure (never for being offline or rate limited).
+  func sync(interactive: Bool = false) async {
     guard !syncing, !auth.isSample, let database else { return }
     syncing = true
     defer { syncing = false }
-    do {
-      let token = try await auth.token()
-      let result: GmailSyncResult
+    var refreshedToken = false
+    while true {
       do {
-        result = try await gmail.synchronize(
-          token: token, cached: mails, historyID: historyID, refreshContent: historyID == nil && !mails.isEmpty,
-          storedIDs: (try? database.storedMessageIDs()) ?? [], pendingIDs: pendingIDs,
-          // New mail first: re-checking what's already here is spread over later syncs (60 at a time).
-          maxVerifications: Self.verificationsPerSync)
-      } catch let failure as HTTPFailure where failure.isRateLimited {
-        status = "Gmail asked Cove to slow down. Mail will finish updating shortly."
+        guard try await syncOnce(database) else { return }
+        // Gmail answered, so the connection is up: queued changes go now.
+        flushQueued(immediately: true)
+        return
+      } catch is CancellationError {
+        return
+      } catch {
+        // A stale access token: refresh once and read again before calling the sign-in broken.
+        if !refreshedToken, GmailFailureKind.classify(error) == .unauthorized {
+          refreshedToken = true
+          auth.discardAccessToken()
+          continue
+        }
+        guard self.database === database else { return }
+        reportSyncFailure(error, interactive: interactive)
         return
       }
-      guard self.database === database else { return }
-      try apply(result, keepsAll: false)
-      pendingIDs = result.pendingIDs
-      try database.save(pendingIDs, key: "gmailPendingIDs")
-      lastSynced = Date()
-      status = result.pendingIDs.isEmpty ? nil : "Checking \(result.pendingIDs.count) older emails…"
-      error = nil
-    } catch is CancellationError {
-    } catch {
-      self.error = error.localizedDescription
+    }
+  }
+
+  /// One Gmail sync. Returns false when nothing was merged (Gmail asked Cove to slow down, or the
+  /// account changed meanwhile).
+  private func syncOnce(_ database: Database) async throws -> Bool {
+    let token = try await auth.token()
+    let result: GmailSyncResult
+    do {
+      result = try await gmail.synchronize(
+        token: token, cached: mails, historyID: historyID, refreshContent: historyID == nil && !mails.isEmpty,
+        storedIDs: (try? database.storedMessageIDs()) ?? [], pendingIDs: pendingIDs,
+        // New mail first: re-checking what's already here is spread over later syncs (60 at a time).
+        maxVerifications: Self.verificationsPerSync)
+    } catch let failure as HTTPFailure where failure.isRateLimited {
+      status = Self.rateLimitStatus
+      return false
+    }
+    guard self.database === database else { return false }
+    try apply(result, keepsAll: false)
+    pendingIDs = result.pendingIDs
+    try database.save(pendingIDs, key: "gmailPendingIDs")
+    lastSynced = Date()
+    status = result.pendingIDs.isEmpty ? nil : "Checking \(result.pendingIDs.count) older emails…"
+    return true
+  }
+
+  private func reportSyncFailure(_ error: Error, interactive: Bool) {
+    // The banner (`auth.needsSignIn`) says it; no alert, no competing status line.
+    if error is MobileAuth.SignInExpired { status = nil; return }
+    switch GmailFailureKind.classify(error) {
+    case .network: status = Self.offlineStatus
+    case .rateLimited: status = Self.rateLimitStatus
+    case .unauthorized:
+      auth.requireSignIn()
+      status = nil
+    case .gone, .refused, .server, .other:
+      status = Self.syncFailedStatus
+      if interactive { self.error = error.localizedDescription }
     }
   }
 
   /// Loads the next page of older mail when the end of the list appears.
   func loadOlder() async {
-    do { try await loadOlderPage(interactive: true) } catch { self.error = error.localizedDescription }
+    // After a failure the list shows a Try again row; scrolling doesn't keep asking.
+    guard !loadOlderFailed else { return }
+    do { try await loadOlderPage(interactive: true) } catch is CancellationError {
+    } catch { if self.database != nil { loadOlderFailed = true } }
+  }
+
+  func retryLoadOlder() async {
+    loadOlderFailed = false
+    await loadOlder()
   }
 
   /// One page (50) of older mail. Emails already stored come back as labels only, so walking pages
@@ -480,21 +598,212 @@ import UIKit
     guard !id.hasPrefix("local-") else { return }
     update(id) { $0.labels.formUnion(add); $0.labels.subtract(remove) }
     if auth.isSample { return }
-    var edit = labelEdits[id] ?? (add: [], remove: [])
-    edit.add.formUnion(add); edit.add.subtract(remove)
-    edit.remove.formUnion(remove); edit.remove.subtract(add)
-    labelEdits[id] = edit
-    Task {
+    queueEdit([id], add: add, remove: remove)
+  }
+
+  /// Keeps the change on the phone and queues it for Gmail. It stays queued (and persisted) until Gmail
+  /// confirms it or definitively refuses it; being offline or rate limited only delays it.
+  private func queueEdit(_ ids: [String], add: Set<String>, remove: Set<String>) {
+    for id in ids {
+      var edit = labelEdits[id] ?? PendingLabelEdit()
+      edit.combine(add: add, remove: remove)
+      labelEdits[id] = edit
+    }
+    persistQueue()
+    flushQueued()
+  }
+
+  private func persistQueue() {
+    guard let database else { return }
+    try? database.save(labelEdits, key: "pendingLabelEdits")
+    try? database.save(queuedTrash, key: "pendingTrash")
+  }
+
+  // MARK: Delivering queued changes
+
+  /// How one try at a Gmail write ended.
+  private enum Delivery {
+    case delivered
+    /// Offline, rate limited or the sign-in needs renewing: keep it queued, try again later.
+    case blocked(QueueBlock)
+    /// 404: the email is gone from Gmail.
+    case gone
+    /// Gmail definitively refused (other 4xx, or a server error, which is never retried for a write).
+    case refused(String)
+  }
+  private enum QueueBlock { case offline, rateLimited, signIn }
+
+  /// Runs one Gmail write with a fresh token; a 401 refreshes the token once.
+  private func attempt(_ operation: (String) async throws -> Void) async -> Delivery {
+    var refreshed = false
+    while true {
       do {
-        let token = try await auth.token()
-        try await gmail.modify(id: id, token: token, add: Array(add), remove: Array(remove))
-        labelEdits[id] = nil
+        try await operation(try await auth.token())
+        return .delivered
+      } catch is MobileAuth.SignInExpired {
+        return .blocked(.signIn)
+      } catch is CancellationError {
+        return .blocked(.offline)
       } catch {
-        // Gmail didn't take it: put the labels back and say so.
-        labelEdits[id] = nil
-        update(id) { $0.labels.subtract(add); $0.labels.formUnion(remove) }
-        self.error = "Couldn’t update Gmail. " + error.localizedDescription
+        switch GmailFailureKind.classify(error) {
+        case .network: return .blocked(.offline)
+        case .rateLimited: return .blocked(.rateLimited)
+        case .gone: return .gone
+        case .unauthorized:
+          if refreshed { auth.requireSignIn(); return .blocked(.signIn) }
+          refreshed = true
+          auth.discardAccessToken()
+        case .refused, .server, .other: return .refused(error.localizedDescription)
+        }
       }
+    }
+  }
+
+  /// Sends queued label changes and Trash moves in the background. Safe to call any time; one drain runs
+  /// at once. `immediately` also restarts the backoff (a successful sync, coming to the front).
+  func flushQueued(immediately: Bool = false) {
+    guard !auth.isSample, let database, !(labelEdits.isEmpty && queuedTrash.isEmpty) else { return }
+    if immediately { retryAttempts = 0 }
+    guard flushTask == nil else { return }
+    retryTask?.cancel(); retryTask = nil
+    let token = UUID()
+    flushToken = token
+    // Leaving the app mid-send shouldn't strand the change until the next launch.
+    let background = UIApplication.shared.beginBackgroundTask(withName: "Cove queued changes")
+    flushTask = Task { [weak self] in
+      await self?.drainQueue(database)
+      if self?.flushToken == token { self?.flushTask = nil }
+      if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
+    }
+  }
+
+  private func drainQueue(_ database: Database) async {
+    var block: QueueBlock?
+    while self.database === database, block == nil, !Task.isCancelled {
+      let edits = labelEdits, trash = queuedTrash
+      if edits.isEmpty && trash.isEmpty { break }
+      block = await sendEdits(edits, database)
+      if block == nil { block = await sendTrash(trash, database) }
+    }
+    guard self.database === database else { return }
+    if let block { scheduleRetry(block) } else {
+      retryAttempts = 0
+      if status == Self.queuedOfflineStatus { status = nil }
+    }
+  }
+
+  /// Sends a snapshot of the queued label changes, one Gmail request per distinct change. Returns why it
+  /// had to stop, or nil when every email in the snapshot was settled.
+  private func sendEdits(_ edits: [String: PendingLabelEdit], _ database: Database) async -> QueueBlock? {
+    var groups: [PendingLabelEdit: [String]] = [:]
+    for (id, edit) in edits {
+      if edit.isEmpty { if labelEdits[id] == edit { labelEdits[id] = nil } } else { groups[edit, default: []].append(id) }
+    }
+    var refused: [String] = []
+    var message = ""
+    var block: QueueBlock?
+    for (edit, ids) in groups {
+      block = await deliver(edit, to: ids.sorted(), refused: &refused, message: &message)
+      if block != nil { break }
+    }
+    guard self.database === database else { return block }
+    persistQueue()
+    if !refused.isEmpty {
+      self.error = refused.count == 1 ? "Couldn’t update Gmail. " + message
+        : "Couldn’t update \(refused.count) emails in Gmail. " + message
+    }
+    return block
+  }
+
+  private func deliver(_ edit: PendingLabelEdit, to ids: [String], refused: inout [String], message: inout String)
+    async -> QueueBlock?
+  {
+    let result = await attempt { token in
+      if ids.count == 1 {
+        try await gmail.modify(id: ids[0], token: token, add: Array(edit.add), remove: Array(edit.remove))
+      } else {
+        for start in stride(from: 0, to: ids.count, by: 1000) {
+          try await gmail.batchModify(ids: Array(ids[start..<min(ids.count, start + 1000)]), token: token,
+                                      add: Array(edit.add), remove: Array(edit.remove))
+        }
+      }
+    }
+    switch result {
+    case .delivered:
+      for id in ids where labelEdits[id] == edit { labelEdits[id] = nil }
+    case .blocked(let block):
+      return block
+    case .gone, .refused:
+      if ids.count > 1 {
+        // One bad email fails a whole batch; settle them one by one so the rest still go through.
+        for id in ids {
+          if let block = await deliver(edit, to: [id], refused: &refused, message: &message) { return block }
+        }
+      } else if case .refused(let text) = result {
+        // Gmail won't take it: put the labels back and say so.
+        if labelEdits[ids[0]] == edit { labelEdits[ids[0]] = nil }
+        update(ids[0]) { $0.labels.subtract(edit.add); $0.labels.formUnion(edit.remove) }
+        refused.append(ids[0])
+        message = text
+      } else {
+        removeLocally(ids)
+      }
+    }
+    return nil
+  }
+
+  private func sendTrash(_ ids: Set<String>, _ database: Database) async -> QueueBlock? {
+    var failed = 0
+    var block: QueueBlock?
+    for id in ids.sorted() {
+      switch await attempt({ token in try await gmail.trash(id: id, token: token) }) {
+      case .delivered:
+        guard self.database === database else { return nil }
+        update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
+        endSnooze(id)
+        queuedTrash.remove(id)
+        hiddenIDs.remove(id)
+      case .blocked(let reason): block = reason
+      case .gone: removeLocally([id])
+      case .refused:
+        queuedTrash.remove(id)
+        hiddenIDs.remove(id)
+        failed += 1
+      }
+      if block != nil { break }
+    }
+    guard self.database === database else { return block }
+    persistQueue()
+    if failed > 0 { self.error = failed == 1 ? "Couldn’t move the email to Trash." : "\(failed) emails couldn’t be moved to Trash." }
+    return block
+  }
+
+  /// The email no longer exists in Gmail (404): drop it here, quietly.
+  private func removeLocally(_ ids: [String]) {
+    let gone = Set(ids)
+    for id in gone { labelEdits[id] = nil }
+    queuedTrash.subtract(gone)
+    hiddenIDs.subtract(gone)
+    mails.removeAll { gone.contains($0.id) }
+    searchResults?.removeAll { gone.contains($0.id) }
+    try? database?.deleteMessages(ids: gone)
+    persistQueue()
+  }
+
+  private func scheduleRetry(_ block: QueueBlock) {
+    switch block {
+    case .signIn: return  // the inbox banner asks; a successful sync after signing in sends the rest
+    case .offline: if status == nil { status = Self.queuedOfflineStatus }
+    case .rateLimited: status = Self.rateLimitStatus
+    }
+    retryAttempts += 1
+    let delay = LabelEditRetry.delay(afterAttempts: retryAttempts)
+    retryTask?.cancel()
+    retryTask = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(delay))
+      guard !Task.isCancelled else { return }
+      self?.retryTask = nil
+      self?.flushQueued()
     }
   }
 
@@ -565,28 +874,25 @@ import UIKit
     guard !ids.isEmpty else { return }
     hiddenIDs.formUnion(ids)
     let title = ids.count == 1 ? "Moved to Trash" : "Moved \(ids.count) emails to Trash"
+    let store = database
     schedule(PendingAction(title: title), seconds: 5) { [weak self] in
       guard let self else { return }
-      var failed = 0
-      for id in ids {
-        if self.auth.isSample {
+      if self.auth.isSample {
+        for id in ids {
           self.update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
           self.endSnooze(id)
-          continue
         }
-        do {
-          let token = try await self.auth.token()
-          try await self.gmail.trash(id: id, token: token)
-          self.update(id) { $0.labels.insert("TRASH"); $0.labels.remove("INBOX") }
-          self.endSnooze(id)
-        } catch {
-          failed += 1
-        }
+        self.hiddenIDs.subtract(ids)
+        return
       }
-      if failed > 0 {
-        self.error = failed == ids.count ? "Couldn’t move the emails to Trash." : "\(failed) of \(ids.count) emails couldn’t be moved to Trash."
-      }
-      self.hiddenIDs.subtract(ids)
+      // The Undo window is over: from here the move is queued like a label change. Offline or rate
+      // limited, the emails stay hidden and it goes through later; a definitive refusal restores them.
+      guard store != nil, self.database === store else { return }
+      self.queuedTrash.formUnion(ids)
+      self.persistQueue()
+      self.flushQueued(immediately: true)
+      // Leaving the app or signing out waits for the first attempt, as before.
+      await self.flushTask?.value
     } cancel: { [weak self] in
       self?.hiddenIDs.subtract(ids)
     }
@@ -608,36 +914,16 @@ import UIKit
     changeMany(batch.filter { $0.isStarred != flag }, add: flag ? ["STARRED"] : [], remove: flag ? [] : ["STARRED"])
   }
 
-  /// One label change for many emails: applied on the phone first, then one Gmail batch request.
-  /// If Gmail refuses, every email gets its labels back and the failure is said once.
+  /// One label change for many emails: applied on the phone first, then queued for Gmail (one batch
+  /// request per distinct change). Offline, it waits; if Gmail refuses an email, that email gets its
+  /// labels back and the failure is said once.
   private func changeMany(_ batch: [Mail], add: Set<String>, remove: Set<String>) {
     let ids = batch.map(\.id).filter { !$0.hasPrefix("local-") }
     guard !ids.isEmpty else { return }
     if ids.count == 1, let mail = batch.first { change(mail, add: add, remove: remove); return }
-    for id in ids {
-      update(id) { $0.labels.formUnion(add); $0.labels.subtract(remove) }
-      var edit = labelEdits[id] ?? (add: [], remove: [])
-      edit.add.formUnion(add); edit.add.subtract(remove)
-      edit.remove.formUnion(remove); edit.remove.subtract(add)
-      labelEdits[id] = edit
-    }
-    if auth.isSample { for id in ids { labelEdits[id] = nil }; return }
-    Task {
-      do {
-        let token = try await auth.token()
-        for start in stride(from: 0, to: ids.count, by: 1000) {
-          try await gmail.batchModify(ids: Array(ids[start..<min(ids.count, start + 1000)]), token: token,
-                                      add: Array(add), remove: Array(remove))
-        }
-        for id in ids { labelEdits[id] = nil }
-      } catch {
-        for id in ids {
-          labelEdits[id] = nil
-          update(id) { $0.labels.subtract(add); $0.labels.formUnion(remove) }
-        }
-        self.error = "Couldn’t update \(ids.count) emails in Gmail. " + error.localizedDescription
-      }
-    }
+    for id in ids { update(id) { $0.labels.formUnion(add); $0.labels.subtract(remove) } }
+    if auth.isSample { return }
+    queueEdit(ids, add: add, remove: remove)
   }
 
   /// Sends after a four-second Undo window (as on the Mac). `onUndo` gets the draft back.

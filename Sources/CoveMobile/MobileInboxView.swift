@@ -66,7 +66,7 @@ struct MobileInboxView: View {
       .scrollContentBackground(.hidden)
       .background(MobilePalette.surface)
       .environment(\.defaultMinListRowHeight, 0)
-      .refreshable { await mailbox.sync() }
+      .refreshable { await mailbox.sync(interactive: true) }
       .toolbar(.hidden, for: .navigationBar)
       .mobileSnoozeDialog(mail: $snoozing, mailbox: mailbox) { pickingDate = $0 }
       .sheet(item: $pickingDate) { MobileSnoozeDatePicker(mail: $0, mailbox: mailbox) }
@@ -110,7 +110,7 @@ struct MobileInboxView: View {
         }
         .accessibilityLabel("Folder: \(mailbox.folder.title)").accessibilityHint("Choose another folder")
         Spacer()
-        Button { Task { await mailbox.sync() } } label: {
+        Button { Task { await mailbox.sync(interactive: true) } } label: {
           if mailbox.syncing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
         }.buttonStyle(MobileIconButton()).disabled(mailbox.syncing).accessibilityLabel("Sync Gmail")
         if picking {
@@ -140,6 +140,7 @@ struct MobileInboxView: View {
       .overlay(RoundedRectangle(cornerRadius: 7).stroke(searchFocused ? MobilePalette.ink : MobilePalette.line))
       if !searching { filterBar }
       if !mailbox.auth.isSample { MobileSyncLine(mailbox: mailbox) }
+      if mailbox.auth.needsSignIn { MobileSignInBanner(mailbox: mailbox) }
     }
     .padding(.bottom, 6)
   }
@@ -237,7 +238,7 @@ struct MobileInboxView: View {
         }
         .onAppear {
           // The real end of the list loads older mail; no Load more button (as on the Mac).
-          if paginates, mail.id == mails.last?.id { Task { await mailbox.loadOlder() } }
+          if paginates, mail.id == mails.last?.id, !mailbox.loadOlderFailed { Task { await mailbox.loadOlder() } }
         }
     }
   }
@@ -333,7 +334,7 @@ struct MobileInboxView: View {
   }
 
   @ViewBuilder private var footer: some View {
-    if mailbox.visible.isEmpty && !mailbox.syncing {
+    if mailbox.visible.isEmpty && !mailbox.syncing && !mailbox.opening {
       if mailbox.folder == .inbox {
         MobileEmptyState(title: "All caught up",
                          detail: mailbox.unreadOnly ? "Nothing unread in \(mailbox.inboxTab.title)." : "Nothing in \(mailbox.inboxTab.title) right now.",
@@ -345,13 +346,48 @@ struct MobileInboxView: View {
         MobileEmptyState(title: "A little breathing room", detail: "Messages in \(mailbox.folder.title) will appear here.")
       }
     } else {
-      HStack(spacing: 8) {
-        if mailbox.syncing || mailbox.loadingOlder { ProgressView() }
-        if let status = mailbox.status { Text(status) } else if mailbox.loadingOlder { Text("Loading older mail…") }
+      VStack(spacing: 10) {
+        HStack(spacing: 8) {
+          if mailbox.syncing || mailbox.loadingOlder || mailbox.opening { ProgressView() }
+          if let status = mailbox.status { Text(status) } else if mailbox.loadingOlder { Text("Loading older mail…") }
+        }
+        if mailbox.loadOlderFailed {
+          // Not an alert: the list stays usable and says where it stopped.
+          Button { Task { await mailbox.retryLoadOlder() } } label: { Text("Couldn’t load more · Try again") }
+            .buttonStyle(MobileSecondaryButton(compact: true))
+        }
       }
       .font(.mobileSecondary).foregroundStyle(MobilePalette.muted)
       .frame(maxWidth: .infinity).padding(.vertical, 18)
     }
+  }
+}
+
+/// One persistent notice when Google no longer accepts the saved sign-in. Background sync stays quiet;
+/// this is the only place it asks, and signing in again resumes sync and sends queued changes.
+struct MobileSignInBanner: View {
+  let mailbox: MobileMailbox
+  @State private var signingIn = false
+  var body: some View {
+    HStack(spacing: 12) {
+      Text("Google needs you to sign in again to keep your mail up to date.")
+        .font(.mobileSecondary).foregroundStyle(MobilePalette.ink).fixedSize(horizontal: false, vertical: true)
+      Spacer(minLength: 0)
+      Button(signingIn ? "Signing in…" : "Sign in") {
+        signingIn = true
+        Task {
+          do {
+            try await mailbox.auth.signIn(hint: mailbox.auth.email)
+            await mailbox.sync(interactive: true)
+          } catch { mailbox.error = error.localizedDescription }
+          signingIn = false
+        }
+      }
+      .buttonStyle(MobilePrimaryButton(compact: true)).disabled(signingIn)
+    }
+    .padding(12)
+    .background(MobilePalette.assessment, in: RoundedRectangle(cornerRadius: 8))
+    .overlay(RoundedRectangle(cornerRadius: 8).stroke(MobilePalette.assessmentBorder))
   }
 }
 
