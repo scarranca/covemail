@@ -5,13 +5,18 @@ import SwiftUI
 struct ReaderView: View {
   @Bindable var store: AppStore
   let mail: Mail
-  @State private var reply = ""
-  /// Typing stays in the editor; the draft is saved to the mailbox after a short pause (saving on
-  /// every keystroke re-sorted the whole mail list and made typing lag).
-  @State private var replySaveTask: Task<Void, Never>?
-  @State private var pendingReplyID: String?
+  /// The reply being typed, its cursor and its pending save, outside this view's own state: a letter
+  /// redraws only the reply box (read inside `TypedTextReader`), not the whole reader and conversation.
+  /// The draft is saved to the mailbox after a short pause (saving on every keystroke re-sorted the
+  /// whole mail list and made typing lag).
+  @State private var typed = TypedText()
+  /// Setting it replaces the text from outside the editor (a draft, a template, a suggestion).
+  private var reply: String { get { typed.text } nonmutating set { typed.replace(newValue) } }
+  private var replySelection: NSRange { get { typed.selection } nonmutating set { typed.select(newValue) } }
+  private var replySaveTask: Task<Void, Never>? { get { typed.saveTask } nonmutating set { typed.saveTask = newValue } }
+  private var pendingReplyID: String? { get { typed.pendingID } nonmutating set { typed.pendingID = newValue } }
   /// What this reader last wrote, so its own delayed save isn't mistaken for a reply written elsewhere.
-  @State private var savedReply = ""
+  private var savedReply: String { get { typed.saved } nonmutating set { typed.saved = newValue } }
   @State private var confirmUnsubscribe = false
   @AppStorage("askPanelHeight") private var askPanelHeight: Double = 0
   /// A From chosen for this reply; nil follows the address the email was sent to, or the default.
@@ -28,7 +33,6 @@ struct ReaderView: View {
   @State private var assessmentHidden = false
   @State private var showEvidence = false
   @State private var replyFocusRequest = 0
-  @State private var replySelection = NSRange(location: 0, length: 0)
   @State private var aiOpen = false
   @State private var choosingReplyFiles = false
   var current: Mail { store.mail(id: mail.id) ?? mail }
@@ -43,8 +47,9 @@ struct ReaderView: View {
   private var replyCc: String { replyingToAll ? replyAllRecipients!.cc : "" }
   /// The reply box is on screen (being written, or a saved draft).
   private var replying: Bool { !localDraft && (showReply || !replySource.draft.isEmpty) }
-  private func updateReply(_ value: String) {
-    reply = value
+  /// `fromEditor`: the user typed it, so the editor already shows it and nothing needs redrawing.
+  private func updateReply(_ value: String, fromEditor: Bool = false) {
+    if fromEditor { typed.edited(value) } else { reply = value }
     let id = replySource.id
     pendingReplyID = id
     replySaveTask?.cancel()
@@ -119,7 +124,7 @@ struct ReaderView: View {
               }
             }
             if !localDraft && (showReply || !replySource.draft.isEmpty) {
-              replyEditor.id("reply")
+              TypedTextReader { let _ = typed.revision; replyEditor }.id("reply")
               Label("You have the final say. Nothing sends without you.", systemImage: "checkmark.shield")
                 .font(.coveMetadata).foregroundStyle(Palette.muted)
             }
@@ -555,7 +560,7 @@ struct ReaderView: View {
         // Like the composer: the suggestion is previewed in place of the reply and applied on click;
         // the reply itself is untouched until then.
         ZStack(alignment: .topLeading) {
-          ComposeTextEditor(text: Binding(get: { reply }, set: { updateReply($0) }), selection: $replySelection,
+          ComposeTextEditor(text: Binding(get: { reply }, set: { updateReply($0, fromEditor: true) }), selection: Binding(get: { typed.selection }, set: { typed.select($0) }),
             accessibilityName: "Reply body", isEditable: writingActivity.preview == nil,
             focusRequest: replyFocusRequest, inset: NSSize(width: 0, height: 4))
             .opacity(writingActivity.preview == nil && !streamingReply ? 1 : 0)
@@ -594,7 +599,7 @@ struct ReaderView: View {
         }
         if AIProviderSettings.shared.hasWorkingDefault {
           // Stays mounted while collapsed so a running request or pending suggestion isn't lost.
-          AIWritingPanel(draft: Binding(get: { reply }, set: { updateReply($0) }), selection: replySelection, context: [replySource],
+          AIWritingPanel(draft: Binding(get: { reply }, set: { updateReply($0) }), selection: typed.highlight, context: [replySource],
             availableContext: store.mails, voice: store.preferences.voice, instructions: store.preferences.instructions,
             voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt, store: store,
             envelope: "Reply to: \(replyRecipient)\nSubject: \(replySource.subject)", envelopeIdentity: replySource.id,
@@ -643,7 +648,7 @@ extension ReaderView {
     } label: {
       Label(store.isSample ? "Save sample reply" : "Send reply", systemImage: "paperplane")
     }.buttonStyle(PrimaryButton()).fixedSize().disabled(
-      (reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && replyFiles.isEmpty) || replyRecipient.isEmpty || store.busy
+      (typed.isBlank && replyFiles.isEmpty) || replyRecipient.isEmpty || store.busy
         || writingActivity.working || writingActivity.preview != nil)
   }
   private var templateMenu: some View {

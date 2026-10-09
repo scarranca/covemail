@@ -16,7 +16,10 @@ struct ComposeTextEditor: NSViewRepresentable {
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
     scroll.drawsBackground = false
-    let editor = NSTextView()
+    // TextKit 1. TextKit 2 adds a drawing subview for each new line or paragraph, and every added
+    // subview tells SwiftUI the layout changed, so it re-measured the whole reader or composer around
+    // the editor (the window's minimum size) while typing. TextKit 1 draws in place.
+    let editor = NSTextView(usingTextLayoutManager: false)
     editor.isRichText = false
     editor.isEditable = isEditable
     editor.allowsUndo = true

@@ -83,14 +83,24 @@ struct ComposerView: View {
   @Bindable var store: AppStore
   var availableSize = CGSize(width: 1100, height: 780)
   @Environment(\.dismiss) private var dismiss
-  @State private var to = ""
+  /// To and Subject live in observable boxes read only by their own fields, so a letter typed there
+  /// doesn't rebuild the composer. The writer reads the settled copies, updated after a pause in typing.
+  @State private var toField = FieldText()
+  @State private var subjectField = FieldText()
+  private var to: String { get { toField.value } nonmutating set { toField.value = newValue } }
+  private var subject: String { get { subjectField.value } nonmutating set { subjectField.value = newValue } }
+  @State private var settledTo = ""
+  @State private var settledSubject = ""
   @State private var sender = ""
   @State private var senderAddresses: [String] = []
   @State private var loadingSenders = false
   @State private var senderError: String?
-  @State private var subject = ""
-  @State private var text = ""
-  @State private var selection = NSRange(location: 0, length: 0)
+  /// The body being typed, outside this view's state: a letter redraws only what depends on it (the word
+  /// count once per word, Send when the body empties or fills), not the whole composer. Setting `text`
+  /// replaces it from outside the editor (the saved draft, an applied suggestion, Undo).
+  @State private var typedBody = TypedText(countsWords: true)
+  private var text: String { get { typedBody.text } nonmutating set { typedBody.replace(newValue) } }
+  private var selection: NSRange { get { typedBody.selection } nonmutating set { typedBody.select(newValue) } }
   @State private var writingActivity: WritingActivity
   @State private var aiOpen = false
   private var showAskLine: Bool {
@@ -98,7 +108,7 @@ struct ComposerView: View {
   }
   @FocusState private var recipientFocused: Bool
   @State private var loaded = false
-  @State private var saveTask: Task<Void, Never>?
+  private var saveTask: Task<Void, Never>? { get { typedBody.saveTask } nonmutating set { typedBody.saveTask = newValue } }
   @State private var confirmDiscard = false
   @State private var undoSuggestion: String?
   @State private var appliedSuggestion: String?
@@ -127,8 +137,8 @@ struct ComposerView: View {
   private var sheetHeight: CGFloat { min(920, max(480, availableSize.height - 64)) }
   private var compact: Bool { sheetWidth < 900 }
   private var sendDisabled: Bool {
-    to.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty) || store.busy
+    toField.isBlank
+      || (typedBody.isBlank && files.isEmpty) || store.busy
       || !senderAddresses.contains(sender) || writingActivity.working || writingActivity.preview != nil
   }
 
@@ -157,6 +167,7 @@ struct ComposerView: View {
         if let target = attachmentTarget { store.loadAttachments(target) }
         if let mail = store.mails.first(where: { $0.id == store.composeID }) {
           to = mail.to; subject = mail.subject; text = mail.body
+          settledTo = mail.to; settledSubject = mail.subject
           sender = mail.senderEmail.isEmpty ? store.defaultSender : mail.senderEmail
         }
         loaded = true
@@ -167,29 +178,9 @@ struct ComposerView: View {
         directory = built.directory
         contactSearch = built.index
       }
-      .task(id: "\(to)\n\(directory.count)") {
-        // Writer context follows the recipients after a short pause in typing, and the directory once it's built.
-        if loaded { try? await Task.sleep(nanoseconds: 250_000_000) }
-        guard !Task.isCancelled else { return }
-        recipientContext = WritingContext.recentMail(to: to, mails: store.mails)
-        let recipients = Set(WritingContext.recipients(to))
-        recipientNames = directory.filter { recipients.contains($0.email) }
-          .map { "\($0.name) <\($0.email)>" }.joined(separator: "; ")
-      }
-      .task(id: recipientFocused ? recipientQuery : "") {
-        // Downloaded people show at once; Gmail is asked after a short pause in typing in To.
-        let query = recipientQuery
-        guard recipientFocused, MailSearchIndex.fold(query).count >= 2 else { return }
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        guard !Task.isCancelled else { return }
-        let people = await store.lookUpPeople(query)
-        if !Task.isCancelled { remotePeople = (query, people) }
-      }
       // Saved after a short pause, not on every keystroke (that re-sorted the whole mailbox each time).
       .onChange(of: sender) { _, _ in scheduleSave() }
-      .onChange(of: to) { _, _ in scheduleSave() }
-      .onChange(of: subject) { _, _ in scheduleSave() }
-      .onChange(of: text) { _, _ in scheduleSave() }
+      .onChange(of: typedBody.revision) { _, _ in scheduleSave() }
       .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in save() }
       .onDisappear { save() }
       .interactiveDismissDisabled(store.busy)
@@ -247,8 +238,16 @@ struct ComposerView: View {
         Text("This draft’s sender is unavailable. Choose another From address.")
           .font(.coveMetadata).foregroundStyle(Palette.body).padding(.horizontal, 24).padding(.bottom, 8)
       }
-      recipientField
-      envelopeField("Subject", text: $subject, placeholder: "Add a subject")
+      TypedTextReader { recipientField }
+      TypedTextReader {
+        envelopeField("Subject", text: Binding(get: { subjectField.value }, set: { subjectField.value = $0 }), placeholder: "Add a subject")
+          .onChange(of: subjectField.value) { _, _ in scheduleSave() }
+          .task(id: subjectField.value) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            settledSubject = subjectField.value
+          }
+      }
       HStack(spacing: 9) {
         Image(systemName: "waveform")
         Text("Your voice · \(store.preferences.voice)")
@@ -259,7 +258,9 @@ struct ComposerView: View {
       }.font(.coveControl).foregroundStyle(Palette.body)
         .padding(.horizontal, 24).frame(height: 42).background(Palette.surface)
       ZStack(alignment: .topLeading) {
-        ComposeTextEditor(text: $text, selection: $selection, isEditable: writingActivity.preview == nil)
+        ComposeTextEditor(text: Binding(get: { text }, set: { typedInBody($0) }),
+                          selection: Binding(get: { typedBody.selection }, set: { typedBody.select($0) }),
+                          isEditable: writingActivity.preview == nil)
           .opacity(writingActivity.preview == nil ? 1 : 0)
           .accessibilityHidden(writingActivity.preview != nil)
           .allowsHitTesting(writingActivity.preview == nil)
@@ -283,7 +284,7 @@ struct ComposerView: View {
           Button("Discard") { writingActivity.discardRequest += 1 }
             .buttonStyle(.plain).font(.coveControl).foregroundStyle(Palette.body).disabled(writingActivity.working)
         }
-        if (writingActivity.preview == nil ? selection : writingActivity.previewSelection).length > 0 {
+        if (writingActivity.preview == nil ? typedBody.highlight : writingActivity.previewSelection).length > 0 {
           Button("Rewrite selection", systemImage: "sparkles") {
             writingActivity.rewriteRequest += 1
           }.buttonStyle(.plain).font(.coveMetadata).disabled(writingActivity.working)
@@ -291,7 +292,9 @@ struct ComposerView: View {
           Text("Select text to rewrite just that part.").lineLimit(1)
         }
         Spacer(minLength: 0)
-        Text("\((writingActivity.preview ?? text).split(whereSeparator: \.isWhitespace).count) words").fixedSize()
+        TypedTextReader {
+          Text("\(writingActivity.preview.map(TypedText.words) ?? typedBody.wordCount) words").fixedSize()
+        }
       }.font(.coveMetadata).foregroundStyle(Palette.body).padding(.horizontal, 24).padding(.vertical, 10)
       if let undoSuggestion, let appliedSuggestion, text == appliedSuggestion {
         HStack {
@@ -350,7 +353,7 @@ struct ComposerView: View {
       Divider().padding(.horizontal, 24)
       HStack(spacing: 15) {
         Text("To").font(.coveControl).foregroundStyle(Palette.body).frame(width: 48, alignment: .leading)
-        TextField("Name or email", text: $to).font(.coveBody).textFieldStyle(.plain)
+        TextField("Name or email", text: Binding(get: { toField.value }, set: { toField.value = $0 })).font(.coveBody).textFieldStyle(.plain)
           .accessibilityLabel("To").focused($recipientFocused)
           .onSubmit { if let first = suggestedContacts.first { chooseRecipient(first) } }
         Button { recipientFocused.toggle() } label: {
@@ -379,6 +382,28 @@ struct ComposerView: View {
           .padding(.horizontal, 24).padding(.bottom, 8)
       }
     }
+    // Here rather than on the composer, so reading To for them doesn't rebuild the composer per letter.
+    .onChange(of: toField.value) { _, _ in scheduleSave() }
+    .task(id: "\(toField.value)\n\(directory.count)") {
+      // Writer context follows the recipients after a short pause in typing, and the directory once it's built.
+      if loaded { try? await Task.sleep(nanoseconds: 250_000_000) }
+      guard !Task.isCancelled else { return }
+      let current = toField.value
+      settledTo = current
+      recipientContext = WritingContext.recentMail(to: current, mails: store.mails)
+      let recipients = Set(WritingContext.recipients(current))
+      recipientNames = directory.filter { recipients.contains($0.email) }
+        .map { "\($0.name) <\($0.email)>" }.joined(separator: "; ")
+    }
+    .task(id: recipientFocused ? recipientQuery : "") {
+      // Downloaded people show at once; Gmail is asked after a short pause in typing in To.
+      let query = recipientQuery
+      guard recipientFocused, MailSearchIndex.fold(query).count >= 2 else { return }
+      try? await Task.sleep(nanoseconds: 200_000_000)
+      guard !Task.isCancelled else { return }
+      let people = await store.lookUpPeople(query)
+      if !Task.isCancelled { remotePeople = (query, people) }
+    }
   }
 
   private func envelopeField(_ title: String, text: Binding<String>, placeholder: String) -> some View {
@@ -393,14 +418,14 @@ struct ComposerView: View {
   }
 
   private var writingEnvelope: String {
-    "From: \(sender)\nTo: \(to)\nRecipient names: \(recipientNames)\nSubject: \(subject)"
+    "From: \(sender)\nTo: \(settledTo)\nRecipient names: \(recipientNames)\nSubject: \(settledSubject)"
   }
 
   private var assistant: some View {
-    AIWritingPanel(draft: $text, selection: selection, context: recipientContext, availableContext: store.mails,
+    AIWritingPanel(draft: Binding(get: { text }, set: { text = $0 }), selection: typedBody.highlight, context: recipientContext, availableContext: store.mails,
       voice: store.preferences.voice, instructions: store.preferences.instructions,
       voiceProfile: store.preferences.voiceProfile, memories: store.preferences.memoryPrompt,
-      store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(to)\n\(subject)", activity: writingActivity, reviewOnCanvas: true, inline: true, onClose: { aiOpen = false },
+      store: store, envelope: writingEnvelope, envelopeIdentity: "\(sender)\n\(settledTo)\n\(settledSubject)", activity: writingActivity, reviewOnCanvas: true, inline: true, onClose: { aiOpen = false },
       isOpen: showAskLine, onOpen: { aiOpen = true; writingActivity.focusRequest += 1 },
       onApply: { value in
         undoSuggestion = text
@@ -442,6 +467,14 @@ struct ComposerView: View {
     // No "Send this email?" dialog: a 4-second undo bar instead, like Delete. Undo reopens this draft.
     store.queueSend(to: to, subject: subject, body: text, draftID: store.composeID, from: sender, attachmentTarget: attachmentTarget)
     dismiss()
+  }
+
+  /// A letter typed in the body: the editor already shows it; save after a pause.
+  private func typedInBody(_ value: String) {
+    typedBody.edited(value)
+    // The "Suggestion applied" bar is for the untouched suggestion; typing ends it.
+    if appliedSuggestion != nil { appliedSuggestion = nil }
+    scheduleSave()
   }
 
   private func scheduleSave() {

@@ -45,7 +45,7 @@ import XCTest
   /// Main-thread busy time for one edit and everything it sets off (SwiftUI's update, layout, display),
   /// averaged over `rounds`: the run loop is spun and the time between waking and going back to sleep
   /// is summed, so work SwiftUI defers to a later turn counts too.
-  private func perEditMS(_ host: NSView, rounds: Int = Int(ProcessInfo.processInfo.environment["COVE_BENCH_ROUNDS"] ?? "") ?? 20, edit: (Int) -> Void) async throws -> Double {
+  private func perEditMS(_ host: NSView, rounds: Int = Int(ProcessInfo.processInfo.environment["COVE_BENCH_ROUNDS"] ?? "") ?? 20, viaWindow: Bool = false, edit: (Int) -> Void) async throws -> Double {
     var total = 0.0
     for round in 0..<rounds {
       var woke = CACurrentMediaTime()
@@ -56,12 +56,15 @@ import XCTest
       CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
       let started = CACurrentMediaTime()
       edit(round)
-      host.layoutSubtreeIfNeeded()
+      // A keystroke: AppKit's display cycle lays out and draws the window from its top down, which
+      // reaches only the views that need it. Forcing layout on the hosting view itself always re-runs it.
+      if viaWindow, let window = host.window { window.layoutIfNeeded(); window.displayIfNeeded() } else { host.layoutSubtreeIfNeeded() }
       busy += CACurrentMediaTime() - started
       woke = CACurrentMediaTime()
       RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.06))
       CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
       total += busy
+      if ProcessInfo.processInfo.environment["COVE_BENCH_DETAIL"] != nil { print("ROUND \(round) \(String(format: "%.1f", busy * 1000))") }
     }
     return total * 1000 / Double(rounds)
   }
@@ -96,6 +99,58 @@ import XCTest
       store.saveReply(id: open.id, text: String(repeating: "Typing a reply. ", count: round + 2))
     }
     print("BENCH reply autosave + layout (4,000 emails): \(String(format: "%.1f", ms)) ms")
+    XCTAssertLessThan(ms, 400)
+  }
+
+  private func textViews(in view: NSView) -> [NSTextView] {
+    (view as? NSTextView).map { [$0] } ?? view.subviews.flatMap(textViews(in:))
+  }
+  private func textFields(in view: NSView) -> [NSTextField] {
+    (view as? NSTextField).map { $0.isEditable ? [$0] : [] } ?? view.subviews.flatMap(textFields(in:))
+  }
+
+  /// One typed character, as the keyboard delivers it: through the focused editor, so SwiftUI sees the
+  /// same binding updates and re-renders it would in the app.
+  private func keystrokeMS(_ host: NSView, window: NSWindow, into responder: NSResponder & NSTextInputClient) async throws -> Double {
+    XCTAssertTrue(window.makeFirstResponder(responder))
+    return try await perEditMS(host, viaWindow: true) { round in
+      responder.insertText(round % 6 == 5 ? " " : "a", replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+  }
+
+  func testTypingInTheComposerWithLargeMailbox() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let store = try store(Self.synthetic(Self.mailboxSize))
+    store.newDraft()
+    let id = try XCTUnwrap(store.composeID)
+    store.saveComposition(id: id, to: "", subject: "Launch", body: String(repeating: "A paragraph already written. ", count: 40), from: "me@example.com")
+    let (host, window) = makeHost(ComposerView(store: store, availableSize: CGSize(width: 1280, height: 920)))
+    defer { window.close() }
+    for _ in 0..<10 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let body = try XCTUnwrap(textViews(in: host).first)
+    let bodyMS = try await keystrokeMS(host, window: window, into: body)
+    print("BENCH keystroke in composer body (4,000 emails): \(String(format: "%.1f", bodyMS)) ms")
+    let to = try XCTUnwrap(textFields(in: host).first { $0.accessibilityLabel() == "To" } ?? textFields(in: host).first)
+    XCTAssertTrue(window.makeFirstResponder(to))
+    let editor = try XCTUnwrap(to.currentEditor() as? NSTextView)
+    let toMS = try await keystrokeMS(host, window: window, into: editor)
+    print("BENCH keystroke in To (4,000 emails): \(String(format: "%.1f", toMS)) ms")
+    XCTAssertLessThan(bodyMS, 400); XCTAssertLessThan(toMS, 400)
+  }
+
+  func testTypingAReplyWithLargeMailbox() async throws {
+    _ = NSApplication.shared; DesignAssets.registerFonts()
+    let store = try store(Self.synthetic(Self.mailboxSize))
+    let open = try XCTUnwrap(store.visible.first)
+    store.select(open)
+    store.saveReply(id: open.id, text: "Thanks, ")
+    let current = try XCTUnwrap(store.mails.first { $0.id == open.id })
+    let (host, window) = makeHost(ReaderView(store: store, mail: current))
+    defer { window.close() }
+    for _ in 0..<10 { host.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(30)) }
+    let editor = try XCTUnwrap(textViews(in: host).first { $0.accessibilityLabel() != nil && $0.isEditable })
+    let ms = try await keystrokeMS(host, window: window, into: editor)
+    print("BENCH keystroke in reply (4,000 emails): \(String(format: "%.1f", ms)) ms")
     XCTAssertLessThan(ms, 400)
   }
 
