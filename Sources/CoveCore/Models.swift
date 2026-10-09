@@ -57,6 +57,25 @@ public struct Mail: Codable, Identifiable, Equatable, Sendable {
   public var inboxVote: InboxSplit?
   // Whether Jev found a commitment or request in this email; checked once, kept across syncs.
   public var taskCheck: MailTaskCheck?
+  /// First ~240 characters of the body on one line (whitespace runs collapsed). Computed, never stored;
+  /// scans only the start of the body so long emails cost the same as short ones.
+  public var preview: String {
+    var output = ""
+    var pendingSpace = false
+    var scanned = 0, length = 0
+    for character in body {
+      scanned += 1
+      if character.isWhitespace || character.isNewline { pendingSpace = !output.isEmpty; if scanned > 4_000 { break }; continue }
+      if pendingSpace {
+        if length + 1 >= 240 { break }  // a separator with no room for the next character
+        output.append(" "); length += 1; pendingSpace = false
+      }
+      output.append(character)
+      length += 1
+      if length >= 240 { break }
+    }
+    return output
+  }
   public var isUnread: Bool { labels.contains("UNREAD") }
   public var isStarred: Bool { labels.contains("STARRED") }
   public var replyRecipient: String {

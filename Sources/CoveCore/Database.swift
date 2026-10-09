@@ -329,19 +329,51 @@ public final class Database {
     else { throw CoveError.message("Could not read local storage.") }
     defer { sqlite3_finalize(statement) }
     bind(statement)
-    var mails: [Mail] = []
+    // SQLite's handle is confined to this thread, so only the raw rows are read here.
+    var rows: [(id: String, data: Data)] = []
     while true {
       let result = sqlite3_step(statement)
       if result == SQLITE_DONE { break }
       guard result == SQLITE_ROW, let idText = sqlite3_column_text(statement, 0),
         let bytes = sqlite3_column_blob(statement, 1)
       else { throw CoveError.message("Could not read the local mailbox.") }
-      let id = String(cString: idText)
-      let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 1)))
-      // Mail stored before Cove repaired double-decoded text reads correctly without a refetch.
-      mails.append(Mojibake.repaired(try JSONDecoder().decode(Mail.self, from: cipher?.open(data, record: "message:" + id) ?? data)))
+      rows.append((String(cString: idText), Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 1)))))
     }
-    return mails
+    return try Self.decodeRows(rows, cipher: cipher)
+  }
+
+  /// Rows per parallel chunk; smaller loads decode on the calling thread exactly as before.
+  static let decodeChunk = 64
+
+  /// Decrypts and decodes rows across cores, keeping row order and throwing the first error in row order.
+  static func decodeRows(_ rows: [(id: String, data: Data)], cipher: RecordCipher?, chunk: Int = decodeChunk) throws -> [Mail] {
+    func decode(_ range: Range<Int>) throws -> [Mail] {
+      let decoder = JSONDecoder()  // one per chunk: decoders are not shared between threads
+      return try range.map { index in
+        let row = rows[index]
+        // Mail stored before Cove repaired double-decoded text reads correctly without a refetch.
+        return Mojibake.repaired(try decoder.decode(Mail.self, from: cipher?.open(row.data, record: "message:" + row.id) ?? row.data))
+      }
+    }
+    guard rows.count > chunk else { return try decode(0..<rows.count) }
+    let ranges = stride(from: 0, to: rows.count, by: chunk).map { $0..<min($0 + chunk, rows.count) }
+    let results = ChunkResults(count: ranges.count)
+    DispatchQueue.concurrentPerform(iterations: ranges.count) { index in
+      results.store(Result { try decode(ranges[index]) }, at: index)
+    }
+    return try results.joined()
+  }
+
+  private final class ChunkResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var slots: [Result<[Mail], Error>?]
+    init(count: Int) { slots = Array(repeating: nil, count: count) }
+    func store(_ result: Result<[Mail], Error>, at index: Int) {
+      lock.lock()
+      slots[index] = result
+      lock.unlock()
+    }
+    func joined() throws -> [Mail] { try slots.flatMap { try $0!.get() } }
   }
 
   /// Saves one edited email (draft, read state, labels, assessment).
