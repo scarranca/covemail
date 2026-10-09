@@ -14,7 +14,8 @@ import SwiftUI
   /// Test hook: how many times the visible list was actually recomputed.
   @ObservationIgnored private(set) var visibleComputations = 0
   private struct VisibleKey: Hashable {
-    let revision: Int, folder: String, search: String, priorityOnly: Bool, unreadOnly: Bool, oldestFirst: Bool
+    var revision: Int
+    let folder: String, search: String, priorityOnly: Bool, unreadOnly: Bool, oldestFirst: Bool
     let selectedID: String?, trash: [String], minute: Int
     var inboxTab: InboxSplit? = nil, senderRules: [String: InboxSplit] = [:]
   }
@@ -2432,9 +2433,43 @@ import SwiftUI
       passages: passages)
   }
   func saveReply(id: String, text: String) {
-    guard let index = mails.firstIndex(where: { $0.id == id }) else { return }
-    mails[index].draft = text
-    persistMessage(mails[index])
+    editDraft(id: id) { $0.draft = text }
+  }
+  /// A draft edit (reply text, a composition's fields), saved about every 600 ms while typing. The
+  /// mailbox changes, but the list's membership and order don't, so the cached lists are patched in
+  /// place instead of filtered and sorted again. A draft appearing or disappearing (Drafts folder, the
+  /// "Draft ready" badge) still rebuilds them.
+  func editDraft(id: String, _ change: (inout Mail) -> Void) {
+    guard let index = mailIndex(of: id) else { return }
+    var updated = mails[index]
+    change(&updated)
+    let rebuilds = updated.draft.isEmpty != mails[index].draft.isEmpty
+    mails[index] = updated
+    persistMessage(updated)
+    guard !rebuilds else { return }
+    let revision = mailsRevision
+    if var cache = visibleCache {
+      if let position = cache.mails.firstIndex(where: { $0.id == id }) { cache.mails[position] = updated }
+      cache.key.revision = revision
+      visibleCache = cache
+    }
+    if var cache = visibleSelectionCache {
+      if let position = cache.mails.firstIndex(where: { $0.id == id }) { cache.mails[position] = updated }
+      cache.key.revision = revision
+      visibleSelectionCache = cache
+    }
+    if var cache = conversationCache {
+      if let position = cache.messages.firstIndex(where: { $0.id == id }) { cache.messages[position] = updated }
+      if cache.anchor.id == id { cache.anchor = updated }
+      cache.revision = revision
+      conversationCache = cache
+    }
+    if var cache = mailIndexCache { cache.revision = revision; mailIndexCache = cache }
+  }
+  /// The position of an email in `mails`, through the per-revision index.
+  private func mailIndex(of id: String) -> Int? {
+    _ = mail(id: id)
+    return mailIndexCache?.index[id]
   }
   func downloadAttachment(_ attachment: MailAttachment, from mail: Mail) async {
     await run("Saving attachment…") {
@@ -2527,12 +2562,12 @@ import SwiftUI
     if present { showComposer = true }
   }
   func saveComposition(id: String, to: String, subject: String, body: String, from: String? = nil) {
-    guard let index = mails.firstIndex(where: { $0.id == id }) else { return }
-    if let from { mails[index].sender = from; mails[index].senderEmail = from }
-    mails[index].to = to
-    mails[index].subject = subject
-    mails[index].body = body
-    persistMessage(mails[index])
+    editDraft(id: id) { mail in
+      if let from { mail.sender = from; mail.senderEmail = from }
+      mail.to = to
+      mail.subject = subject
+      mail.body = body
+    }
   }
   func send(to: String, subject: String, body: String, reply: Mail? = nil, draftID: String? = nil, from: String? = nil, cc: String = "",
             attachments: [OutgoingAttachment] = [])
