@@ -437,7 +437,7 @@ struct MobileMailRow: View {
       }
       Text(mail.subject.isEmpty ? "(No subject)" : mail.subject)
         .font(.coveMobile(14, weight: mail.isUnread ? .bold : .regular, relativeTo: .subheadline)).lineLimit(1)
-      Text(mail.body.prefix(220).replacingOccurrences(of: "\n", with: " "))
+      Text(mail.preview)
         .font(.mobileSecondary).foregroundStyle(MobilePalette.body).lineLimit(2)
       if let snoozedNote {
         Label(snoozedNote, systemImage: "clock").font(.mobileMetadata).foregroundStyle(MobilePalette.body)

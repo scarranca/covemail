@@ -81,18 +81,3 @@ private struct FailingTransport: HTTPTransport {
     throw URLError(.notConnectedToInternet)
   }
 }
-
-final class MailPreviewLineTests: XCTestCase {
-  func testPreviewCollapsesNewlinesAndRunsOfWhitespace() {
-    XCTAssertEqual(MailPreviewLine.text("Hi Maya,\n\nThanks   for the\tupdate.\r\n  Bye"), "Hi Maya, Thanks for the update. Bye")
-    XCTAssertEqual(MailPreviewLine.text("\n\n  leading"), "leading")
-    XCTAssertEqual(MailPreviewLine.text(""), "")
-  }
-
-  func testPreviewReadsOnlyAPrefixOfALongBody() {
-    let body = String(repeating: "word ", count: 100_000)
-    let line = MailPreviewLine.text(body)
-    XCTAssertLessThanOrEqual(line.count, MailPreviewLine.limit)
-    XCTAssertTrue(line.hasPrefix("word word"))
-  }
-}

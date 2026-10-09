@@ -132,7 +132,7 @@ struct ReaderThreadMessage: View {
     MailConversation.replyAllRecipients(for: mail, accountEmail: store.accountEmail) != nil
   }
   private var snippet: String {
-    MailPreviewLine.text(mail.body)
+    mail.preview
   }
 
   private var actions: some View {
@@ -159,20 +159,3 @@ struct ReaderThreadMessage: View {
 
 /// The one line of body text shown in a list row or a collapsed message. Only a prefix is read: a row
 /// is re-rendered often, and walking a whole newsletter for a single visible line was wasted work.
-enum MailPreviewLine {
-  static let limit = 240
-  static func text(_ body: String) -> String {
-    var line = ""
-    line.reserveCapacity(limit)
-    var pendingSpace = false
-    for character in body.prefix(limit) {
-      if character.isWhitespace {
-        pendingSpace = !line.isEmpty
-      } else {
-        if pendingSpace { line.append(" "); pendingSpace = false }
-        line.append(character)
-      }
-    }
-    return line
-  }
-}
