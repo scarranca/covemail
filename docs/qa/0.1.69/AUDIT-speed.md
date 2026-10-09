@@ -121,7 +121,7 @@ change. Four agents (Opus 5.5 for the store, Sonnet for CoveCore, the Mac UI and
 - **App notarization:** `5e6b2b43-a70c-4c41-9df0-ec0f794821bb`, Accepted and stapled.
 - **DMG:** notarization `8c764ab5-a778-4ae7-879a-2e623d392128`, Accepted and stapled. 24,773,516 bytes, SHA-256 `6141a863e4d364f65ef1099aa7b474c38d04a878a8e4e8d76e2e404860a1a441`.
 - **Feed:** signed, 48 verified releases.
-- **Site:** Cloudflare Pages deployment `0d941844` (production, `main`).
+- **Site:** Cloudflare Pages deployment `0d941844` (production, `main`); `cd4b0e0d` republished the corrected release notes (same DMG and signature).
 - **Public checks:**
   - `/release.json` reports 0.1.69 (71); the beta page and `/download/latest` point to 0.1.69.
   - The downloaded DMG's size and SHA-256 match.
