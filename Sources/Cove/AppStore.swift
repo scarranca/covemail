@@ -180,23 +180,50 @@ import SwiftUI
   /// and re-applied to any sync result that started before the change reached Gmail.
   private var labelEdits: [String: LabelEdit] = [:]
   private(set) var labelEditRevision = 0
-  /// One queue per email, so its changes reach Gmail in the order the user made them.
-  private var labelTasks: [String: Task<Void, Never>] = [:]
+  /// One queue per email, so its changes reach Gmail in the order the user made them. A task here is a
+  /// delivery attempt in progress; a change waiting to retry (offline) has none (`LabelEditQueue.swift`).
+  var labelTasks: [String: Task<Void, Never>] = [:]
+  @ObservationIgnored var labelTaskTokens: [String: UUID] = [:]
+  /// Label changes Gmail hasn't confirmed yet, in order per email; saved as `pendingLabelEdits`.
+  @ObservationIgnored var labelQueue: [String: [QueuedLabelChange]] = [:]
+  /// How many label changes are waiting to reach Gmail (offline, Gmail busy, or signed out).
+  var pendingLabelChanges = 0
+  @ObservationIgnored var labelRetryTask: Task<Void, Never>?
+  /// Waits between retries of a change that couldn't reach Gmail; the last one repeats. Tests shorten it.
+  @ObservationIgnored var labelRetryDelays: [Duration] = [.seconds(5), .seconds(30), .seconds(120)]
+  /// Google refused Cove's sign-in (revoked or expired): background mail checks pause and the connection
+  /// tag offers to sign in again, instead of an alert every two minutes. Cleared by the next good token.
+  var googleSignInNeeded = false
+  /// A label view (Gmail label or category) is loading from Gmail. Runs beside the background sync.
+  var loadingLabelMail = false
+  /// An older page of the mailbox is loading (the list's end). Runs beside the background sync.
+  var loadingOlderMail = false
+  /// Edit and read revisions at which running label/older page loads started: a background sync must
+  /// not forget a change their results will still need re-applied.
+  @ObservationIgnored var pageLoadStarts: [UUID: (edit: Int, read: Int)] = [:]
+  /// Test seam: a fresh Gmail token after a 401 (production drops the cached token and refreshes it).
+  @ObservationIgnored var gmailTokenRefresh: (() async throws -> String)?
+  /// The last automatic mail check failed (its status line stays until one succeeds).
+  @ObservationIgnored private var backgroundSyncFailed = false
   /// The email in its undo-send window, shown in the bottom bar.
   var pendingSend: PendingSend?
   fileprivate var sendTask: Task<Void, Never>?
   var now = Date()
   var status = ""
+  private var errorMessage: String?
+  /// The alert. Setting the message that is already showing changes nothing (an autosave that keeps
+  /// failing, a repeated refusal), so alerts never stack and observers aren't woken for it.
   var error: String? {
-    didSet {
+    get { errorMessage }
+    set {
       // A Gmail rate limit is temporary: show it in the status line, never as an alert.
-      if let error, error == HTTPFailure.gmailRateLimitMessage {
-        self.error = nil
+      if newValue == HTTPFailure.gmailRateLimitMessage {
         status = "Gmail asked Cove to slow down · try again in a minute"
-      } else if let error, error == HardenedSecrets.lockedMessage {
+      } else if newValue == HardenedSecrets.lockedMessage {
         // A locked AI key during background work is expected (locked Mac, Cove not in front).
-        self.error = nil
         status = "AI paused while your key is locked · it resumes when you’re back"
+      } else if newValue != errorMessage {
+        errorMessage = newValue
       }
     }
   }
@@ -277,8 +304,8 @@ import SwiftUI
   /// Replaceable only by tests (an in-memory Keychain and isolated defaults).
   @ObservationIgnored var auth = GoogleAuth()
   private(set) var database: Database?
-  private var gmail = GmailClient()
-  private var gmailTokenProvider: (() async throws -> String)?
+  private(set) var gmail = GmailClient()
+  private(set) var gmailTokenProvider: (() async throws -> String)?
   private(set) var syncClock: () -> Date = { Date() }
   private(set) var jev = JevClient()
   private(set) var jevKeyProvider: (() throws -> String?)?
@@ -700,6 +727,8 @@ import SwiftUI
     nextPage = snapshot.nextPage
     screen = "home"
     selectedID = nil
+    // Label changes that hadn't reached Gmail when this mailbox last closed (quit while offline).
+    replaySavedLabelChanges()
   }
   private func resetMailboxPresentation() {
     lastLabelsRefresh = .distantPast
@@ -716,6 +745,9 @@ import SwiftUI
     for task in labelTasks.values { task.cancel() }
     labelTasks = [:]
     labelEdits = [:]
+    resetLabelQueue()
+    loadingLabelMail = false; loadingOlderMail = false; pageLoadStarts = [:]
+    googleSignInNeeded = false
     calendarDay = Calendar.current.startOfDay(for: Date())
     calendarEventID = nil
     invitationError = nil
@@ -864,11 +896,12 @@ import SwiftUI
     } catch { self.error = error.localizedDescription }
   }
   func pollMailbox() async {
-    guard entered, backgroundSyncEnabled, !isSample, !syncing, !Task.isCancelled else { return }
+    // While Google refuses the sign-in every check would fail the same way; the tag offers to sign in.
+    guard entered, backgroundSyncEnabled, !isSample, !syncing, !googleSignInNeeded, !Task.isCancelled else { return }
     let elapsed = syncClock().timeIntervalSince(lastMailboxPoll)
     // A wall-clock correction must not postpone mail checks indefinitely.
     guard elapsed >= 120 || elapsed < 0 else { return }
-    await sync()
+    await sync(interactive: false)
   }
   private func persistMessage(_ mail: Mail) {
     do { try database?.saveMessage(mail) } catch { self.error = error.localizedDescription }
@@ -948,7 +981,7 @@ import SwiftUI
     }
     auth.finishBrowserSignIn(success: connected)
     reloadAccounts()
-    if connected { await sync() }
+    if connected { await sync(interactive: false) }
   }
 
   /// Signs in another Google account and opens it; the current account stays signed in. The browser
@@ -997,7 +1030,7 @@ import SwiftUI
     }
     auth.finishBrowserSignIn(success: connected)
     reloadAccounts()
-    if connected { await sync() }
+    if connected { await sync(interactive: false) }
   }
 
   /// Opens another signed-in account's mailbox. Its local copy shows at once; a sync follows. Anything
@@ -1022,7 +1055,7 @@ import SwiftUI
     switchingAccount = false
     guard opened else { return }
     status = "Switched to \(target)"
-    await sync()
+    await sync(interactive: false)
   }
 
   /// Makes a signed-in account active and opens its mailbox, or changes nothing. The mailbox and the
@@ -1398,7 +1431,7 @@ import SwiftUI
     // Try each remaining account in order; one whose sign-in is gone is skipped (and dropped).
     guard let next = signedInAccounts.first(where: { openAccount($0) }) else { return }
     status = "Signed in as \(next)"
-    Task { @MainActor [weak self] in await self?.sync() }
+    Task { @MainActor [weak self] in await self?.sync(interactive: false) }
   }
 
   private func resetDisconnectedMailbox() {
@@ -1445,83 +1478,80 @@ import SwiftUI
     }
   }
   /// Like `run`, for background mail work: it sets `syncing`, never `busy`, so the user can keep working.
-  func runSync(_ label: String, operation: () async throws -> Void) async {
+  /// `interactive: false` (the timer, a continuation): a failure is the tag and the status line only.
+  func runSync(_ label: String, interactive: Bool = true, operation: () async throws -> Void) async {
     guard !syncing else { return }
     syncing = true
     syncLabel = label
-    if !busy { status = label }
+    // A background retry after a failure keeps the failure showing until it actually succeeds, so a
+    // Mac that stays offline doesn't flicker "Syncing…" every two minutes.
+    if !busy && (interactive || !backgroundSyncFailed) { setStatusQuietly(label) }
     let issueID = connectionIssue?.id
     defer { syncing = false }
     do {
       try await operation()
+      backgroundSyncFailed = false
       connectionRecovered(operation: label, issueID: issueID)
       if !busy { status = isSample ? "Sample mailbox · changes stay on this Mac" : "Up to date" }
     } catch is CancellationError {
       if !busy { status = "Operation cancelled" }
     } catch {
-      reportFailure(error, operation: label)
+      if interactive { reportFailure(error, operation: label) } else { reportBackgroundFailure(error, operation: label) }
+      backgroundSyncFailed = !interactive
       guard !busy else { return }
-      if let http = error as? HTTPFailure, http.isRateLimited {
-        status = "Gmail asked Cove to slow down · try again in a minute"
-      } else {
-        status = connectionIssue == nil ? "Couldn’t finish · retry when ready" : "Connection issue · showing downloaded mail"
-      }
+      setStatusQuietly(failureStatus(error))
     }
   }
-  func sync(older: Bool = false) async {
+  /// The status line after mail work failed.
+  func failureStatus(_ error: Error) -> String {
+    if let http = error as? HTTPFailure, http.isRateLimited { return "Gmail asked Cove to slow down · try again in a minute" }
+    if error is GoogleSignInRequired { return "Sign in to Google again to get new mail · showing downloaded mail" }
+    return connectionIssue == nil ? "Couldn’t finish · retry when ready" : "Connection issue · showing downloaded mail"
+  }
+  /// Checks Gmail for new mail, or loads the next older page (`older`). `interactive` is the user asking
+  /// (⌘R, the sync button, Retry): a failure may alert. The two-minute check and other automatic syncs
+  /// pass false: their failures show in the status line and the connection tag, never as an alert.
+  func sync(older: Bool = false, interactive: Bool = true) async {
     guard !isSample else {
       status = "You’re exploring sample mail"
       return
     }
+    // An older page is its own load beside the background sync (the list's end shouldn't wait for it).
+    if older { await loadOlderMail(); return }
     guard entered, !syncing, queuedTrashIDs.isEmpty else { return }
     let generation = mailboxGeneration
     let startingEditRevision = labelEditRevision
     let startingReadRevision = readRevision
     let startingPendingReadIDs = Set(pendingReadTasks.keys)
+    let issueAtStart = connectionIssue?.id
     // Count failed attempts too, so the timer does not retry every 30 seconds while offline.
-    // Fetching an older page does not refresh the latest mail or delay the next inbox check.
-    if !older { lastMailboxPoll = syncClock() }
+    lastMailboxPoll = syncClock()
     var synced = false
     var slowedDown = false
     var remaining = 0
-    await runSync(older ? "Loading more mail…" : "Syncing Gmail…") {
-      let token: String
-      if let provider = self.gmailTokenProvider {
-        token = try await provider()
-      } else {
-        token = try await self.auth.token()
-      }
-      let result: GmailSyncResult
-      if older {
-        guard let next = self.nextPage else { return }
-        let page = try await self.gmail.page(
-          token: token, pageToken: next, cachedIDs: self.storedRemoteMailIDs, interactive: true)
-        result = GmailSyncResult(
-          messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
-          historyID: self.gmailHistoryID ?? "", nextPage: page.next, resetsPagination: true)
-      } else {
+    await runSync("Syncing Gmail…", interactive: interactive) {
+      let fetched: GmailSyncResult? = try await self.withGmailToken { token in
         do {
-          result = try await self.gmail.synchronize(
+          return try await self.gmail.synchronize(
             token: token, cached: self.mails,
             historyID: self.gmailHistoryID,
             refreshContent: self.mailDecodingVersion < GmailMessage.decodingVersion,
             storedIDs: (try? self.database?.storedMessageIDs()) ?? [], pendingIDs: self.gmailPendingIDs)
         } catch let failure as HTTPFailure where failure.isRateLimited {
           // Gmail asked Cove to slow down before anything arrived: no alert, just try again shortly.
-          slowedDown = true
-          return
+          return nil
         }
       }
+      guard let result = fetched else { slowedDown = true; return }
       try Task.checkCancellation()
       guard generation == self.mailboxGeneration, !self.isSample else { throw CancellationError() }
       var snoozes = self.cloudSnoozes
       snoozes.cancelDeleted(result.deletedIDs)
       try self.database?.save(snoozes, key: "cloudSnoozes")
       self.cloudSnoozes = snoozes
-      // Older pages were asked for, so they stay loaded; background changes follow the window.
-      var merged = try result.merging(
-        into: self.mails, store: self.database, keepsLoaded: older ? { _ in true } : self.keepsLoaded
-      ).map { self.cloudSnoozes.applying(to: $0) }
+      // Background changes follow the loaded window (older pages the user asked for were kept loaded).
+      var merged = try result.merging(into: self.mails, store: self.database, keepsLoaded: self.keepsLoaded)
+        .map { self.cloudSnoozes.applying(to: $0) }
       // A history/page request started before the reader update can still contain UNREAD.
       // Keep changes made during this request, and any update still awaiting Gmail.
       for index in merged.indices {
@@ -1541,24 +1571,29 @@ import SwiftUI
       try database.saveMailSnapshot(
         merged, historyID: result.historyID.isEmpty ? nil : result.historyID,
         nextPage: result.nextPage, updatesPagination: result.resetsPagination,
-        decodingVersion: older ? nil : GmailMessage.decodingVersion)
+        decodingVersion: GmailMessage.decodingVersion)
       self.mails = merged
+      // A label view or older page still loading started earlier: keep what its result will need.
+      let readFloor = min(startingReadRevision, self.pageLoadStarts.values.map(\.read).min() ?? .max)
       self.readChanges = self.readChanges.filter {
-        $0.value.revision > startingReadRevision || self.pendingReadTasks[$0.key] != nil
+        $0.value.revision > readFloor || self.pendingReadTasks[$0.key] != nil
       }
-      self.pruneLabelEdits(through: startingEditRevision)
-      if !older { self.mailDecodingVersion = GmailMessage.decodingVersion }
-      if !older {
-        self.gmailPendingIDs = result.pendingIDs
-        try database.save(result.pendingIDs, key: "gmailPendingIDs")
-        remaining = result.pendingIDs.count
-      }
+      self.pruneLabelEdits(through: min(startingEditRevision, self.pageLoadStarts.values.map(\.edit).min() ?? .max))
+      self.mailDecodingVersion = GmailMessage.decodingVersion
+      self.gmailPendingIDs = result.pendingIDs
+      try database.save(result.pendingIDs, key: "gmailPendingIDs")
+      remaining = result.pendingIDs.count
       if !result.historyID.isEmpty { self.gmailHistoryID = result.historyID }
       if result.resetsPagination { self.nextPage = result.nextPage }
       self.lastSync = self.syncClock()
       try database.save(self.lastSync, key: "lastSync")
       self.reconcileSelection()
       synced = true
+    }
+    // Gmail answered: an older connection tag is out of date, and label changes waiting go now.
+    if synced && generation == mailboxGeneration {
+      gmailReached(since: issueAtStart)
+      if !labelQueue.isEmpty { retryQueuedLabelChanges() }
     }
     if slowedDown || remaining > 0 {
       // A long catch-up continues in batches: what arrived is saved, the rest follows in a minute.
@@ -1571,6 +1606,64 @@ import SwiftUI
     if synced && !older && generation == mailboxGeneration {
       await runCustomAgents()
       scheduleCloudSync()
+    }
+  }
+  /// The next older page of the mailbox (the list reached its end). Runs beside a background sync:
+  /// both merge into the live mailbox when their answer arrives, and both re-apply the user's changes.
+  /// Serialized only against label-view loads. A failure is inline (the list offers Retry), never an alert.
+  private func loadOlderMail() async {
+    guard entered, !isSample, !loadingOlderMail, !loadingLabelMail, queuedTrashIDs.isEmpty, let next = nextPage else { return }
+    let generation = mailboxGeneration
+    let startingEditRevision = labelEditRevision
+    let startingReadRevision = readRevision
+    let startingPendingReadIDs = Set(pendingReadTasks.keys)
+    let load = UUID()
+    let issueAtStart = connectionIssue?.id
+    loadingOlderMail = true
+    pageLoadStarts[load] = (startingEditRevision, startingReadRevision)
+    defer {
+      if generation == mailboxGeneration { loadingOlderMail = false; pageLoadStarts[load] = nil }
+    }
+    if !busy && !syncing { setStatusQuietly("Loading more mail…") }
+    do {
+      let page = try await withGmailToken { token in
+        try await self.gmail.page(token: token, pageToken: next, cachedIDs: self.storedRemoteMailIDs, interactive: true)
+      }
+      try Task.checkCancellation()
+      guard generation == mailboxGeneration, !isSample, let database else { return }
+      // A background sync may have moved the cursor on (a full re-list) while this page loaded.
+      guard nextPage == next else { return }
+      if !page.deletedIDs.isEmpty {
+        var snoozes = cloudSnoozes
+        snoozes.cancelDeleted(page.deletedIDs)
+        try database.save(snoozes, key: "cloudSnoozes")
+        cloudSnoozes = snoozes
+      }
+      // Older pages were asked for, so they stay loaded. The history cursor isn't touched: a sync that
+      // ran meanwhile has already moved it on.
+      var merged = try GmailSyncResult(messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs, historyID: "")
+        .merging(into: mails, store: database, keepsLoaded: { _ in true })
+        .map { cloudSnoozes.applying(to: $0) }
+      for index in merged.indices {
+        if let change = readChanges[merged[index].id],
+          change.revision > startingReadRevision || startingPendingReadIDs.contains(merged[index].id)
+            || pendingReadTasks[merged[index].id] != nil
+        {
+          if change.unread { merged[index].labels.insert("UNREAD") } else { merged[index].labels.remove("UNREAD") }
+        }
+      }
+      reapplyLabelEdits(to: &merged, since: startingEditRevision)
+      try database.saveMailSnapshot(merged, nextPage: page.next, updatesPagination: true)
+      mails = merged
+      nextPage = page.next
+      reconcileSelection()
+      gmailReached(since: issueAtStart)
+      if !busy && !syncing { setStatusQuietly("Up to date") }
+    } catch is CancellationError {
+    } catch {
+      guard generation == mailboxGeneration else { return }
+      reportBackgroundFailure(error, operation: "Loading more mail…")
+      if !busy && !syncing { setStatusQuietly(failureStatus(error)) }
     }
   }
   func chooseFolder(_ folder: String) {
@@ -1732,43 +1825,29 @@ import SwiftUI
   /// Reading stays responsive during background sync; failures restore the unread badge.
   func markViewed(_ mail: Mail) async {
     if let task = pendingReadTasks[mail.id] { await task.value; return }
-    guard entered, let index = mails.firstIndex(where: { $0.id == mail.id }),
-      mails[index].isUnread, let database
-    else { return }
+    guard entered, let index = mailIndex(of: mail.id), mails[index].isUnread, let database else { return }
     let generation = mailboxGeneration
     let remote = !isSample && !mail.id.hasPrefix("local-")
     var updated = mails[index]
     updated.labels.remove("UNREAD")
     do { try database.saveMessage(updated) }
     catch { self.error = error.localizedDescription; return }
-    mails[index] = updated
+    let before = mails[index].labels
+    // The conversation's stored messages come in with the same change, so opening redraws once.
+    let thread = storedThreadMessages(of: updated)
+    if thread.isEmpty { mails[index] = updated } else { adoptStoredMessages(thread, replacing: updated) }
     recordReadChange(id: mail.id, unread: false)
     guard remote else { return }
 
-    let issueID = connectionIssue?.id
+    // Through the same durable queue as every label change: offline it stays read and reaches Gmail
+    // later; only a definitive refusal brings the unread badge back.
+    let edit = beginLabelEdit(id: mail.id, add: [], remove: ["UNREAD"])
+    guard queueLabelChange(id: mail.id, add: [], remove: ["UNREAD"], before: before, revision: edit) else { return }
+    let delivery = startLabelDelivery(id: mail.id)
     let task = Task { @MainActor [weak self] in
-      guard let self else { return }
-      defer {
-        if self.mailboxGeneration == generation { self.pendingReadTasks[mail.id] = nil }
-      }
-      do {
-        let token: String
-        if let provider = self.gmailTokenProvider { token = try await provider() }
-        else { token = try await self.auth.token() }
-        try Task.checkCancellation()
-        guard self.mailboxGeneration == generation else { return }
-        try await self.gmail.modify(id: mail.id, token: token, remove: ["UNREAD"])
-        self.connectionRecovered(operation: "Marking email as read…", issueID: issueID)
-      } catch {
-        guard self.mailboxGeneration == generation,
-          let index = self.mails.firstIndex(where: { $0.id == mail.id })
-        else { return }
-        self.mails[index].labels.insert("UNREAD")
-        self.recordReadChange(id: mail.id, unread: true)
-        self.persistMessage(self.mails[index])
-        self.reportFailure(error, operation: "Marking email as read…",
-          message: "Couldn’t mark this email as read in Gmail. Open it again to retry. " + error.localizedDescription)
-      }
+      await delivery.value
+      guard let self, self.mailboxGeneration == generation else { return }
+      self.pendingReadTasks[mail.id] = nil
     }
     pendingReadTasks[mail.id] = task
     await task.value
@@ -1820,37 +1899,10 @@ import SwiftUI
     applyLocalLabelChange(id: id, add: add, remove: remove)
     reconcileSelection()
     guard !isSample, !id.hasPrefix("local-") else { finishLabelEdit(id: id, revision: edit); return }
-    let previous = labelTasks[id]
-    let issueID = connectionIssue?.id
-    let task = Task { @MainActor [weak self] in
-      await previous?.value
-      guard let self, generation == self.mailboxGeneration else { return }
-      do {
-        let token: String
-        if let provider = self.gmailTokenProvider { token = try await provider() } else { token = try await self.auth.token() }
-        guard generation == self.mailboxGeneration else { return }
-        try await self.gmail.modify(id: id, token: token, add: add, remove: remove)
-        self.finishLabelEdit(id: id, revision: edit)
-        self.connectionRecovered(operation: "Updating message…", issueID: issueID)
-      } catch {
-        guard generation == self.mailboxGeneration else { return }
-        // Undo only what this change did, leaving later changes to the same email alone.
-        self.dropLabelEdit(id: id, revision: edit)
-        let undoAdd = remove.filter { before.contains($0) }
-        let undoRemove = add.filter { !before.contains($0) }
-        self.applyLocalLabelChange(id: id, add: undoAdd, remove: undoRemove)
-        self.reconcileSelection()
-        if let http = error as? HTTPFailure, http.isRateLimited {
-          // No alert for rate limits, but the user must know why it came back.
-          self.status = "Gmail is busy, so that change didn’t go through. Try again in a minute."
-        }
-        self.reportFailure(error, operation: "Updating message…",
-          message: "Couldn’t update this email in Gmail, so it’s back as it was. " + error.localizedDescription)
-      }
-    }
-    labelTasks[id] = task
-    await task.value
-    if labelTasks[id] == task { labelTasks[id] = nil }
+    // Queued (and saved) before the first attempt. This returns after that attempt: delivered, refused
+    // (undone), or waiting to retry offline. An Undo of a change still waiting cancels it here instead.
+    guard queueLabelChange(id: id, add: add, remove: remove, before: before, revision: edit) else { return }
+    await startLabelDelivery(id: id).value
   }
   /// Gmail first, then the local copy (if this email is stored here). Shared by `modify` and
   /// approved assistant bulk changes, which pace their requests.
@@ -1873,19 +1925,19 @@ import SwiftUI
   }
   // MARK: Label changes a sync must not undo
 
-  private func beginLabelEdit(id: String, add: Set<String>, remove: Set<String>) -> Int {
+  func beginLabelEdit(id: String, add: Set<String>, remove: Set<String>) -> Int {
     labelEditRevision += 1
     labelEdits[id, default: LabelEdit()].changes.append(
       .init(revision: labelEditRevision, add: add, remove: remove, inFlight: true))
     return labelEditRevision
   }
   /// Gmail has it now; the record stays until a sync that started afterwards has seen it.
-  private func finishLabelEdit(id: String, revision: Int) {
+  func finishLabelEdit(id: String, revision: Int) {
     guard let index = labelEdits[id]?.changes.firstIndex(where: { $0.revision == revision }) else { return }
     labelEdits[id]?.changes[index].inFlight = false
   }
   /// Gmail refused it: forget only this change, so it's never re-applied (later changes stay).
-  private func dropLabelEdit(id: String, revision: Int) {
+  func dropLabelEdit(id: String, revision: Int) {
     labelEdits[id]?.changes.removeAll { $0.revision == revision }
     if labelEdits[id]?.changes.isEmpty == true { labelEdits[id] = nil }
   }
@@ -1910,14 +1962,42 @@ import SwiftUI
     }
   }
 
-  private func applyLocalLabelChange(id: String, add: [String], remove: [String]) {
-    if let index = mails.firstIndex(where: { $0.id == id }) {
-      mails[index].labels.formUnion(add)
-      mails[index].labels.subtract(remove)
+  func applyLocalLabelChange(id: String, add: [String], remove: [String]) {
+    if let index = mailIndex(of: id) {
+      // One mutation (one redraw, one save), and none when the labels are already that way.
+      var updated = mails[index]
+      updated.labels.formUnion(add)
+      updated.labels.subtract(remove)
       if add.contains("UNREAD") || remove.contains("UNREAD") {
-        recordReadChange(id: id, unread: mails[index].isUnread)
+        recordReadChange(id: id, unread: updated.isUnread)
       }
-      persistMessage(mails[index])
+      guard updated.labels != mails[index].labels else { return }
+      mails[index] = updated
+      persistMessage(updated)
+    }
+  }
+  /// Gmail says this email no longer exists (deleted elsewhere): remove it here the way a sync removes
+  /// a deletion, with everything still waiting for it. Nothing to tell the user.
+  func purgeDeletedMail(id: String) {
+    labelEdits[id] = nil
+    readChanges[id] = nil
+    pendingReadTasks[id] = nil
+    guard let database else { return }
+    do {
+      var snoozes = cloudSnoozes
+      snoozes.cancelDeleted([id])
+      try database.save(snoozes, key: "cloudSnoozes")
+      cloudSnoozes = snoozes
+      let merged = try GmailSyncResult(messages: [], deletedIDs: [id], historyID: "")
+        .merging(into: mails, store: database)
+      if merged != mails {
+        try database.saveMailSnapshot(merged)
+        mails = merged
+      }
+      queuedTrashIDs.removeAll { $0 == id }
+      reconcileSelection()
+    } catch {
+      status = "Couldn’t remove an email Gmail no longer has · it goes at the next sync"
     }
   }
   var pendingTrashIDs: [String] { queuedTrashIDs.filter { !committingTrashIDs.contains($0) } }
@@ -2296,17 +2376,31 @@ import SwiftUI
   /// Brings stored messages of an opened conversation into memory, including ones older than the
   /// loaded window, so the reader and Ask Cove see the whole downloaded thread.
   func includeStoredThread(of mail: Mail) {
-    guard entered, !isSample, !mail.threadID.isEmpty, let database else { return }
+    let missing = storedThreadMessages(of: mail)
+    guard !missing.isEmpty else { return }
+    adoptStoredMessages(missing)
+  }
+  /// Stored messages of `mail`'s conversation that aren't in memory. Ids are clear text, so only those
+  /// are decrypted. Opening an email (`markViewed`) brings them in with its own change: one redraw.
+  private func storedThreadMessages(of mail: Mail) -> [Mail] {
+    guard entered, !isSample, !mail.threadID.isEmpty, let database else { return [] }
     do {
-      let live = Set(mails.map(\.id))
-      // Ids are clear text: decrypt only messages not already in memory.
-      let missingIDs = try database.storedMessageIDs(threadID: mail.threadID).subtracting(live)
-      guard !missingIDs.isEmpty else { return }
-      let missing = try database.loadMessages(ids: missingIDs)
-      let merged = (mails + missing).map { cloudSnoozes.applying(to: $0) }.sorted { $0.date > $1.date }
-      try database.saveMailSnapshot(merged)
-      mails = merged
-    } catch { self.error = error.localizedDescription }
+      let missingIDs = try database.storedMessageIDs(threadID: mail.threadID).filter { self.mail(id: $0) == nil }
+      guard !missingIDs.isEmpty else { return [] }
+      return try database.loadMessages(ids: missingIDs).map { cloudSnoozes.applying(to: $0) }
+    } catch {
+      self.error = error.localizedDescription
+      return []
+    }
+  }
+  /// Adds stored messages to the live mailbox in one change (with `replacing`, an edited email too).
+  /// Only the added rows are written (registering them as loaded), not a whole-mailbox comparison.
+  private func adoptStoredMessages(_ missing: [Mail], replacing updated: Mail? = nil) {
+    var merged = mails
+    if let updated, let index = mailIndex(of: updated.id) { merged[index] = updated }
+    merged = (merged + missing).sorted { $0.date > $1.date }
+    do { for message in missing { try database?.saveMessage(message) } } catch { self.error = error.localizedDescription }
+    mails = merged
   }
   func aiThreadContext(_ mail: Mail) async throws -> (messages: [Mail], coverage: String) {
     guard entered else { throw CoveError.message("Open a mailbox before asking Cove.") }
@@ -3335,23 +3429,26 @@ extension AppStore {
   }
   /// Independent label pagination must never advance the main mailbox history/page cursor.
   func loadLabelMail(older: Bool = false) async {
-    guard entered, !isSample, !syncing, let labelID = mailScopeLabelID else { return }
+    // Its own load beside the background sync (opening a label never waits for the two-minute check);
+    // serialized only against other page loads. Both merge at answer time and re-apply the user's changes.
+    guard entered, !isSample, !loadingLabelMail, !loadingOlderMail, let labelID = mailScopeLabelID else { return }
     let generation = mailboxGeneration
     let editRevisionAtStart = labelEditRevision
     let readRevisionAtStart = readRevision
     let pendingAtStart = Set(pendingReadTasks.keys)
     let pageToken = older ? labelNextPages[labelID] : nil
     if older && pageToken == nil { return }
-    syncing = true; labelMailError = nil
-    syncLabel = older ? "Loading more labeled mail…" : "Refreshing this view…"
-    if !busy { status = syncLabel }
-    defer { if generation == mailboxGeneration { syncing = false } }
+    let load = UUID()
+    let issueAtStart = connectionIssue?.id
+    loadingLabelMail = true; labelMailError = nil
+    pageLoadStarts[load] = (editRevisionAtStart, readRevisionAtStart)
+    if !busy && !syncing { setStatusQuietly(older ? "Loading more labeled mail…" : "Refreshing this view…") }
+    defer { if generation == mailboxGeneration { loadingLabelMail = false; pageLoadStarts[load] = nil } }
     do {
-      let token: String
-      if let provider = gmailTokenProvider { token = try await provider() }
-      else { token = try await auth.token() }
-      let page = try await gmail.page(
-        token: token, pageToken: pageToken, labelID: labelID, cachedIDs: storedRemoteMailIDs, interactive: true)
+      let page = try await withGmailToken { token in
+        try await self.gmail.page(
+          token: token, pageToken: pageToken, labelID: labelID, cachedIDs: self.storedRemoteMailIDs, interactive: true)
+      }
       var visited = older ? labelVisitedPages[labelID] ?? [] : []
       if let pageToken { visited.insert(pageToken) }
       if let next = page.next, visited.contains(next) { throw CoveError.message("Gmail repeated a page. Refresh this view to continue.") }
@@ -3378,11 +3475,15 @@ extension AppStore {
       labelNextPages[labelID] = page.next
       labelVisitedPages[labelID] = visited
       reconcileSelection()
-      status = "Label refreshed · saved locally"
+      gmailReached(since: issueAtStart)
+      if !busy && !syncing { setStatusQuietly("Label refreshed · saved locally") }
     } catch {
       if generation == mailboxGeneration {
-        status = "Showing downloaded mail"
-        if !(error is CancellationError), mailScopeLabelID == labelID { labelMailError = "Couldn’t load this view from Gmail. Try refreshing again." }
+        if !busy && !syncing { setStatusQuietly("Showing downloaded mail") }
+        if !(error is CancellationError) {
+          reportBackgroundFailure(error, operation: "Refreshing this view…")
+          if mailScopeLabelID == labelID { labelMailError = "Couldn’t load this view from Gmail. Try refreshing again." }
+        }
       }
     }
   }
@@ -4281,7 +4382,11 @@ extension AppStore {
   /// Emails stored before Cove kept these headers: read just the two headers, once per session.
   func loadUnsubscribeIfNeeded(for mail: Mail) async {
     guard entered, !isSample, !mail.id.hasPrefix("local-"), mail.unsubscribe == nil, mail.isBulkOrAutomated != false,
-          !mail.labels.contains("SPAM"), unsubscribeChecked.insert(mail.id).inserted else { return }
+          !mail.labels.contains("SPAM"), self.mail(id: mail.id)?.unsubscribe == nil else { return }
+    // The open email's conversation is fetched in full by the reader (`refreshReaderThread`), which
+    // brings these headers with it: no second request, no second change to the mailbox.
+    if selectedID == mail.id, !mail.threadID.isEmpty, !mail.labels.contains("DRAFT") { return }
+    guard unsubscribeChecked.insert(mail.id).inserted else { return }
     let generation = mailboxGeneration
     do {
       let token: String
@@ -4349,7 +4454,7 @@ extension AppStore {
       try? await Task.sleep(for: .seconds(60))
       guard let self, !Task.isCancelled, generation == self.mailboxGeneration else { return }
       self.syncContinuation = nil
-      await self.sync()
+      await self.sync(interactive: false)
     }
   }
 }
