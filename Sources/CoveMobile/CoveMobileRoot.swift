@@ -68,7 +68,7 @@ public struct CoveMobileRoot: View {
     .task(id: auth.email) {
       await push.accountChanged(to: auth.email)
       guard auth.email != nil else { mailbox.close(); workspace.reset(); return }
-      mailbox.openIfNeeded()
+      await mailbox.openIfNeeded()
       async let mail: Void = mailbox.sync()
       async let calendar: Void = workspace.loadEvents()
       async let tasks: Void = workspace.loadTasks()
@@ -117,6 +117,7 @@ public struct CoveMobileRoot: View {
         mailbox.refreshClock()
         ai.refreshStatus()
         Task { await mailbox.sync() }
+        mailbox.flushQueued(immediately: true)
         Task { await push.appBecameActive() }
         Task { await MobileMe.shared.sync() }
       case .background:
