@@ -1,4 +1,4 @@
-# Cove 0.1.70 (unreleased) — typing speed and To-field contact search
+# Cove 0.1.70 — typing speed and To-field contact search
 
 The user reported that searching contacts while writing was slow (October 8, after 0.1.69).
 
@@ -59,3 +59,13 @@ for small lists and now uses the index.
 - No run in the real app or on a device; the Gmail lookup's network time (a search plus up to 12 header
   reads) is unchanged apart from the shorter pause.
 - The composer shows no local suggestions for the moment the index takes to build after it opens.
+
+## Release (October 8)
+
+- **Version:** 0.1.70, build 72.
+- **App notarization:** `a10772dd-b373-45df-93b5-1daa02c7ef56`, Accepted and stapled.
+- **DMG:** notarization `d68c0fa2-44a9-4a05-a67f-c5234b02efde`, Accepted and stapled. 24,840,345 bytes, SHA-256 `006a988d79cf9ce7f919c7d08a78d0cf550ee9bb0c6e5bac0a595a5ea9031765`. That is close to the 25 MiB Pages limit (26,214,400 bytes).
+- **Feed:** signed, 49 verified releases.
+- **Site:** Cloudflare Pages deployment `ffbaebe4` (production, `main`).
+- **Public checks:** `/release.json` reports 0.1.70 (72); the beta page and `/download/latest` point to it; the downloaded DMG's size and SHA-256 match; the Ed25519 signature verifies with the bundled key, and a changed byte is rejected. No headless previous-build update probe was run.
+- **TestFlight:** iPhone/iPad build 20 (0.1.0), uploaded with `xcodebuild -exportArchive`; it needs the export-compliance answer in App Store Connect if that isn't automatic.
