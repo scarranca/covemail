@@ -37,17 +37,24 @@ final class ReadStateTests: XCTestCase {
     XCTAssertEqual(repeats, 1, "Reopening a read message must not make another Gmail request")
   }
 
-  func testFailedReadUpdateRestoresUnreadAndCanRetry() async throws {
+  func testOfflineReadStaysReadAndReachesGmailWhenTheConnectionIsBack() async throws {
     let (store, database, transport, mail) = try fixture()
+    store.labelRetryDelays = [.seconds(60)]
     await transport.setOffline(true)
     await store.markViewed(mail)
-    XCTAssertTrue(try XCTUnwrap(store.mails.first).isUnread)
-    XCTAssertTrue(try XCTUnwrap(database.loadMail().first).isUnread)
+    XCTAssertFalse(try XCTUnwrap(store.mails.first).isUnread, "offline, the email stays read")
+    XCTAssertFalse(try XCTUnwrap(database.loadMail().first).isUnread)
     XCTAssertNil(store.error)
     XCTAssertEqual(store.connectionIssue?.operation, "Marking email as read…")
+    XCTAssertEqual(store.pendingLabelChanges, 1)
+    // Back online, a sync whose history still says UNREAD neither undoes it nor waits for the retry timer.
     await transport.setOffline(false)
-    await store.markViewed(mail)
+    await store.sync(interactive: false)
+    await store.awaitLabelDeliveries()
     XCTAssertFalse(try XCTUnwrap(store.mails.first).isUnread)
+    let requests = await transport.modifications
+    XCTAssertEqual(requests.count, 2, "one failed attempt, one delivery")
+    XCTAssertEqual(store.pendingLabelChanges, 0)
     XCTAssertNil(store.connectionIssue)
   }
 
