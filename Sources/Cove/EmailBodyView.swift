@@ -51,7 +51,8 @@ struct EmailBodyView: View {
         plainText
       }
     }.frame(maxWidth: .infinity, alignment: .leading)
-      .task(id: "\(mail.id):\(showPlainText):\(mail.htmlBody?.hashValue ?? 0)") {
+      // utf8.count is O(1) for native strings; hashing the whole HTML re-ran on every render.
+      .task(id: "\(mail.id):\(showPlainText):\(mail.htmlBody?.utf8.count ?? 0)") {
         guard !showPlainText else { inlineImages = [:]; return }
         let images = await store.inlineEmailImages(for: mail)
         guard !Task.isCancelled else { return }
@@ -117,12 +118,8 @@ struct FormattedEmailView: NSViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(self) }
 
   func makeNSView(context: Context) -> WKWebView {
-    let configuration = WKWebViewConfiguration()
-    configuration.websiteDataStore = .nonPersistent()
-    configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-    configuration.userContentController.add(
-      context.coordinator, contentWorld: .defaultClient, name: "emailHeight")
-    let view = EmailWebView(frame: .zero, configuration: configuration)
+    let view = EmailWebViewPool.shared.take()
+    EmailWebViewPool.shared.attach(context.coordinator, to: view)
     view.navigationDelegate = context.coordinator
     view.setAccessibilityLabel("Formatted email")
     return view
@@ -144,10 +141,10 @@ struct FormattedEmailView: NSViewRepresentable {
   }
 
   static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
-    view.stopLoading()
-    view.navigationDelegate = nil
-    view.configuration.userContentController.removeScriptMessageHandler(
-      forName: "emailHeight", contentWorld: .defaultClient)
+    coordinator.generation = ""
+    coordinator.html = nil
+    if let web = view as? EmailWebView { EmailWebViewPool.shared.give(back: web, from: coordinator) }
+    else { view.stopLoading(); view.navigationDelegate = nil }
   }
 
   static func document(loadImages: Bool) -> String {
@@ -224,7 +221,7 @@ struct FormattedEmailView: NSViewRepresentable {
     reportHeight();
     """#
 
-  final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+  final class Coordinator: NSObject, WKNavigationDelegate, EmailHeightReceiver {
     var parent: FormattedEmailView
     var html: String?
     var loadImages = false
@@ -239,23 +236,21 @@ struct FormattedEmailView: NSViewRepresentable {
       let html = html ?? ""
       let inlineImages = inlineImages
       Task { @MainActor [weak self, weak webView] in
-        guard let webView else { return }
+        // A view that went back to the pool (or moved to another email) must not render this document.
+        guard let webView, let self, self.generation == generation else { return }
         do {
           _ = try await webView.callAsyncJavaScript(
             FormattedEmailView.renderScript,
             arguments: ["html": html, "generation": generation, "inlineImages": inlineImages],
             in: nil, contentWorld: .defaultClient)
         } catch {
-          guard let self, self.generation == generation else { return }
+          guard self.generation == generation else { return }
           self.parent.failed = true
         }
       }
     }
 
-    func userContentController(
-      _ userContentController: WKUserContentController,
-      didReceive message: WKScriptMessage
-    ) {
+    func receiveHeight(_ message: WKScriptMessage) {
       guard let values = message.body as? [String: Any],
         values["generation"] as? String == generation,
         let height = values["height"] as? Double, height.isFinite
@@ -301,7 +296,10 @@ struct FormattedEmailView: NSViewRepresentable {
     ) {
       if (error as NSError).code != NSURLErrorCancelled { parent.failed = true }
     }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { parent.failed = true }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+      (webView as? EmailWebView)?.isPoolable = false  // a crashed view is never reused
+      parent.failed = true
+    }
   }
 }
 
@@ -310,6 +308,8 @@ struct FormattedEmailView: NSViewRepresentable {
 final class EmailWebView: WKWebView {
   var innerScrollOffset: Double = 0
   var innerScrollRange: Double = 0
+  /// False once the web content process has crashed: such a view is dropped, not reused.
+  var isPoolable = true
 
   override func scrollWheel(with event: NSEvent) {
     // Very long messages retain an inner scroll range once the layout safety cap is
@@ -330,6 +330,102 @@ final class EmailWebView: WKWebView {
       scrollView.scrollWheel(with: event)
     } else {
       super.scrollWheel(with: event)
+    }
+  }
+}
+
+
+/// Receives the height reports of the one email view it is attached to.
+@MainActor protocol EmailHeightReceiver: AnyObject {
+  func receiveHeight(_ message: WKScriptMessage)
+}
+
+/// Creating a `WKWebView` (and its web content process, configuration and data store) is the slow part of
+/// opening an HTML email, so Cove keeps one shared configuration and a few blank views to reuse.
+///
+/// Privacy is unchanged by sharing: the configuration has JavaScript off for message content, a
+/// non-persistent data store (nothing is written to disk and nothing survives the app), and no other
+/// handler than the app's own `emailHeight` in its isolated content world. A view returns to the pool
+/// only after it has stopped loading and navigated to a blank page, so one message's document, cookies
+/// and scroll state never reach the next. The coordinator is detached first, so a late height report
+/// from an old document is dropped (and its generation would not match anyway).
+@MainActor final class EmailWebViewPool: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+  static let shared = EmailWebViewPool()
+  static let capacity = 3
+
+  /// How many views were created (for measuring reuse).
+  private(set) var created = 0
+  /// Blank and ready to hand out.
+  private var idle: [EmailWebView] = []
+  /// Returned, but still showing the last email until its blank page commits: never handed out, so a
+  /// message can't flash the previous one's content or race a script against its replacement.
+  private var parking: [EmailWebView] = []
+  private var receivers: [ObjectIdentifier: WeakReceiver] = [:]
+  private struct WeakReceiver { weak var value: EmailHeightReceiver? }
+
+  private lazy var configuration: WKWebViewConfiguration = {
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = .nonPersistent()
+    configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+    configuration.userContentController.add(self, contentWorld: .defaultClient, name: "emailHeight")
+    return configuration
+  }()
+
+  var idleCount: Int { idle.count }
+
+  func take() -> EmailWebView {
+    if let view = idle.popLast() { return view }
+    created += 1
+    return EmailWebView(frame: .zero, configuration: configuration)
+  }
+
+  /// Creates blank views ahead of the first email (up to the pool's capacity).
+  func warm(_ count: Int = 1) {
+    while idle.count < min(count, Self.capacity) {
+      created += 1
+      idle.append(EmailWebView(frame: .zero, configuration: configuration))
+    }
+  }
+
+  func attach(_ receiver: EmailHeightReceiver, to view: EmailWebView) {
+    receivers[ObjectIdentifier(view)] = WeakReceiver(value: receiver)
+  }
+
+  /// Detaches the email and keeps the blank view for the next one (or lets it go if the pool is full).
+  func give(back view: EmailWebView, from coordinator: AnyObject) {
+    receivers[ObjectIdentifier(view)] = nil
+    view.stopLoading()
+    view.navigationDelegate = nil
+    view.innerScrollOffset = 0
+    view.innerScrollRange = 0
+    guard view.isPoolable, idle.count + parking.count < Self.capacity,
+      !idle.contains(where: { $0 === view }), !parking.contains(where: { $0 === view })
+    else { return }
+    view.navigationDelegate = self
+    view.load(URLRequest(url: URL(string: "about:blank")!))
+    parking.append(view)
+  }
+
+  func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    guard let index = parking.firstIndex(where: { $0 === webView }) else { return }
+    let view = parking.remove(at: index)
+    view.navigationDelegate = nil
+    idle.append(view)
+  }
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { drop(webView) }
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { drop(webView) }
+  func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { drop(webView) }
+  private func drop(_ webView: WKWebView) {
+    parking.removeAll { $0 === webView }
+    webView.navigationDelegate = nil
+  }
+
+  nonisolated func userContentController(
+    _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
+  ) {
+    MainActor.assumeIsolated {
+      guard let view = message.webView, let receiver = receivers[ObjectIdentifier(view)]?.value else { return }
+      receiver.receiveHeight(message)
     }
   }
 }

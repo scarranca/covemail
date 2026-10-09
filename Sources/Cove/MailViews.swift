@@ -253,7 +253,7 @@ struct MailRow: View {
     VStack(alignment: .leading, spacing: 6) {
       senderLine
       Text(mail.subject.isEmpty ? "New message" : mail.subject).fontWeight(titleWeight).lineLimit(1)
-      Text(mail.body.replacingOccurrences(of: "\n", with: " ")).font(.coveSecondary)
+      Text(MailPreviewLine.text(mail.body)).font(.coveSecondary)
         .foregroundStyle(Palette.body).lineLimit(1)
       badges
       JevMailFlagBadges(mail: mail, isSample: isSample)
