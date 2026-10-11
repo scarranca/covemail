@@ -26,3 +26,13 @@ The user asked (October 11) for a notification "whenever you receive a code to s
 ## Separate report: Trash Undo "does nothing" (0.1.70, ⌘Delete)
 
 Not reproduced. A real mouse click on Undo in the full window (widths 1000–1700, HTML email open, Reply ▾ split button below, offline status line showing) restores the email every time; the installed app is the same code (0.1.70, build 72). No code change. Next step when it recurs: check whether Z restores during the countdown (same `undoQueuedTrash`), then a QA build with logging.
+
+## Release (October 11)
+
+- **Version:** 0.1.71, build 73.
+- **App notarization:** `91c94c05-d84a-481c-b78d-13dc2a727130`, Accepted and stapled.
+- **DMG:** notarization `13124421-48d1-42bb-bf91-6de422e5e205`, Accepted and stapled. 25,532,533 bytes (under the 26,214,400-byte Pages limit, ~0.7 MB to spare), SHA-256 `b2eca7cf23f55e887f1618942aceb458678a5b50daf539617bd676e949c96ec8`. Plain disk image: the building checkout has no `.local/dmg-venv`.
+- **Feed:** signed, 50 verified releases.
+- **Site:** Cloudflare Pages deployment `ef00fad5` (production, `main`).
+- **Public checks:** `/release.json` reports 0.1.71 (73) (briefly 0.1.70 right after deploy); the beta page, `/download/latest` and the appcast point to 0.1.71; the downloaded DMG's size and SHA-256 match; the Ed25519 signature verifies with the bundled key and a changed byte is rejected. No headless previous-build update probe was run.
+- **TestFlight:** iPhone/iPad build 21 (0.1.0), archived and uploaded with `xcodebuild -exportArchive`; it may need the export-compliance answer in App Store Connect.
