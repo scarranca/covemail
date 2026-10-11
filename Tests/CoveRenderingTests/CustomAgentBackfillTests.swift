@@ -237,6 +237,8 @@ import CoveCore
   func post(agentName: String, sender: String, subject: String, mailID: String, account: String) {
     posts.append(Post(title: agentName, body: Self.body(sender: sender, subject: subject), mailID: mailID, account: account))
   }
+  var codes: [String] = []
+  func postSignInCode(_ code: SignInCode, account: String) { codes.append(code.code) }
 }
 
 actor BackfillHTTP: HTTPTransport {

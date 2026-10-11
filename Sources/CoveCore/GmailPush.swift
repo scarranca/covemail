@@ -97,6 +97,8 @@ public struct NewMailAlert: Equatable, Sendable {
   public var body: String
   public var threadID: String
   public var mailID: String
+  /// A sign-in code to copy, when this alert is one (`signInCode(for:)`).
+  public var code: String? = nil
 
   /// Nil when this email shouldn't notify: the user's own mail, Other-tab mail under "Important only",
   /// a muted sender, or mail that has already left the Inbox or been read elsewhere.
@@ -113,5 +115,21 @@ public struct NewMailAlert: Equatable, Sendable {
     // Sender and subject only: the email's text never appears on the lock screen.
     return NewMailAlert(title: name, subtitle: "", body: mail.subject.isEmpty ? "(No subject)" : mail.subject,
                         threadID: mail.threadID, mailID: mail.id)
+  }
+
+  /// A fresh sign-in code (`SignInCode`) as its own alert, whatever the Important/All scope: code
+  /// senders are automated, so they'd otherwise land in Other and never notify. Muted senders and
+  /// mail already read elsewhere still don't. The code is the only text taken from the email's body,
+  /// and only when previews are on.
+  public static func signInCode(for mail: Mail, accountEmail: String, showPreview: Bool, muted: Set<String> = [],
+                                now: Date = Date()) -> NewMailAlert? {
+    let sender = ContactDirectory.normalizedEmail(mail.senderEmail)
+    guard mail.labels.contains("INBOX"), mail.isUnread, sender != ContactDirectory.normalizedEmail(accountEmail),
+          !muted.contains(sender), let found = SignInCode.detect(in: mail, now: now) else { return nil }
+    guard showPreview else {
+      return NewMailAlert(title: "Sign-in code", subtitle: "", body: "Open Cove to see it.", threadID: mail.threadID, mailID: mail.id)
+    }
+    return NewMailAlert(title: found.display, subtitle: "", body: "Sign-in code from \(found.sender)", threadID: mail.threadID,
+                        mailID: mail.id, code: found.code)
   }
 }

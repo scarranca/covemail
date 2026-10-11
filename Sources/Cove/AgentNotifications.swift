@@ -13,9 +13,12 @@ enum AgentNotificationPermission: Equatable {
   /// Asks macOS once; only called when the person turns the option on.
   func requestPermission() async -> AgentNotificationPermission
   func post(agentName: String, sender: String, subject: String, mailID: String, account: String)
+  /// A fresh sign-in code (`SignInCodes.swift`): the code is the title, Copy is its action.
+  func postSignInCode(_ code: SignInCode, account: String)
 }
 
 extension AgentNotifying {
+  func postSignInCode(_ code: SignInCode, account: String) {}
   static func body(sender: String, subject: String) -> String {
     [sender, subject.isEmpty ? "(No subject)" : subject].filter { !$0.isEmpty }.joined(separator: " · ")
   }
@@ -34,7 +37,12 @@ extension AgentNotifying {
     if !installed { center.delegate = self; installed = true }
     return center
   }
-  func install() { _ = center }
+  func install() {
+    guard let center else { return }
+    let copy = UNNotificationAction(identifier: "copy-code", title: "Copy code", options: [])
+    center.setNotificationCategories([UNNotificationCategory(identifier: "cove.sign-in-code", actions: [copy],
+                                                             intentIdentifiers: [], options: [])])
+  }
 
   func permission() async -> AgentNotificationPermission {
     guard let center else { return .unavailable }
@@ -57,6 +65,24 @@ extension AgentNotifying {
     content.userInfo = ["coveMailID": mailID, "coveAccount": account]
     content.threadIdentifier = "cove-agent"
     center.add(UNNotificationRequest(identifier: "cove-agent-" + mailID, content: content, trigger: nil))
+  }
+
+  func postSignInCode(_ code: SignInCode, account: String) {
+    guard let center else { return }
+    let content = UNMutableNotificationContent()
+    content.title = code.display
+    content.body = "Sign-in code from \(code.sender)"
+    content.sound = .default
+    content.categoryIdentifier = "cove.sign-in-code"
+    content.userInfo = ["coveMailID": code.mailID, "coveAccount": account, "coveCode": code.code]
+    content.threadIdentifier = "cove-sign-in-code"
+    let identifier = "cove-code-" + code.mailID
+    center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+    // Codes expire within minutes: don't leave one in Notification Center.
+    Task {
+      try? await Task.sleep(for: .seconds(SignInCodeSettings.shownFor))
+      center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    }
   }
 
   // Snooze returns: time-triggered requests macOS itself holds and delivers.
@@ -99,6 +125,14 @@ extension AgentNotifying {
   }
   nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
     let info = response.notification.request.content.userInfo
+    if response.actionIdentifier == "copy-code", let code = info["coveCode"] as? String {
+      await MainActor.run {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+        SignInCodeMenuBar.shared.clear()
+      }
+      return
+    }
     guard let mailID = info["coveMailID"] as? String, let account = info["coveAccount"] as? String else { return }
     await MainActor.run {
       // The person clicked the notification, so bringing Cove forward is expected here.

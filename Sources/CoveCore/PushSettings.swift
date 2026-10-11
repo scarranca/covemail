@@ -25,6 +25,11 @@ public final class PushSettings: @unchecked Sendable {
     get { defaults.object(forKey: key("preview")) as? Bool ?? true }
     set { defaults.set(newValue, forKey: key("preview")) }
   }
+  /// Sign-in and verification codes get their own notification with Copy (default on).
+  public var signInCodes: Bool {
+    get { defaults.object(forKey: key("codes")) as? Bool ?? true }
+    set { defaults.set(newValue, forKey: key("codes")) }
+  }
   /// The signed-in address the extension reads mail for.
   public var accountEmail: String? {
     get { defaults.string(forKey: key("account")) }

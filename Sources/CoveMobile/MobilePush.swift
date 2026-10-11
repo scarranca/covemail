@@ -68,8 +68,13 @@ import UserNotifications
     let archive = UNNotificationAction(identifier: "archive", title: "Archive", options: [])
     let read = UNNotificationAction(identifier: "read", title: "Mark as read", options: [])
     let flag = UNNotificationAction(identifier: "flag", title: "Flag", options: [])
-    center.setNotificationCategories([UNNotificationCategory(identifier: "cove.new-mail", actions: [archive, read, flag, open],
-                                                             intentIdentifiers: [], options: [])])
+    // Copying waits for Face ID/passcode, so a locked phone can't hand someone the code.
+    let copy = UNNotificationAction(identifier: "copy-code", title: "Copy code", options: [.authenticationRequired],
+                                    icon: UNNotificationActionIcon(systemImageName: "doc.on.doc"))
+    center.setNotificationCategories([
+      UNNotificationCategory(identifier: "cove.new-mail", actions: [archive, read, flag, open], intentIdentifiers: [], options: []),
+      UNNotificationCategory(identifier: "cove.sign-in-code", actions: [copy, read, open], intentIdentifiers: [], options: []),
+    ])
     Task { await refreshAuthorization() }
     #if DEBUG
     // Simulator check of the notification extension: quiet (provisional) permission needs no prompt.
@@ -291,8 +296,11 @@ extension MobilePush: UNUserNotificationCenterDelegate {
       return
     }
     let action = response.actionIdentifier
+    let code = response.notification.request.content.userInfo["code"] as? String
     Task { @MainActor in
       switch action {
+      case "copy-code":
+        if let code { UIPasteboard.general.string = code }
       case "archive", "read", "flag":
         // Done without opening Cove: the same label change the app makes, straight to Gmail.
         let (add, remove): ([String], [String]) = action == "archive" ? ([], ["INBOX"]) : action == "read" ? ([], ["UNREAD"]) : (["STARRED"], [])

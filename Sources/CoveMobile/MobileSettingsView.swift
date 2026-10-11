@@ -455,6 +455,7 @@ struct MobileNotificationSettings: View {
   @State private var push = MobilePush.shared
   @State private var scope = PushSettings.shared.scope
   @State private var preview = PushSettings.shared.showPreview
+  @State private var codes = PushSettings.shared.signInCodes
   @State private var signingIn = false
 
   var body: some View {
@@ -468,6 +469,12 @@ struct MobileNotificationSettings: View {
                         options: [(.important, "Important"), (.inbox, "All Inbox")])
         Toggle("Show sender and subject", isOn: Binding(get: { preview }, set: { preview = $0; push.showPreview = $0 }))
           .toggleStyle(MobileToggleStyle())
+        Toggle("Sign-in codes", isOn: Binding(get: { codes }, set: { codes = $0; PushSettings.shared.signInCodes = $0 }))
+          .toggleStyle(MobileToggleStyle())
+        Text(preview
+             ? "A verification code gets its own notification with Copy, even under Important. It’s the only text Cove takes from an email."
+             : "A verification code gets its own notification. Turn on sender and subject to see the code itself.")
+          .font(.mobileMetadata).foregroundStyle(MobilePalette.muted).fixedSize(horizontal: false, vertical: true)
       }
       if push.working { HStack(spacing: 8) { ProgressView(); Text(push.status ?? "Working…") }.font(.mobileSecondary).foregroundStyle(MobilePalette.body) }
       else if let status = push.status { Text(status).font(.mobileSecondary).foregroundStyle(MobilePalette.body) }
@@ -490,7 +497,7 @@ struct MobileNotificationSettings: View {
         Button("Open iOS Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
           .buttonStyle(MobileSecondaryButton(compact: true))
       }
-      Text("Gmail tells Cove’s server only that new mail arrived. This \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone") reads the email itself and shows the sender and subject — never the text. Mute or always allow a sender from an email’s More menu.")
+      Text("Gmail tells Cove’s server only that new mail arrived. This \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone") reads the email itself and shows the sender and subject — never the text, except a sign-in code when that’s on. Mute or always allow a sender from an email’s More menu.")
         .font(.mobileMetadata).foregroundStyle(MobilePalette.muted).fixedSize(horizontal: false, vertical: true)
     }
     .task { await push.refreshAuthorization() }

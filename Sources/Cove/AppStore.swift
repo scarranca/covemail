@@ -317,6 +317,11 @@ import SwiftUI
   private var readRevision = 0
   private var readChanges: [String: (revision: Int, unread: Bool)] = [:]
   private var lastMailboxPoll = Date.distantPast
+  /// Sign-in codes already offered this session (`announceSignInCodes`), and the new-mail check between syncs.
+  @ObservationIgnored var announcedCodeIDs: Set<String> = []
+  @ObservationIgnored var probingNewMail = false
+  @ObservationIgnored var probesForNewMail = true
+  var gmailHistoryIDForProbe: String? { gmailHistoryID }
   private var automaticRetryAfter: [String: Date] = [:]
   var selected: Mail? { mails.first { $0.id == selectedID } }
   /// Messages already saved in the encrypted local store. Page loads refresh only their labels,
@@ -900,7 +905,10 @@ import SwiftUI
     guard entered, backgroundSyncEnabled, !isSample, !syncing, !googleSignInNeeded, !Task.isCancelled else { return }
     let elapsed = syncClock().timeIntervalSince(lastMailboxPoll)
     // A wall-clock correction must not postpone mail checks indefinitely.
-    guard elapsed >= 120 || elapsed < 0 else { return }
+    guard elapsed >= 120 || elapsed < 0 else {
+      await probeForNewMail(elapsed: elapsed)
+      return
+    }
     await sync(interactive: false)
   }
   private func persistMessage(_ mail: Mail) {
@@ -1529,6 +1537,7 @@ import SwiftUI
     var synced = false
     var slowedDown = false
     var remaining = 0
+    var arrived: [Mail] = []
     await runSync("Syncing Gmail…", interactive: interactive) {
       let fetched: GmailSyncResult? = try await self.withGmailToken { token in
         do {
@@ -1572,6 +1581,8 @@ import SwiftUI
         merged, historyID: result.historyID.isEmpty ? nil : result.historyID,
         nextPage: result.nextPage, updatesPagination: result.resetsPagination,
         decodingVersion: GmailMessage.decodingVersion)
+      let known = Set(self.mails.map(\.id))
+      arrived = merged.filter { !known.contains($0.id) }
       self.mails = merged
       // A label view or older page still loading started earlier: keep what its result will need.
       let readFloor = min(startingReadRevision, self.pageLoadStarts.values.map(\.read).min() ?? .max)
@@ -1592,6 +1603,7 @@ import SwiftUI
     }
     // Gmail answered: an older connection tag is out of date, and label changes waiting go now.
     if synced && generation == mailboxGeneration {
+      announceSignInCodes(in: arrived)
       gmailReached(since: issueAtStart)
       if !labelQueue.isEmpty { retryQueuedLabelChanges() }
     }

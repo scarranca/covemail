@@ -67,6 +67,7 @@ final class MailboxPollingTests: XCTestCase {
 
   func testManualSyncDelaysNextAutomaticCheckWithoutJev() async throws {
     let (store, _, transport, clock) = try fixture()
+    store.probesForNewMail = false
     await store.sync()
     clock.date.addTimeInterval(119)
     await store.pollMailbox()
@@ -77,6 +78,22 @@ final class MailboxPollingTests: XCTestCase {
     await store.pollMailbox()
     let atDue = await transport.historyRequests
     XCTAssertEqual(atDue, 2)
+  }
+
+  /// Between full syncs, a history check (for sign-in codes) syncs early only when new mail is there.
+  func testProbeBetweenSyncsSyncsEarlyOnlyForNewMail() async throws {
+    let (store, _, transport, clock) = try fixture()
+    await store.sync()                        // history 1
+    clock.date.addTimeInterval(30)
+    await store.pollMailbox()                 // probe (history 2) finds mail → sync (history 3)
+    let early = await transport.historyRequests
+    XCTAssertEqual(early, 3)
+    XCTAssertEqual(store.lastSync, clock.date)
+    clock.date.addTimeInterval(30)
+    await store.pollMailbox()                 // probe (history 4) finds nothing → no sync
+    let quiet = await transport.historyRequests
+    XCTAssertEqual(quiet, 4)
+    XCTAssertEqual(store.lastSync, clock.date.addingTimeInterval(-30))
   }
 
   func testBusySampleAndDisconnectedChecksDoNotConsumeTheNextPoll() async throws {
@@ -165,7 +182,7 @@ private actor PollingHTTP: HTTPTransport {
       historyRequests += 1
       if offline { throw URLError(.notConnectedToInternet) }
       response = historyRequests == 1 || historyRequests == 2
-        ? ["historyId": "101", "history": [["messagesAdded": [["message": ["id": "new-message"]]]]]]
+        ? ["historyId": "101", "history": [["messagesAdded": [["message": ["id": "new-message", "labelIds": ["INBOX", "UNREAD"]]]]]]]
         : ["historyId": "101"]
     case "new-message":
       response = [

@@ -48,12 +48,20 @@ enum NewMail {
       center.removeDeliveredNotifications(withIdentifiers: settings.placeholders)
       settings.placeholders = []
     }
+    // Sign-in codes expire within minutes: an older one shouldn't sit on the lock screen.
+    let stale = await center.deliveredNotifications().filter {
+      $0.request.content.categoryIdentifier == "cove.sign-in-code" && Date().timeIntervalSince($0.date) > 10 * 60
+    }.map(\.request.identifier)
+    if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
     guard settings.enabled, let account = settings.accountEmail else { return placeholder(base, requestID) }
     do {
-      let mails = settings.sample ? [sampleMail] : try await newMails(account: account, settings: settings, pushHistory: pushHistory)
-      let alerts = mails.compactMap {
-        NewMailAlert.make(for: $0, accountEmail: account, scope: settings.scope, showPreview: settings.showPreview,
-                          muted: settings.muted, important: settings.alwaysNotify)
+      let mails = settings.sample ? [sampleMail, sampleCode] : try await newMails(account: account, settings: settings, pushHistory: pushHistory)
+      // A sign-in code replaces that email's usual notification and notifies even under "Important".
+      let alerts = mails.compactMap { mail in
+        (settings.signInCodes ? NewMailAlert.signInCode(for: mail, accountEmail: account, showPreview: settings.showPreview,
+                                                        muted: settings.muted) : nil)
+          ?? NewMailAlert.make(for: mail, accountEmail: account, scope: settings.scope, showPreview: settings.showPreview,
+                               muted: settings.muted, important: settings.alwaysNotify)
       }
       settings.notified += mails.map(\.id)
       guard let first = alerts.first else { return placeholder(base, requestID) }
@@ -124,6 +132,12 @@ enum NewMail {
     base.userInfo = ["mailID": alert.mailID, "threadID": alert.threadID]
     base.interruptionLevel = .active
     base.relevanceScore = 1
+    if let code = alert.code {
+      // Copy is the notification's action (`MobilePush`); codes group together, apart from mail.
+      base.categoryIdentifier = "cove.sign-in-code"
+      base.threadIdentifier = "cove-sign-in-codes"
+      base.userInfo["code"] = code
+    }
     return base
   }
 
@@ -138,6 +152,11 @@ enum NewMail {
     base.threadIdentifier = "cove-sync"
     PushSettings.shared.placeholders += [requestID]
     return base
+  }
+
+  private static var sampleCode: Mail {
+    Mail(id: "sample-code-\(UUID().uuidString.prefix(8))", threadID: "sample-code", sender: "Linear", senderEmail: "no-reply@linear.example",
+         subject: "Your Linear sign-in code", body: "Enter this code to sign in: 482913", labels: ["INBOX", "UNREAD"], isBulkOrAutomated: true)
   }
 
   private static var sampleMail: Mail {

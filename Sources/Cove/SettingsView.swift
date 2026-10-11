@@ -12,6 +12,9 @@ struct SettingsView: View {
   @State private var saved = false
   @State private var confirmErasure = false
   @AppStorage(MeetingMenuBarModel.enabledKey) private var meetingsInMenuBar = false
+  @AppStorage(SignInCodeSettings.enabledKey) private var signInCodes = true
+  @AppStorage(SignInCodeSettings.notifyKey) private var signInCodeNotifications = true
+  @State private var codeNotificationPermission: AgentNotificationPermission?
   var readSecret: (String) throws -> String? = { try Vault.read($0) }
 
   var selectedSection: String {
@@ -209,6 +212,28 @@ struct SettingsView: View {
           }
         }
       }
+      SettingsGroup("Sign-in codes") {
+        SettingsCard {
+          SettingsRow("Show sign-in codes", icon: "key",
+                      detail: "When a verification code arrives, it appears in the menu bar for ten minutes. Click it to copy. It’s the only text Cove takes from the email, and it shows even when the Cove icon is off.") {
+            Toggle("", isOn: $signInCodes).toggleStyle(CoveToggleStyle()).labelsHidden()
+              .accessibilityLabel("Show sign-in codes")
+          }
+          SettingsDivider()
+          SettingsRow("Notify me too", icon: "bell",
+                      detail: codeNotificationPermission == .denied
+                        ? "Notifications for Cove are off in System Settings → Notifications."
+                        : "A notification with the code and Copy.") {
+            Toggle("", isOn: Binding(get: { signInCodeNotifications && codeNotificationPermission != .denied }, set: { on in
+              signInCodeNotifications = on
+              if on { Task { codeNotificationPermission = await store.agentNotificationPermission(request: true) } }
+            })).toggleStyle(CoveToggleStyle()).labelsHidden()
+              .accessibilityLabel("Notify me about sign-in codes")
+              .disabled(!signInCodes)
+          }
+        }
+      }
+      .task { codeNotificationPermission = await store.agentNotificationPermission(request: false) }
     }
   }
   private var tasksDescription: String {
