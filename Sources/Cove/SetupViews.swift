@@ -261,6 +261,7 @@ struct ComposerView: View {
         ComposeTextEditor(text: Binding(get: { text }, set: { typedInBody($0) }),
                           selection: Binding(get: { typedBody.selection }, set: { typedBody.select($0) }),
                           isEditable: writingActivity.preview == nil,
+                          inlineFiles: attachmentTarget.map { store.attachments(for: $0) } ?? [],
                           onPasteImages: { files, problems in
                             if let target = attachmentTarget { store.addAttachments(files, to: target, problems: problems) }
                           })
@@ -269,7 +270,7 @@ struct ComposerView: View {
           .allowsHitTesting(writingActivity.preview == nil)
         if let preview = writingActivity.preview {
           WritingCanvasPreview(text: preview, animated: !writingActivity.streamed, onEdit: writingActivity.working ? nil : { writingActivity.preview = $0 },
-            onSelection: { writingActivity.previewSelection = $0 }, selectedRange: writingActivity.previewSelection)
+            onSelection: { writingActivity.previewSelection = $0 }, selectedRange: writingActivity.previewSelection, inlineFiles: attachmentTarget.map { store.attachments(for: $0) } ?? [])
             .id(writingActivity.revision)
         } else if writingActivity.working, let streaming = writingActivity.streaming, !streaming.isEmpty {
           // The draft appears as it is written; it becomes the reviewable preview when complete.

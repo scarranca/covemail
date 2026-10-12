@@ -2747,7 +2747,7 @@ import SwiftUI
       guard generation == self.mailboxGeneration else { throw CancellationError() }
       let sent = Mail(
         id: sentID, threadID: reply?.threadID ?? "", sender: sender, senderEmail: sender, to: to,
-        subject: subject, body: body, labels: ["SENT"], cc: cc)
+        subject: subject, body: attachments.filter { $0.inline == true }.reduce(body) { $0.replacingOccurrences(of: $1.bodyToken, with: "[Image]") }, labels: ["SENT"], cc: cc)
       var updated = self.mails
       updated.insert(sent, at: 0)
       if let reply, let index = updated.firstIndex(where: { $0.id == reply.id }) {

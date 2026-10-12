@@ -339,7 +339,8 @@ public struct GmailClient {
   }
 
   /// The RFC 5322 message. Without attachments it is a single text/plain part (unchanged since
-  /// before attachments); with them, multipart/mixed with the text first and one part per file.
+  /// before attachments); files use multipart/mixed, with an HTML alternative and related CID
+  /// parts when the draft contains inline images.
   public static func mimeMessage(
     from: String, to: String, subject: String, body: String, replyMessageID: String? = nil,
     date: Date = Date(), cc: String = "", attachments: [OutgoingAttachment] = []
@@ -376,7 +377,17 @@ public struct GmailClient {
       }
       headers += ["In-Reply-To: \(id)", "References: \(id)"]
     }
-    let encodedBody = Data(body.utf8).base64EncodedString(options: [
+    let tokenPattern = try NSRegularExpression(pattern: #"!\[image\]\(cove-inline:[^)]+\)"#)
+    for match in tokenPattern.matches(in: body, range: NSRange(body.startIndex..., in: body)) {
+      let token = (body as NSString).substring(with: match.range)
+      guard attachments.contains(where: { $0.inline == true && $0.bodyToken == token }) else {
+        throw CoveError.message("One image in this draft is missing. Remove it and paste it again before sending.")
+      }
+    }
+    let attachments = attachments.filter { $0.inline != true || body.contains($0.bodyToken) }
+    let inlineImages = attachments.filter { $0.inline == true }
+    let plainBody = inlineImages.reduce(body) { $0.replacingOccurrences(of: $1.bodyToken, with: "[Image]") }
+    let encodedBody = Data(plainBody.utf8).base64EncodedString(options: [
       .lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed,
     ])
     guard !attachments.isEmpty else {
@@ -387,7 +398,27 @@ public struct GmailClient {
     headers.removeAll { $0.hasPrefix("Content-Type:") || $0.hasPrefix("Content-Transfer-Encoding:") }
     headers.append("Content-Type: multipart/mixed; boundary=\"\(boundary)\"")
     var parts = ["Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n" + encodedBody]
-    for file in attachments { parts.append(file.mimePart) }
+    if !inlineImages.isEmpty {
+      func multipart(_ type: String, _ children: [String]) -> String {
+        let boundary = "cove-" + UUID().uuidString
+        return "Content-Type: multipart/\(type); boundary=\"\(boundary)\"\r\n\r\n"
+          + children.map { "--\(boundary)\r\n" + $0 + "\r\n" }.joined()
+          + "--\(boundary)--\r\n"
+      }
+      var html = body.replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
+      for file in inlineImages {
+        html = html.replacingOccurrences(of: file.bodyToken,
+          with: "<img src=\"cid:\(file.contentID)\" alt=\"Image\" style=\"max-width:100%;height:auto\">")
+      }
+      html = "<html><body><div style=\"white-space:pre-wrap\">" + html + "</div></body></html>"
+      let htmlPart = "Content-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n"
+        + Data(html.utf8).base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
+      let related = multipart("related", [htmlPart] + inlineImages.map(\.mimePart))
+      parts = [multipart("alternative", [parts[0], related])]
+    }
+    for file in attachments where file.inline != true { parts.append(file.mimePart) }
     // Base64 bodies and the encoded headers can't contain the boundary ("cove-" + UUID).
     var message = headers.joined(separator: "\r\n") + "\r\n\r\n"
     for part in parts { message += "--\(boundary)\r\n" + part + "\r\n" }

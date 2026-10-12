@@ -6,6 +6,16 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Cove</title>
         <item>
+            <title>0.1.73</title>
+            <pubDate>Mon, 12 Oct 2026 11:51:40 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>75</sparkle:version>
+            <sparkle:shortVersionString>0.1.73</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.73</title></head><body><h1>Paste images into the email body</h1><ul><li>Paste a copied image at the cursor in a new message or reply. Recipients see it inside the email body.</li><li>Images stay with saved drafts and support deletion and Undo. Files added with the paperclip remain regular attachments.</li><li>Inline images also appear in writing suggestion previews.</li><li>iPhone and iPad support inline image Paste in new messages and replies.</li></ul></body></html>]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.73.dmg" length="25585076" type="application/octet-stream" sparkle:edSignature="lg9+ykhIoHMgAvom7t7BQoFJz3qVK4xSQIY3tR3MM2r7EAdDPrkKIdIxdDEEP0lPfBoPWAIFmSed6KilgSeCDA=="/>
+        </item>
+        <item>
             <title>0.1.72</title>
             <pubDate>Mon, 12 Oct 2026 11:00:03 -0700</pubDate>
             <link>https://covemail.xyz/beta/</link>
@@ -30,6 +40,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: I+aOMGvSx8rlOQM6wL0TJzG5LdSg+AlkTbX1hfnffXbMUebfGGZt8/HH4uxj/qJXwEkCMnetw+BEabRI0ZzGDg==
-length: 3105
+edSignature: jeYOu+LOTjAKn2xvXTRjkvOdIJN0yhiYAAhWFyGhheentRaX5CaRyS2fYl3HdUPQOsncqUJA1JTkRpp44+paAw==
+length: 4327
 -->

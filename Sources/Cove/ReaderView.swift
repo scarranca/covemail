@@ -563,6 +563,7 @@ struct ReaderView: View {
           ComposeTextEditor(text: Binding(get: { reply }, set: { updateReply($0, fromEditor: true) }), selection: Binding(get: { typed.selection }, set: { typed.select($0) }),
             accessibilityName: "Reply body", isEditable: writingActivity.preview == nil,
             focusRequest: replyFocusRequest, inset: NSSize(width: 0, height: 4),
+            inlineFiles: store.attachments(for: AttachmentTarget.reply(replySource.id)),
             onPasteImages: { files, problems in
               store.addAttachments(files, to: AttachmentTarget.reply(replySource.id), problems: problems)
             })
@@ -571,9 +572,9 @@ struct ReaderView: View {
             .accessibilityHidden(writingActivity.preview != nil || streamingReply)
           if let preview = writingActivity.preview {
             // A streamed draft is already on screen; don't animate it a second time.
-            WritingInkCanvas(text: preview, animated: !writingActivity.streamed,
+            InlineWritingCanvas(text: preview, animated: !writingActivity.streamed,
               onEdit: writingActivity.working ? nil : { writingActivity.preview = $0 },
-              onSelection: { writingActivity.previewSelection = $0 }, selectedRange: writingActivity.previewSelection)
+              onSelection: { writingActivity.previewSelection = $0 }, selectedRange: writingActivity.previewSelection, inlineFiles: store.attachments(for: AttachmentTarget.reply(replySource.id)))
               .id(writingActivity.revision).accessibilityLabel("Suggested reply")
           } else if streamingReply, let streaming = writingActivity.streaming {
             ScrollView {

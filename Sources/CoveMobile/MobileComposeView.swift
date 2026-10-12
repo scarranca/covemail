@@ -275,8 +275,13 @@ struct MobileComposeView: View {
       // The suggestion previews on the canvas; the draft is unchanged until Apply.
       VStack(alignment: .leading, spacing: 14) {
         Label("Suggestion from Cove", systemImage: "sparkle").font(.mobileCaption).foregroundStyle(MobilePalette.badgeText)
-        MobileRevealText(text: suggestion, animate: !streamed && writing == nil)
-          .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+        if draft.attachments.contains(where: { $0.inline == true && suggestion.contains($0.bodyToken) }) {
+          MobileComposeEditor(text: .constant(suggestion), focused: .constant(false), inlineFiles: draft.attachments,
+            isEditable: false, onPasteImages: { _, _ in })
+        } else {
+          MobileRevealText(text: suggestion, animate: !streamed && writing == nil)
+            .frame(maxWidth: .infinity, minHeight: 200, alignment: .topLeading)
+        }
         if writing == nil {
           HStack(spacing: 10) {
             Button("Apply draft") { draft.body = suggestion; self.suggestion = nil }
@@ -291,6 +296,7 @@ struct MobileComposeView: View {
     } else {
       MobileComposeEditor(text: $draft.body,
         focused: Binding(get: { focus == .body }, set: { if $0 { focus = .body } else if focus == .body { focus = nil } }),
+        inlineFiles: draft.attachments,
         onPasteImages: { files, problems in attach(files, problems: problems) })
         .overlay(alignment: .topLeading) {
           if draft.body.isEmpty {
@@ -433,9 +439,10 @@ struct MobileComposeView: View {
   // MARK: Attachments
 
   @ViewBuilder private var attachmentList: some View {
-    if !draft.attachments.isEmpty || attachNotice != nil || loadingPhotos {
+    let files = draft.attachments.filter { $0.inline != true }
+    if !files.isEmpty || attachNotice != nil || loadingPhotos {
       VStack(alignment: .leading, spacing: 8) {
-        ForEach(draft.attachments) { file in
+        ForEach(files) { file in
           HStack(spacing: 10) {
             Image(systemName: file.mimeType.hasPrefix("image/") ? "photo" : file.mimeType.hasPrefix("video/") ? "video" : "doc")
               .font(.system(size: 15)).foregroundStyle(MobilePalette.body).frame(width: 22)
@@ -455,8 +462,8 @@ struct MobileComposeView: View {
         if loadingPhotos {
           HStack(spacing: 8) { ProgressView(); Text("Adding photos…") }.font(.mobileSecondary).foregroundStyle(MobilePalette.body)
         }
-        if draft.attachments.count > 1 {
-          Text("\(draft.attachments.count) files · \(ByteCountFormatter.string(fromByteCount: Int64(OutgoingAttachment.totalSize(draft.attachments)), countStyle: .file)) of 25 MB")
+        if files.count > 1 {
+          Text("\(files.count) files · \(ByteCountFormatter.string(fromByteCount: Int64(OutgoingAttachment.totalSize(files)), countStyle: .file)) of 25 MB")
             .font(.mobileMetadata).foregroundStyle(MobilePalette.muted)
         }
         if let attachNotice {

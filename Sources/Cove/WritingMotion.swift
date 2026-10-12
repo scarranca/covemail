@@ -1,4 +1,5 @@
 import AppKit
+import CoveCore
 import Observation
 import SwiftUI
 import CoreText
@@ -28,16 +29,37 @@ struct WritingCanvasPreview: View {
   var onEdit: ((String) -> Void)? = nil
   var onSelection: ((NSRange) -> Void)? = nil
   var selectedRange: NSRange? = nil
+  var inlineFiles: [OutgoingAttachment] = []
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       Label("Suggestion preview", systemImage: "sparkles")
         .font(.coveMetadata).foregroundStyle(Palette.body)
         .padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 18)
-      WritingInkCanvas(text: text, animated: animated && !reduceMotion, onEdit: onEdit, onSelection: onSelection, selectedRange: selectedRange)
+      InlineWritingCanvas(text: text, animated: animated && !reduceMotion, onEdit: onEdit, onSelection: onSelection, selectedRange: selectedRange, inlineFiles: inlineFiles)
       Text(onEdit == nil ? "Review and apply when it feels right." : "Edit here, then apply when you’re ready.").font(.coveMetadata).foregroundStyle(Palette.body)
         .padding(.horizontal, 24).padding(.vertical, 16)
     }.background(Palette.canvas)
+  }
+}
+
+/// Suggestions containing images use the same selection mapping as the draft editor.
+struct InlineWritingCanvas: View {
+  let text: String
+  var animated: Bool
+  var onEdit: ((String) -> Void)?
+  var onSelection: ((NSRange) -> Void)?
+  var selectedRange: NSRange?
+  var inlineFiles: [OutgoingAttachment]
+  var body: some View {
+    if inlineFiles.contains(where: { $0.inline == true && text.contains($0.bodyToken) }) {
+      ComposeTextEditor(text: Binding(get: { text }, set: { onEdit?($0) }),
+        selection: Binding(get: { selectedRange ?? NSRange(location: 0, length: 0) }, set: { onSelection?($0) }),
+        accessibilityName: "Suggested email text", isEditable: onEdit != nil,
+        inset: NSSize(width: 24, height: 4), inlineFiles: inlineFiles)
+    } else {
+      WritingInkCanvas(text: text, animated: animated, onEdit: onEdit, onSelection: onSelection, selectedRange: selectedRange)
+    }
   }
 }
 

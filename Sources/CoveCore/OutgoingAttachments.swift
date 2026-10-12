@@ -8,6 +8,10 @@ public struct OutgoingAttachment: Codable, Equatable, Identifiable, Sendable {
   public var filename: String
   public var mimeType: String
   public var data: Data
+  /// A body image; nil on older drafts and ordinary paperclip attachments.
+  public var inline: Bool?
+  public var contentID: String { "cove-" + id.uuidString.lowercased() + "@inline" }
+  public var bodyToken: String { "![image](cove-inline:" + id.uuidString.lowercased() + ")" }
 
   /// Gmail's limit for the files on one email.
   public static let totalLimit = 25 * 1024 * 1024
@@ -80,7 +84,8 @@ public struct OutgoingAttachment: Codable, Equatable, Identifiable, Sendable {
     let encoded = filename.addingPercentEncoding(withAllowedCharacters: Self.attrChars) ?? ascii
     let body = data.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
     return "Content-Type: \(mimeType); name=\"\(ascii)\"\r\n"
-      + "Content-Disposition: attachment; filename=\"\(ascii)\"; filename*=UTF-8''\(encoded)\r\n"
+      + "Content-Disposition: \(inline == true ? "inline" : "attachment"); filename=\"\(ascii)\"; filename*=UTF-8''\(encoded)\r\n"
+      + (inline == true ? "Content-ID: <\(contentID)>\r\n" : "")
       + "Content-Transfer-Encoding: base64\r\n\r\n" + body
   }
 

@@ -11,6 +11,7 @@ struct ComposeTextEditor: NSViewRepresentable {
   /// Increment to move keyboard focus into the editor.
   var focusRequest = 0
   var inset = NSSize(width: 22, height: 18)
+  var inlineFiles: [OutgoingAttachment] = []
   var onPasteImages: (([OutgoingAttachment], [String]) -> Void)?
 
   func makeNSView(context: Context) -> NSScrollView {
@@ -23,7 +24,9 @@ struct ComposeTextEditor: NSViewRepresentable {
     // the editor (the window's minimum size) while typing. TextKit 1 draws in place.
     let editor = ComposePasteTextView(usingTextLayoutManager: false)
     editor.onPasteImages = onPasteImages
-    editor.isRichText = false
+    editor.isRichText = onPasteImages != nil || !inlineFiles.isEmpty
+    editor.importsGraphics = false
+    editor.inlineFiles = inlineFiles
     editor.isEditable = isEditable
     editor.allowsUndo = true
     editor.isAutomaticQuoteSubstitutionEnabled = false
@@ -45,17 +48,20 @@ struct ComposeTextEditor: NSViewRepresentable {
     editor.textContainerInset = inset
     editor.setAccessibilityLabel(accessibilityName)
     scroll.documentView = editor
-    editor.string = text
+    editor.plainAttributes = editor.typingAttributes
+    editor.showBody(text)
     editor.delegate = context.coordinator
     return scroll
   }
 
   func updateNSView(_ scroll: NSScrollView, context: Context) {
     context.coordinator.parent = self
-    guard let editor = scroll.documentView as? NSTextView else { return }
+    guard let editor = scroll.documentView as? ComposePasteTextView else { return }
     context.coordinator.updating = true
     defer { context.coordinator.updating = false }
-    (editor as? ComposePasteTextView)?.onPasteImages = onPasteImages
+    editor.onPasteImages = onPasteImages
+    let filesChanged = editor.inlineFiles.map(\.id) != inlineFiles.map(\.id)
+    editor.inlineFiles = inlineFiles
     editor.isEditable = isEditable
     if !isEditable, editor.window?.firstResponder === editor {
       editor.window?.makeFirstResponder(nil)
@@ -67,16 +73,15 @@ struct ComposeTextEditor: NSViewRepresentable {
       if focusRequest != context.coordinator.focusRequest { context.coordinator.focusRequest = focusRequest }
       return
     }
-    if editor.string != text {
-      editor.string = text
-    }
+    if editor.bodyText != text || filesChanged { editor.showBody(text) }
     if focusRequest != context.coordinator.focusRequest {
       context.coordinator.focusRequest = focusRequest
       DispatchQueue.main.async { editor.window?.makeFirstResponder(editor) }
     }
     // An out-of-date selection lands at the end of the text, never the start.
     let end = NSRange(location: (text as NSString).length, length: 0)
-    let safeRange = Range(selection, in: text) != nil ? selection : end
+    let modelRange = Range(selection, in: text) != nil ? selection : end
+    let safeRange = InlineImageText.nativeRange(modelRange, in: editor.attributedString())
     if editor.selectedRange() != safeRange { editor.setSelectedRange(safeRange) }
   }
 
@@ -88,13 +93,17 @@ struct ComposeTextEditor: NSViewRepresentable {
     init(_ parent: ComposeTextEditor) { self.parent = parent; focusRequest = parent.focusRequest }
     func textDidChange(_ notification: Notification) {
       // A pending accent isn't text yet; it's reported once the character is committed.
-      guard !updating, let editor = notification.object as? NSTextView, !editor.hasMarkedText() else { return }
-      parent.text = editor.string
-      if parent.selection != editor.selectedRange() { parent.selection = editor.selectedRange() }
+      guard !updating, let editor = notification.object as? ComposePasteTextView, !editor.hasMarkedText() else { return }
+      parent.text = editor.bodyText
+      editor.typingAttributes = editor.plainAttributes
+      let range = InlineImageText.modelRange(editor.selectedRange(), in: editor.attributedString())
+      if parent.selection != range { parent.selection = range }
     }
     func textViewDidChangeSelection(_ notification: Notification) {
-      guard !updating, let editor = notification.object as? NSTextView, !editor.hasMarkedText() else { return }
-      if parent.selection != editor.selectedRange() { parent.selection = editor.selectedRange() }
+      guard !updating, let editor = notification.object as? ComposePasteTextView, !editor.hasMarkedText() else { return }
+      editor.typingAttributes = editor.plainAttributes
+      let range = InlineImageText.modelRange(editor.selectedRange(), in: editor.attributedString())
+      if parent.selection != range { parent.selection = range }
     }
   }
 }

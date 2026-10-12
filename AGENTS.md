@@ -11,6 +11,17 @@ This is the shared handoff for the Cove repository. Read it before changing the 
 
 Some README/status/distribution sections are historical and still mention older versions, no deployed backend, or the old `Cove / Needs review` behavior. Newer code, versioned evidence, and this handoff supersede those claims. Do not report old test totals as verification of new changes.
 
+## Cove 0.1.73 — inline pasted images (October 12, 2026)
+
+- New-message/reply Paste on Mac and iPhone/iPad inserts native image attachments at the caret.
+  `InlineImageText` maps native attachment characters and selections to stable tokens in the draft
+  body; bytes remain in the existing encrypted attachment records. Preserve TextKit 1 and IME handling.
+- `OutgoingAttachment.inline` is optional for old-draft compatibility. Gmail sends a plain/HTML
+  alternative with CID images in multipart/related; paperclip files remain ordinary attachments.
+  Deleted body images are excluded from sending; bytes are retained for Undo. Missing bytes block Send.
+- Published Mac 0.1.73 (75), Pages `89ebad0d`; iPhone/iPad 0.1.0 (24) uploaded to TestFlight.
+  Evidence and limitations: `docs/qa/0.1.73/AUDIT.md`. Mobile runtime and tester availability remain unverified.
+
 ## Cove 0.1.72 — paste images into drafts (October 12, 2026)
 
 - Mac: `ComposePasteTextView` intercepts explicit image Paste/⌘V in new-message and reply bodies.

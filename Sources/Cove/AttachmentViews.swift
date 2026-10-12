@@ -19,7 +19,7 @@ struct AttachmentChips: View {
   let target: String
 
   var body: some View {
-    let files = store.attachments(for: target)
+    let files = store.attachments(for: target).filter { $0.inline != true }
     VStack(alignment: .leading, spacing: 6) {
       if !files.isEmpty {
         FlowLayout(spacing: 6) {

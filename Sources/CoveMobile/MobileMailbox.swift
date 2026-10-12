@@ -942,7 +942,7 @@ import UIKit
     // Validate now, so a bad address or too many files is reported before the composer closes.
     try OutgoingAttachment.validate(attachments)
     _ = try GmailClient.rawMessage(from: from, to: to, subject: subject, body: body,
-                                   replyMessageID: reply?.messageID, cc: cc)
+                                   replyMessageID: reply?.messageID, cc: cc, attachments: attachments)
     schedule(PendingAction(title: "Sending…"), seconds: 4) { [weak self] in
       guard let self else { return }
       do {

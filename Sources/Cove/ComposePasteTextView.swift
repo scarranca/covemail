@@ -5,6 +5,16 @@ import UniformTypeIdentifiers
 /// Keep native plain-text editing, intercepting only an explicit image paste.
 final class ComposePasteTextView: NSTextView {
   var onPasteImages: (([OutgoingAttachment], [String]) -> Void)?
+  var inlineFiles: [OutgoingAttachment] = []
+  var plainAttributes: [NSAttributedString.Key: Any] = [:]
+  var bodyText: String { InlineImageText.serialized(attributedString()) }
+
+  func showBody(_ body: String) {
+    textStorage?.setAttributedString(InlineImageText.rendered(body, files: inlineFiles,
+      attributes: plainAttributes, width: max(180, bounds.width - textContainerInset.width * 2)))
+    typingAttributes = plainAttributes
+  }
+
   // Injectable so tests never read or overwrite the user's clipboard.
   var imagePasteboard: NSPasteboard = .general
 
@@ -14,7 +24,7 @@ final class ComposePasteTextView: NSTextView {
 
   override func paste(_ sender: Any?) {
     guard !pasteImages(from: imagePasteboard) else { return }
-    super.paste(sender)
+    pasteAsPlainText(sender)
   }
 
   override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
@@ -38,7 +48,7 @@ final class ComposePasteTextView: NSTextView {
       if let value = item.string(forType: .fileURL), let url = URL(string: value), url.isFileURL,
          UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
         handled = true
-        do { files.append(try OutgoingAttachment(contentsOf: url)) }
+        do { files.append(try PastedImage.attachment(data: Data(contentsOf: url), name: url.deletingPathExtension().lastPathComponent)) }
         catch { problems.append(error.localizedDescription) }
       } else if let type = item.availableType(from: Self.imageTypes) {
         handled = true
@@ -48,7 +58,20 @@ final class ComposePasteTextView: NSTextView {
         } catch { problems.append(error.localizedDescription) }
       }
     }
-    if handled { onPasteImages(files, problems) }
+    if handled {
+      files = files.map { var file = $0; file.inline = true; return file }
+      let result = OutgoingAttachment.adding(files, to: inlineFiles)
+      let accepted = result.files.filter { file in files.contains { $0.id == file.id } }
+      if let problem = result.problem { problems.append(problem) }
+      onPasteImages(accepted, problems)
+      inlineFiles = result.files
+      if !accepted.isEmpty {
+        let value = InlineImageText.rendered(accepted.map(\.bodyToken).joined(), files: accepted,
+          attributes: plainAttributes, width: max(180, bounds.width - textContainerInset.width * 2))
+        insertText(value, replacementRange: selectedRange())
+        typingAttributes = plainAttributes
+      }
+    }
     return handled
   }
 }
