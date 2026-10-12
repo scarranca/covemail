@@ -70,3 +70,6 @@ pasteboards. Hidden-window rendering does not interrupt the user's running Cove 
 - Public `/release.json`, `/beta/` and `/updates/appcast.xml` serve 0.1.73 (75).
 - Headless Sparkle probes passed with isolated hosts: 0.1.72 discovers 0.1.73 (75), and 0.1.73
   correctly finds no newer release. No user app was opened, quit or updated.
+- `/download/latest` resolves to `/downloads/Cove-0.1.73.dmg`; the complete public download matches
+  the final artifact's byte count and SHA-256 above. Release source pushed as `82e8048` on
+  `scarranca/dismiss-mobile-notification-on`; `main` and other worktrees were left unchanged.
