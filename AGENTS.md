@@ -11,6 +11,22 @@ This is the shared handoff for the Cove repository. Read it before changing the 
 
 Some README/status/distribution sections are historical and still mention older versions, no deployed backend, or the old `Cove / Needs review` behavior. Newer code, versioned evidence, and this handoff supersede those claims. Do not report old test totals as verification of new changes.
 
+## TestFlight build 22 — mobile notification cleanup (October 12, 2026)
+
+- iPhone/iPad remove delivered mail/code notifications for mail read, archived, trashed, spammed or
+  deleted elsewhere. `GmailPush.newInboxMessages` now includes changed message IDs across history
+  pages; `MailNotificationCleanup` confirms current labels with minimal Gmail reads before removal,
+  preserving Undo and unread Inbox mail. Errors preserve notifications and the history cursor.
+- Reconciliation runs in the notification extension, on app activation, after successful mobile sync
+  and in Background App Refresh (still a twelve-hour earliest request, not continuous mailbox sync).
+- `accountEmail` tags new notification content; unrelated account alerts are excluded. Legacy alerts
+  retain single-account behavior. Backend and Mac unchanged; iOS 0.1.0 (22) uploaded October 12 (EXPORT SUCCEEDED).
+  Apple reported processing; tester availability and physical-device behavior remain unverified.
+- Apple filtering approval is still external/pending. Default builds retain the passive cleanup
+  placeholder. `docs/IOS.md` has the prepared request and the two opt-in extension build settings;
+  never enable them in a signed release before Apple grants the entitlement. QA evidence:
+  `docs/qa/0.1.71/AUDIT-notification-cleanup.md`.
+
 ## Current checkpoint — September 30, 2026
 
 - **Unreleased (branch `claude/ios-apple-intelligence`, October 4): Cove for iPhone and Apple Intelligence.** See `docs/IOS.md`.

@@ -317,6 +317,7 @@ import UIKit
         guard try await syncOnce(database) else { return }
         // Gmail answered, so the connection is up: queued changes go now.
         flushQueued(immediately: true)
+        await MobilePush.shared.reconcileNotifications()
         return
       } catch is CancellationError {
         return

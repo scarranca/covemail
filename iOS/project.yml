@@ -36,7 +36,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: CoveMobileApp/CoveMobileApp.entitlements
         DEVELOPMENT_TEAM: 27H459Y2P9
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "21"
+        CURRENT_PROJECT_VERSION: "22"
         # agvtool (used by Codemagic to set the build number) needs Apple Generic versioning.
         VERSIONING_SYSTEM: apple-generic
   # Reads the new email with the app's own Google sign-in and turns Cove's content-free push into
@@ -54,13 +54,17 @@ targets:
         PRODUCT_NAME: CoveNotifications
         PRODUCT_BUNDLE_IDENTIFIER: ai.cove.ios.notifications
         INFOPLIST_FILE: CoveNotifications/Info.plist
-        CODE_SIGN_ENTITLEMENTS: CoveNotifications/CoveNotifications.entitlements
+        # Override both only after Apple approves notification filtering (docs/IOS.md).
+        COVE_NOTIFICATION_ENTITLEMENTS: CoveNotifications/CoveNotifications.entitlements
+        CODE_SIGN_ENTITLEMENTS: $(COVE_NOTIFICATION_ENTITLEMENTS)
+        COVE_NOTIFICATION_FILTERING_CONDITION: ""
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) $(COVE_NOTIFICATION_FILTERING_CONDITION)
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 27H459Y2P9
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
         MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "21"
+        CURRENT_PROJECT_VERSION: "22"
         VERSIONING_SYSTEM: apple-generic
         SKIP_INSTALL: YES
 schemes:

@@ -63,6 +63,7 @@ enum NewMail {
           ?? NewMailAlert.make(for: mail, accountEmail: account, scope: settings.scope, showPreview: settings.showPreview,
                                muted: settings.muted, important: settings.alwaysNotify)
       }
+      guard settings.enabled, settings.accountEmail == account else { return placeholder(base, requestID) }
       settings.notified += mails.map(\.id)
       guard let first = alerts.first else { return placeholder(base, requestID) }
       // More than one new email: the others become their own notifications in the same conversation group.
@@ -84,6 +85,8 @@ enum NewMail {
     let token = try await accessToken(for: account)
     guard let cursor = settings.cursor else {
       // No starting point yet: begin from this notification; the next one reports what's new.
+      try await MobileNotificationCleanup.reconcile(token: token, account: account)
+      guard settings.enabled, settings.accountEmail == account else { return [] }
       settings.cursor = pushHistory
       return []
     }
@@ -91,10 +94,13 @@ enum NewMail {
     do {
       found = try await GmailPush.newInboxMessages(token: token, after: cursor)
     } catch let failure as HTTPFailure where failure.statusCode == 404 {
+      try await MobileNotificationCleanup.reconcile(token: token, account: account)
+      guard settings.enabled, settings.accountEmail == account else { return [] }
       settings.cursor = pushHistory
       return []
     }
-    settings.cursor = found.cursor
+    try await MobileNotificationCleanup.reconcile(token: token, account: account, changedIDs: found.changedIDs)
+    guard settings.enabled, settings.accountEmail == account else { return [] }
     // Every new-mail push renews Gmail's week-long watch when it's close to expiring, so it never
     // lapses while mail keeps arriving (the cursor is untouched).
     _ = try? await GmailPush.renewIfNeeded(token: token, settings: settings)
@@ -106,6 +112,8 @@ enum NewMail {
     for id in fresh.suffix(4) {
       if let mail = try await GmailClient().message(id: id, token: token) { mails.append(mail) }
     }
+    guard settings.enabled, settings.accountEmail == account else { return [] }
+    settings.cursor = found.cursor
     return mails
   }
 
@@ -130,6 +138,7 @@ enum NewMail {
     base.threadIdentifier = "cove-thread-" + alert.threadID
     base.categoryIdentifier = "cove.new-mail"
     base.userInfo = ["mailID": alert.mailID, "threadID": alert.threadID]
+    base.userInfo["accountEmail"] = PushSettings.shared.accountEmail
     base.interruptionLevel = .active
     base.relevanceScore = 1
     if let code = alert.code {
@@ -143,6 +152,10 @@ enum NewMail {
 
   /// Nothing new to say: a passive entry with no sound or banner, removed by the next push.
   private static func placeholder(_ base: UNMutableNotificationContent, _ requestID: String) -> UNNotificationContent {
+    #if COVE_NOTIFICATION_FILTERING
+    // Enable only after Apple grants the entitlement and signing profiles include it.
+    return UNNotificationContent()
+    #else
     base.title = "Cove"
     base.subtitle = ""
     base.body = "Your mail is up to date."
@@ -152,6 +165,7 @@ enum NewMail {
     base.threadIdentifier = "cove-sync"
     PushSettings.shared.placeholders += [requestID]
     return base
+    #endif
   }
 
   private static var sampleCode: Mail {

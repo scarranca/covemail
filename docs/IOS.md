@@ -154,3 +154,65 @@ Two causes, fixed together:
 - **Not loading:** after Gmail's history expired (a device not opened for about a week), sync re-checked every downloaded email (up to about 600 on an iPad with history) before showing anything, at Gmail's pace, so new mail could take minutes or never land if the app was left. The same held for a large `pendingIDs` backlog. `GmailClient.synchronize(maxVerifications:)` now reads new mail first and re-checks at most 60 known emails per sync, newest first; the rest stay pending for later syncs. An email deleted in Gmail can therefore stay visible on the device for a few more sync cycles. The Mac passes no limit, so its behavior is unchanged. Tests: `GmailSyncTests.testExpiredHistoryShowsNewMailFirst…`, `testABacklogNeverDelaysNewMail…`.
 - **Slow:** `MobileMailbox.visible` re-sorted and re-filtered all mail on every access (about five per redraw), and the unread counts scanned everything; the iPad draws the sidebar, list and reader together while history downloads every 1.5 s. Both are now cached against `listRevision` (bumped by `mails`/`hiddenIDs`) plus the folder, Unread filter, tab and split setting.
 - **Status:** `status` ("Gmail asked Cove to slow down…", "Checking N older emails…") was never displayed. The list now has a quiet line under its header ("Updated 3 min ago", hidden for the sample mailbox), and the iPad sidebar shows the status too.
+
+
+## Clear notifications after reading on another device (TestFlight build 22, October 12)
+
+Gmail's existing Inbox watch reports changes, not only arrivals. The notification extension now
+reads label changes and deletions from history too. For delivered alerts affected by a change,
+it checks the message's **current** labels with `format=minimal` before removing the notification.
+Read, archived, Spam, Trash and deleted mail are cleared; unread Inbox mail stays. Checking current
+state preserves an archive/read that has already been undone. A 404 confirms deletion; network,
+authentication and quota failures leave notifications and the extension's history cursor intact.
+History is bounded to five pages per push and resumes after the last processed record when there
+are more, rather than advancing to the mailbox head and skipping unseen changes.
+
+The same cleanup runs when Cove becomes active, after a successful mailbox sync, and during
+Background App Refresh. These fallback checks inspect all delivered mail alerts, including mail
+outside the phone's downloaded working set. Background refresh still requests a wake after twelve
+hours; iOS determines when it runs. It does **not** perform a full mailbox sync. Account-tagged
+notifications are checked only against their own account; old untagged notifications retain the
+existing single-account behavior. Sign-in codes use the same cleanup. No server deployment,
+new OAuth scope, Gmail credential upload, or Mac update is required for this change.
+
+### Apple notification filtering approval
+
+The default build keeps the existing passive “Your mail is up to date” entry for a cleanup-only
+push. It is cleared by the next cleanup. Removing the old email alert already works without the
+filtering entitlement; suppressing the incoming cleanup push requires Apple's approval.
+
+Request: https://developer.apple.com/contact/request/notification-service
+
+Request details (prepared, **not submitted**):
+
+- Team: `27H459Y2P9`
+- App: Cove Mail, `ai.cove.ios`
+- Notification service extension: `ai.cove.ios.notifications`
+- Entitlement: `com.apple.developer.usernotifications.filtering`
+- Purpose: “Cove is an email client for iPhone and iPad. Gmail reports mailbox changes to our
+  server, which forwards a content-free push. Our notification service extension uses the user's
+  on-device Google session to determine whether new mail warrants an alert and to remove delivered
+  notifications for mail read, archived or deleted on another device. For pushes that only reconcile
+  existing notifications, or whose new mail has already been read, we need to return empty
+  UNNotificationContent without showing a replacement alert. Our server holds no Gmail credentials
+  or message content.”
+
+After Apple grants this capability to the **extension App ID**, regenerate its signing profiles.
+Generate the Xcode project normally, then add these two build arguments to the usual archive command:
+
+```sh
+COVE_NOTIFICATION_ENTITLEMENTS=CoveNotifications/Filtering.entitlements \
+COVE_NOTIFICATION_FILTERING_CONDITION=COVE_NOTIFICATION_FILTERING
+```
+
+These settings affect only the notification extension. Both are required: the alternate entitlement
+file requests the permission; the compilation condition enables returning empty notification
+content. Leave both unset until approval. Verify the signed extension's entitlements and test a
+cleanup-only push on a physical iPhone and iPad before distributing the enabled build. An unsigned
+simulator build verifies compilation only, not Apple's grant or APNs delivery.
+
+Reference: https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.usernotifications.filtering
+
+Build 22 (0.1.0) uploaded successfully on October 12 at 08:04 UTC with filtering disabled. Apple
+reported processing; tester availability and any export-compliance prompt remain unverified.
+See `docs/qa/0.1.71/AUDIT-notification-cleanup.md` for the deployment record.

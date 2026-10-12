@@ -50,6 +50,8 @@ public enum GmailPush {
     /// Messages added to the Inbox since the cursor, oldest first.
     public var ids: [String]
     public var cursor: String
+    /// Messages whose labels or existence changed; verify current state before clearing an alert.
+    public var changedIDs: Set<String> = []
   }
 
   /// Messages added to the Inbox after `cursor`. Gmail answers 404 when the cursor is too old;
@@ -58,7 +60,11 @@ public enum GmailPush {
     struct Page: Decodable {
       struct Record: Decodable {
         struct Added: Decodable { struct Message: Decodable { let id: String; let labelIds: [String]? }; let message: Message }
+        let id: String?
         let messagesAdded: [Added]?
+        let messagesDeleted: [Added]?
+        let labelsAdded: [Added]?
+        let labelsRemoved: [Added]?
       }
       let history: [Record]?
       let historyId: String
@@ -67,12 +73,17 @@ public enum GmailPush {
     var result = NewMail(ids: [], cursor: cursor)
     var pageToken: String?
     var pages = 0
+    var lastRecordID: String?
     repeat {
-      var query = [URLQueryItem(name: "startHistoryId", value: cursor), URLQueryItem(name: "historyTypes", value: "messageAdded"),
-                   URLQueryItem(name: "labelId", value: "INBOX"), URLQueryItem(name: "maxResults", value: "100")]
+      // Include label changes and deletes, even when the message has left the Inbox.
+      var query = [URLQueryItem(name: "startHistoryId", value: cursor), URLQueryItem(name: "maxResults", value: "100")]
       if let pageToken { query.append(URLQueryItem(name: "pageToken", value: pageToken)) }
       let page = try JSONDecoder().decode(Page.self, from: await client.request("history", token: token, query: query))
       for record in page.history ?? [] {
+        lastRecordID = record.id ?? lastRecordID
+        for change in (record.messagesDeleted ?? []) + (record.labelsAdded ?? []) + (record.labelsRemoved ?? []) {
+          result.changedIDs.insert(change.message.id)
+        }
         for added in record.messagesAdded ?? [] {
           let labels = Set(added.message.labelIds ?? [])
           // Drafts and the user's own sent mail are never "new mail".
@@ -85,6 +96,12 @@ public enum GmailPush {
       pageToken = page.nextPageToken
       pages += 1
     } while pageToken != nil && pages < 5
+    // Gmail's page historyId is the mailbox head, not this page's boundary. If bounded work
+    // stopped early, resume after the last processed record instead of skipping unseen pages.
+    if pageToken != nil {
+      guard let lastRecordID else { throw CoveError.message("Incomplete Gmail notification history.") }
+      result.cursor = lastRecordID
+    }
     return result
   }
 }

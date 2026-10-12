@@ -162,6 +162,7 @@ import UserNotifications
   func appBecameActive() async {
     await refreshAuthorization()
     guard settings.enabled, let auth, !auth.isSample, auth.email == settings.accountEmail else { return }
+    await reconcileNotifications()
     do {
       if let identity = try await auth.identityToken() {
         try await register(device: try await registeredDeviceToken(), identity: identity)
@@ -170,6 +171,19 @@ import UserNotifications
     } catch {
       status = "Notifications will reconnect when Cove is online."
     }
+  }
+
+  @ObservationIgnored private var reconcilingNotifications = false
+
+  /// Reconcile directly with Gmail, including mail outside this device's downloaded working set.
+  func reconcileNotifications() async {
+    guard !reconcilingNotifications, settings.enabled, let auth, !auth.isSample,
+          let account = auth.email, settings.accountEmail == account else { return }
+    reconcilingNotifications = true
+    defer { reconcilingNotifications = false }
+    do {
+      try await MobileNotificationCleanup.reconcile(token: try await auth.token(), account: account)
+    } catch { /* Offline/cancelled: keep alerts and check again next time. */ }
   }
 
   /// The signed-in account changed or signed out: stop notifying for the old one.
@@ -316,8 +330,8 @@ extension MobilePush: UNUserNotificationCenterDelegate {
   }
 }
 
-/// Background App Refresh: iOS wakes Cove now and then (about twice a day when used) to renew Gmail's
-/// watch, so notifications keep working through a week with no new mail and the app never opened.
+/// Background App Refresh asks to run after twelve hours (iOS chooses when). It reconciles
+/// delivered notifications and renews Gmail's watch; it does not download the full mailbox.
 public enum MobileWatchRefresh {
   static let identifier = "ai.cove.ios.watch-refresh"
 
@@ -328,8 +342,14 @@ public enum MobileWatchRefresh {
       let work = Task {
         let settings = PushSettings.shared
         do {
-          if settings.enabled, !settings.sample, GmailPush.needsRenewal(expires: settings.watchExpires) {
-            try await GmailPush.renewIfNeeded(token: try await MobilePushActions.accessToken(), settings: settings)
+          if settings.enabled, !settings.sample, let account = settings.accountEmail {
+            let token = try await MobilePushActions.accessToken(account: account)
+            try await MobileNotificationCleanup.reconcile(token: token, account: account)
+            guard settings.enabled, settings.accountEmail == account else {
+              task.setTaskCompleted(success: true)
+              return
+            }
+            try await GmailPush.renewIfNeeded(token: token, settings: settings)
           }
           task.setTaskCompleted(success: true)
         } catch {
@@ -351,9 +371,10 @@ public enum MobileWatchRefresh {
 
 /// Notification actions can run while Cove isn't open, so they read the saved session directly.
 enum MobilePushActions {
-  static func accessToken() async throws -> String {
+  static func accessToken(account: String? = nil) async throws -> String {
     guard let saved = try MobileKeychain.read(MobileAuth.sessionKey),
-          let session = try? JSONDecoder().decode(GoogleAccountSession.self, from: Data(saved.utf8))
+          let session = try? JSONDecoder().decode(GoogleAccountSession.self, from: Data(saved.utf8)),
+          account == nil || session.email.caseInsensitiveCompare(account!) == .orderedSame
     else { throw CoveError.message("Sign in with Google to continue.") }
     return try await GoogleTokenClient().refresh(refreshToken: session.refreshToken, clientID: session.clientID, secret: "").access_token
   }
