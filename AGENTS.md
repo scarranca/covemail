@@ -11,6 +11,22 @@ This is the shared handoff for the Cove repository. Read it before changing the 
 
 Some README/status/distribution sections are historical and still mention older versions, no deployed backend, or the old `Cove / Needs review` behavior. Newer code, versioned evidence, and this handoff supersede those claims. Do not report old test totals as verification of new changes.
 
+## Cove 0.1.72 — paste images into drafts (October 12, 2026)
+
+- Mac: `ComposePasteTextView` intercepts explicit image Paste/⌘V in new-message and reply bodies.
+  Images join the existing encrypted draft attachments (`AttachmentTarget.draft/reply`), preserving
+  text and selection. Ordinary text paste and TextKit 1 behavior remain native. AI preview editors
+  do not receive attachment callbacks.
+- iPhone/iPad: `MobileComposeEditor` uses a native text view for Paste/⌘V and passes copied images
+  to the existing compose/reply attachment list. It reads clipboard bytes only during explicit paste.
+- `PastedImage` preserves PNG/JPEG/GIF bytes, converts other ImageIO clipboard formats to PNG,
+  bounds conversion dimensions, and keeps the existing total attachment limit. Images are file
+  attachments, not HTML inline images. No mail is sent until Send.
+- Release evidence: `docs/qa/0.1.72/AUDIT.md`; implementation checks in
+  `docs/qa/0.1.71/AUDIT-image-paste.md`. Mac 0.1.72 (74) published (Pages `fc9daef5`);
+  TestFlight 0.1.0 (23) uploaded.
+  Mobile paste is build-verified only; tester availability is unverified.
+
 ## TestFlight build 22 — mobile notification cleanup (October 12, 2026)
 
 - iPhone/iPad remove delivered mail/code notifications for mail read, archived, trashed, spammed or

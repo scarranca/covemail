@@ -289,8 +289,14 @@ struct MobileComposeView: View {
       .background(MobilePalette.surface, in: RoundedRectangle(cornerRadius: 10))
       .overlay(RoundedRectangle(cornerRadius: 10).stroke(MobilePalette.line))
     } else {
-      TextField("Write your message", text: $draft.body, axis: .vertical)
-        .font(.mobileBody).foregroundStyle(MobilePalette.ink).lineSpacing(6).focused($focus, equals: .body)
+      MobileComposeEditor(text: $draft.body,
+        focused: Binding(get: { focus == .body }, set: { if $0 { focus = .body } else if focus == .body { focus = nil } }),
+        onPasteImages: { files, problems in attach(files, problems: problems) })
+        .overlay(alignment: .topLeading) {
+          if draft.body.isEmpty {
+            Text("Write your message").font(.mobileBody).foregroundStyle(MobilePalette.muted).allowsHitTesting(false)
+          }
+        }
         .frame(maxWidth: .infinity, minHeight: 260, alignment: .topLeading)
     }
   }

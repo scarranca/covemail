@@ -260,7 +260,10 @@ struct ComposerView: View {
       ZStack(alignment: .topLeading) {
         ComposeTextEditor(text: Binding(get: { text }, set: { typedInBody($0) }),
                           selection: Binding(get: { typedBody.selection }, set: { typedBody.select($0) }),
-                          isEditable: writingActivity.preview == nil)
+                          isEditable: writingActivity.preview == nil,
+                          onPasteImages: { files, problems in
+                            if let target = attachmentTarget { store.addAttachments(files, to: target, problems: problems) }
+                          })
           .opacity(writingActivity.preview == nil ? 1 : 0)
           .accessibilityHidden(writingActivity.preview != nil)
           .allowsHitTesting(writingActivity.preview == nil)

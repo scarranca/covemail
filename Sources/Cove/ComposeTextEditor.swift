@@ -1,4 +1,5 @@
 import AppKit
+import CoveCore
 import SwiftUI
 
 /// A native plain-text editor, with selection exposed for scoped AI rewrites.
@@ -10,6 +11,7 @@ struct ComposeTextEditor: NSViewRepresentable {
   /// Increment to move keyboard focus into the editor.
   var focusRequest = 0
   var inset = NSSize(width: 22, height: 18)
+  var onPasteImages: (([OutgoingAttachment], [String]) -> Void)?
 
   func makeNSView(context: Context) -> NSScrollView {
     let scroll = NSScrollView()
@@ -19,7 +21,8 @@ struct ComposeTextEditor: NSViewRepresentable {
     // TextKit 1. TextKit 2 adds a drawing subview for each new line or paragraph, and every added
     // subview tells SwiftUI the layout changed, so it re-measured the whole reader or composer around
     // the editor (the window's minimum size) while typing. TextKit 1 draws in place.
-    let editor = NSTextView(usingTextLayoutManager: false)
+    let editor = ComposePasteTextView(usingTextLayoutManager: false)
+    editor.onPasteImages = onPasteImages
     editor.isRichText = false
     editor.isEditable = isEditable
     editor.allowsUndo = true
@@ -52,6 +55,7 @@ struct ComposeTextEditor: NSViewRepresentable {
     guard let editor = scroll.documentView as? NSTextView else { return }
     context.coordinator.updating = true
     defer { context.coordinator.updating = false }
+    (editor as? ComposePasteTextView)?.onPasteImages = onPasteImages
     editor.isEditable = isEditable
     if !isEditable, editor.window?.firstResponder === editor {
       editor.window?.makeFirstResponder(nil)

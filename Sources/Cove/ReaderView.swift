@@ -562,7 +562,10 @@ struct ReaderView: View {
         ZStack(alignment: .topLeading) {
           ComposeTextEditor(text: Binding(get: { reply }, set: { updateReply($0, fromEditor: true) }), selection: Binding(get: { typed.selection }, set: { typed.select($0) }),
             accessibilityName: "Reply body", isEditable: writingActivity.preview == nil,
-            focusRequest: replyFocusRequest, inset: NSSize(width: 0, height: 4))
+            focusRequest: replyFocusRequest, inset: NSSize(width: 0, height: 4),
+            onPasteImages: { files, problems in
+              store.addAttachments(files, to: AttachmentTarget.reply(replySource.id), problems: problems)
+            })
             .opacity(writingActivity.preview == nil && !streamingReply ? 1 : 0)
             .allowsHitTesting(writingActivity.preview == nil && !streamingReply)
             .accessibilityHidden(writingActivity.preview != nil || streamingReply)

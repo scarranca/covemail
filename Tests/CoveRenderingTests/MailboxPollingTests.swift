@@ -84,16 +84,17 @@ final class MailboxPollingTests: XCTestCase {
   func testProbeBetweenSyncsSyncsEarlyOnlyForNewMail() async throws {
     let (store, _, transport, clock) = try fixture()
     await store.sync()                        // history 1
-    clock.date.addTimeInterval(30)
+    // Sixty seconds probes on both battery and AC, still before the two-minute full sync.
+    clock.date.addTimeInterval(60)
     await store.pollMailbox()                 // probe (history 2) finds mail → sync (history 3)
     let early = await transport.historyRequests
     XCTAssertEqual(early, 3)
     XCTAssertEqual(store.lastSync, clock.date)
-    clock.date.addTimeInterval(30)
+    clock.date.addTimeInterval(60)
     await store.pollMailbox()                 // probe (history 4) finds nothing → no sync
     let quiet = await transport.historyRequests
     XCTAssertEqual(quiet, 4)
-    XCTAssertEqual(store.lastSync, clock.date.addingTimeInterval(-30))
+    XCTAssertEqual(store.lastSync, clock.date.addingTimeInterval(-60))
   }
 
   func testBusySampleAndDisconnectedChecksDoNotConsumeTheNextPoll() async throws {

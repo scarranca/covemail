@@ -1,8 +1,21 @@
-<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?>
+<!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
---><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+-->
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Cove</title>
+        <item>
+            <title>0.1.72</title>
+            <pubDate>Mon, 12 Oct 2026 11:00:03 -0700</pubDate>
+            <link>https://covemail.xyz/beta/</link>
+            <sparkle:version>74</sparkle:version>
+            <sparkle:shortVersionString>0.1.72</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.72</title></head><body><h1>Paste images into emails</h1><ul><li>Paste a copied image with ⌘V in a new message or reply. It appears in the attachment list, ready to send.</li><li>Your message text and selection stay in place. Ordinary text paste works as before.</li><li>Copied PNG, JPEG and GIF images keep their original format; clipboard TIFF images become PNG.</li><li>The existing attachment controls and combined 25 MB limit apply.</li><li>iPhone and iPad also support image Paste in new messages and replies.</li></ul></body></html>
+]]></description>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.72.dmg" length="25542801" type="application/octet-stream" sparkle:edSignature="TzLsvh7n+CH52fqLJcWAvHTYz7tnNdR2K5cB/p7dRXU17Qu/8CYKyE5B/cBrkPJw8KSri366IIuFfkRGwojyDw=="/>
+        </item>
         <item>
             <title>0.1.71</title>
             <pubDate>Sun, 11 Oct 2026 09:21:53 -0700</pubDate>
@@ -12,10 +25,11 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cove 0.1.71</title></head><body><h1>Sign-in codes, one click away</h1><ul><li>When a verification or sign-in code arrives, Cove shows it in the menu bar for ten minutes. Click it to copy it.</li><li>A notification with Copy can show the code too (Settings → Menu bar → Sign-in codes).</li><li>New mail arrives sooner: between full syncs, Cove checks for new mail every 30 seconds (every minute on battery).</li><li>Only the code is taken from the email, and only from mail that arrived in the last ten minutes.</li><li>iPhone: a code gets its own notification with Copy, even when notifications are set to Important.</li></ul></body></html>
 ]]></description>
-            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.71.dmg" length="25532533" type="application/octet-stream" sparkle:edSignature="LCukbqTjlC5DxnrZg0QR0VXQORA+0wqILN63L6WSVmNcZioWsk5kcRHLA0RH0Hebr5jzbMl367i/HIyX60VXCg=="></enclosure>
+            <enclosure url="https://covemail.xyz/downloads/Cove-0.1.71.dmg" length="25532533" type="application/octet-stream" sparkle:edSignature="LCukbqTjlC5DxnrZg0QR0VXQORA+0wqILN63L6WSVmNcZioWsk5kcRHLA0RH0Hebr5jzbMl367i/HIyX60VXCg=="/>
         </item>
     </channel>
-</rss><!-- sparkle-signatures:
-edSignature: 3A/c4Mh5ARRTciu+BUoTPz4fClQiarqlW4Q1zS1yqP+8tvud2zlV2BMJ74uz3s9q6yUfCd+s604Ex+IBqBxyBQ==
-length: 1822
+</rss>
+<!-- sparkle-signatures:
+edSignature: I+aOMGvSx8rlOQM6wL0TJzG5LdSg+AlkTbX1hfnffXbMUebfGGZt8/HH4uxj/qJXwEkCMnetw+BEabRI0ZzGDg==
+length: 3105
 -->

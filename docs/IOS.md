@@ -216,3 +216,16 @@ Reference: https://developer.apple.com/documentation/bundleresources/entitlement
 Build 22 (0.1.0) uploaded successfully on October 12 at 08:04 UTC with filtering disabled. Apple
 reported processing; tester availability and any export-compliance prompt remain unverified.
 See `docs/qa/0.1.71/AUDIT-notification-cleanup.md` for the deployment record.
+
+
+## Image paste (TestFlight build 23, October 12)
+
+New messages and replies accept clipboard images through Paste or ⌘V with a hardware keyboard.
+`MobileComposeEditor` retains native plain-text editing and sends image bytes to the same attachment
+list as Photos and Files. PNG/JPEG/GIF stay in their original format; other supported raster clipboard
+formats become PNG. The existing combined 25 MB limit and attachment error notice apply. Clipboard
+contents are read only on an explicit paste. This adds file attachments, not inline HTML image layout.
+Simulator compilation passed; physical iPhone/iPad paste still needs verification.
+
+Image paste is included in 0.1.0 (23), uploaded October 12 at 17:58 UTC. Apple reported processing;
+tester availability remains unverified. Release evidence: `docs/qa/0.1.72/AUDIT.md`.
