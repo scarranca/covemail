@@ -155,7 +155,7 @@ Two causes, fixed together:
 - **Slow:** `MobileMailbox.visible` re-sorted and re-filtered all mail on every access (about five per redraw), and the unread counts scanned everything; the iPad draws the sidebar, list and reader together while history downloads every 1.5 s. Both are now cached against `listRevision` (bumped by `mails`/`hiddenIDs`) plus the folder, Unread filter, tab and split setting.
 - **Status:** `status` ("Gmail asked Cove to slow down…", "Checking N older emails…") was never displayed. The list now has a quiet line under its header ("Updated 3 min ago", hidden for the sample mailbox), and the iPad sidebar shows the status too.
 
-## New mail slow to arrive on iPhone and iPad (Oct 16)
+## New mail slow to arrive on iPhone and iPad (TestFlight build 22, Oct 17)
 
 Reported as "extremely slow to download new emails" on iPadOS. Four causes in how the app checks Gmail, fixed together; none is in the download of one email, which is one request.
 
@@ -165,3 +165,5 @@ Reported as "extremely slow to download new emails" on iPadOS. Four causes in ho
 - **New mail waited behind re-checks.** One sync read new mail and up to 60 known emails (the `pendingIDs` backlog after an expired history or a rate limit) in one paced batch, and the list updated only when all of it was done: at the background pace shared with the history download (about 5 reads a second at Gmail's reserve, 0.6 s apart in Low Power Mode), that put 12–40 s between the user and a new email on every sync for ten syncs after a week away. `MobileMailbox.syncOnce` now syncs in two steps: new mail alone (`maxVerifications: 0`, `interactive: true`, so it spends from the reserve kept for what the user does and never queues behind the history download), merged and on screen at once; then the backlog, 60 at a time, at the background pace. A rate limit in the second step keeps the first step's mail. `GmailClient.synchronize(interactive:)` is new; the Mac passes nothing and is unchanged. A decoder version bump re-reads the newest page in full and the rest as labels only, as before beyond the first 60.
 
 Tests: `GmailSyncTests.testNoVerificationsReadsOnlyNewMailAndLeavesTheWholeBacklogPending` (core). The `.task` capture and the push path are iOS behavior with no fixture here; verify on a device: open Cove on the iPad, send it an email from another account, and the row should appear within a few seconds of the banner, and within about two minutes with notifications off. Not yet run on a device.
+
+Build 22 (0.1.0) was archived on the development Mac and uploaded with `xcodebuild -exportArchive` on October 17. Before upload: `GmailSyncTests` and `SignInCodeTests` passed; `MailboxPollingTests.testProbeBetweenSyncsSyncsEarlyOnlyForNewMail` (Mac, unchanged code) failed only because the Mac was on battery, where the probe waits 60 s.
