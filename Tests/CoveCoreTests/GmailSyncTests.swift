@@ -344,6 +344,25 @@ final class GmailSyncTests: XCTestCase {
     XCTAssertTrue(all.pendingIDs.isEmpty)
   }
 
+  func testNoVerificationsReadsOnlyNewMailAndLeavesTheWholeBacklogPending() async throws {
+    // The phone's first sync step: new mail alone, so it is on screen before any re-check starts.
+    let backlog = Set((1...150).map { String(format: "p%03d", $0) })
+    let transport = SyncFixtureHTTP { request in
+      let name = request.url!.lastPathComponent
+      if name == "history" {
+        return (200, ["historyId": "300", "history": [["messagesAdded": [["message": ["id": "n1"]], ["message": ["id": "n2"]]]]]])
+      }
+      return (200, ["id": name, "threadId": "t", "labelIds": ["INBOX"]])
+    }
+    let result = try await GmailClient(transport: transport).synchronize(
+      token: "t", cached: [], historyID: "299", pendingIDs: backlog, maxVerifications: 0, interactive: true)
+    XCTAssertEqual(Set(result.messages.map(\.id)), ["n1", "n2"])
+    XCTAssertEqual(result.pendingIDs, backlog, "every known email waits for the paced second step")
+    XCTAssertEqual(result.historyID, "300")
+    let read = await transport.paths().filter { $0.hasPrefix("p") }
+    XCTAssertTrue(read.isEmpty, "no backlog email is read in the new-mail step")
+  }
+
   func testRateLimitPartwayKeepsWhatArrivedAndRemembersTheRest() async throws {
     let ids = (1...9).map { "m\($0)" }
     let limited = SyncFixtureHTTP { request in

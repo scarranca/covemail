@@ -119,6 +119,9 @@ import UIKit
   static let historyLimit = 600
   /// Already-downloaded emails one sync re-checks; the rest wait for the next syncs.
   static let verificationsPerSync = 60
+  /// A sync asked for while one runs (a new-mail notification, coming to the front) follows it at once
+  /// instead of being dropped.
+  @ObservationIgnored private var syncAgain = false
   /// Quiet progress of the background history download, for Settings and Contacts.
   private(set) var historyStatus: String?
   private(set) var downloadingHistory = false
@@ -308,9 +311,17 @@ import UIKit
   /// trouble becomes a status line, or the sign-in banner. Only a pull-to-refresh (`interactive`) may
   /// alert, and only for a definitive failure (never for being offline or rate limited).
   func sync(interactive: Bool = false) async {
-    guard !syncing, !auth.isSample, let database else { return }
+    guard !auth.isSample, let database else { return }
+    if syncing { syncAgain = true; return }
     syncing = true
     defer { syncing = false }
+    repeat {
+      syncAgain = false
+      await syncPass(database, interactive: interactive)
+    } while syncAgain && self.database === database
+  }
+
+  private func syncPass(_ database: Database, interactive: Bool) async {
     var refreshedToken = false
     while true {
       do {
@@ -334,28 +345,45 @@ import UIKit
     }
   }
 
-  /// One Gmail sync. Returns false when nothing was merged (Gmail asked Cove to slow down, or the
-  /// account changed meanwhile).
+  /// One Gmail sync in two steps. New mail first, on screen as soon as it is read and never queued
+  /// behind the history download (`interactive`); then up to `verificationsPerSync` already-downloaded
+  /// emails are re-checked at Gmail's background pace (the backlog an expired history or a rate limit
+  /// left). One request batch for both used to put 60 label checks between the user and a new email.
+  /// Returns false when nothing was merged (Gmail asked Cove to slow down, or the account changed).
   private func syncOnce(_ database: Database) async throws -> Bool {
     let token = try await auth.token()
-    let result: GmailSyncResult
+    let storedIDs = (try? database.storedMessageIDs()) ?? []
+    let fresh: GmailSyncResult
     do {
-      result = try await gmail.synchronize(
+      fresh = try await gmail.synchronize(
         token: token, cached: mails, historyID: historyID, refreshContent: historyID == nil && !mails.isEmpty,
-        storedIDs: (try? database.storedMessageIDs()) ?? [], pendingIDs: pendingIDs,
-        // New mail first: re-checking what's already here is spread over later syncs (60 at a time).
-        maxVerifications: Self.verificationsPerSync)
+        storedIDs: storedIDs, pendingIDs: pendingIDs, maxVerifications: 0, interactive: true)
     } catch let failure as HTTPFailure where failure.isRateLimited {
       status = Self.rateLimitStatus
       return false
     }
     guard self.database === database else { return false }
+    try merge(fresh, into: database)
+    guard !pendingIDs.isEmpty else { return true }
+    do {
+      let checked = try await gmail.synchronize(
+        token: token, cached: mails, historyID: historyID, storedIDs: storedIDs, pendingIDs: pendingIDs,
+        maxVerifications: Self.verificationsPerSync)
+      guard self.database === database else { return true }
+      try merge(checked, into: database)
+    } catch let failure as HTTPFailure where failure.isRateLimited {
+      // New mail already landed; the backlog waits for the next sync.
+      status = Self.rateLimitStatus
+    }
+    return true
+  }
+
+  private func merge(_ result: GmailSyncResult, into database: Database) throws {
     try apply(result, keepsAll: false)
     pendingIDs = result.pendingIDs
     try database.save(pendingIDs, key: "gmailPendingIDs")
     lastSynced = Date()
-    status = result.pendingIDs.isEmpty ? nil : "Checking \(result.pendingIDs.count) older emails…"
-    return true
+    status = pendingIDs.isEmpty ? nil : "Checking \(pendingIDs.count) older emails…"
   }
 
   private func reportSyncFailure(_ error: Error, interactive: Bool) {

@@ -25,6 +25,9 @@ import UserNotifications
   var error: String?
   /// An email chosen from a notification, for the app to open.
   var openMailID: String?
+  /// Counts new-mail notifications that arrived while Cove was open, so the mailbox checks Gmail at
+  /// once instead of at the next two-minute check.
+  private(set) var arrivals = 0
   /// Set when the saved sign-in predates `openid email`; a new sign-in grants it.
   private(set) var needsSignIn = false
 
@@ -286,7 +289,11 @@ extension MobilePush: UNUserNotificationCenterDelegate {
   nonisolated public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                                  withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
     let options: UNNotificationPresentationOptions = notification.request.content.interruptionLevel == .passive ? [] : [.banner, .list, .sound]
-    DispatchQueue.main.async { completionHandler(options) }
+    let isMail = notification.request.content.userInfo["mailID"] != nil
+    DispatchQueue.main.async {
+      if isMail { MainActor.assumeIsolated { MobilePush.shared.arrivals &+= 1 } }
+      completionHandler(options)
+    }
   }
 
   nonisolated public func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,

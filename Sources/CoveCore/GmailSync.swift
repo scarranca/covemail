@@ -207,7 +207,7 @@ extension GmailClient {
   }
   private func fetchUpdates(
     ids: Set<String>, cachedIDs: Set<String>, token: String,
-    into result: GmailSyncResult
+    into result: GmailSyncResult, interactive: Bool = false
   ) async throws -> GmailSyncResult {
     var result = result
     // Newest first: Gmail ids grow with time, so a long catch-up fills recent mail before old mail.
@@ -220,7 +220,7 @@ extension GmailClient {
         updates = try await withThrowingTaskGroup(of: MessageUpdate.self) { group in
         for id in batch {
           group.addTask {
-            try await pacedBulk()
+            if !interactive { try await pacedBulk() }
             return try await update(id: id, token: token, cached: cachedIDs.contains(id))
           }
         }
@@ -247,9 +247,13 @@ extension GmailClient {
   /// `maxVerifications` bounds how many already-known emails one sync re-checks (the pending backlog,
   /// or every cached email after Gmail's history expired); the rest stay in `pendingIDs` for later
   /// syncs, newest first. New emails are always read. Nil (the Mac) checks everything at once.
+  /// `interactive` reads (the user is waiting: pull to refresh, Cove coming to the front) spend from the
+  /// reserve kept for what the user does instead of queueing behind background pacing, which on a phone
+  /// is shared with the history download; re-checks of known mail should stay paced.
   public func synchronize(
     token: String, cached: [Mail], historyID: String?, refreshContent: Bool = false,
-    storedIDs: Set<String> = [], pendingIDs: Set<String> = [], maxVerifications: Int? = nil
+    storedIDs: Set<String> = [], pendingIDs: Set<String> = [], maxVerifications: Int? = nil,
+    interactive: Bool = false
   ) async throws
     -> GmailSyncResult
   {
@@ -270,11 +274,12 @@ extension GmailClient {
         result.labelChanges = delta.labelChanges.filter { known.contains($0.key) && !pendingIDs.contains($0.key) }
         guard let maxVerifications else {
           let reads = delta.added.subtracting(known).union(unknownLabelled).union(pendingIDs).subtracting(delta.deleted)
-          return try await fetchUpdates(ids: reads, cachedIDs: storedIDs, token: token, into: result)
+          return try await fetchUpdates(ids: reads, cachedIDs: storedIDs, token: token, into: result, interactive: interactive)
         }
         let fresh = delta.added.subtracting(known).union(unknownLabelled).subtracting(delta.deleted)
         let (now, later) = Self.split(pendingIDs.subtracting(fresh).subtracting(delta.deleted), first: maxVerifications)
-        result = try await fetchUpdates(ids: fresh.union(now), cachedIDs: storedIDs, token: token, into: result)
+        result = try await fetchUpdates(ids: fresh.union(now), cachedIDs: storedIDs, token: token, into: result,
+                                        interactive: interactive)
         result.pendingIDs.formUnion(later)
         return result
       }
@@ -285,7 +290,7 @@ extension GmailClient {
       Profile.self, from: await request("profile", token: token))
     // Stored messages only need their labels; refreshContent is the one reason to reload bodies.
     let knownIDs = refreshContent ? [] : storedIDs
-    let page = try await page(token: token, cachedIDs: knownIDs)
+    let page = try await page(token: token, cachedIDs: knownIDs, interactive: interactive)
     let fetchedIDs = Set(page.messages.map(\.id)).union(page.labels.keys).union(page.deletedIDs)
     let result = GmailSyncResult(
       messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
@@ -293,10 +298,10 @@ extension GmailClient {
     // Missing from a single page is not deletion: verify every previously cached remote ID.
     let unverified = cachedIDs.union(pendingIDs).subtracting(fetchedIDs)
     guard let maxVerifications else {
-      return try await fetchUpdates(ids: unverified, cachedIDs: knownIDs, token: token, into: result)
+      return try await fetchUpdates(ids: unverified, cachedIDs: knownIDs, token: token, into: result, interactive: interactive)
     }
     let (now, later) = Self.split(unverified, first: maxVerifications)
-    var bounded = try await fetchUpdates(ids: now, cachedIDs: knownIDs, token: token, into: result)
+    var bounded = try await fetchUpdates(ids: now, cachedIDs: knownIDs, token: token, into: result, interactive: interactive)
     bounded.pendingIDs.formUnion(later)
     return bounded
   }

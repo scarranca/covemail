@@ -1,6 +1,7 @@
 #if os(iOS)
 import CoveCore
 import SwiftUI
+import UIKit
 
 /// The iPhone app: sign-in, then Home, Mail, Calendar, Tasks and Search, the Mac's destinations as tabs.
 public struct CoveMobileRoot: View {
@@ -88,14 +89,24 @@ public struct CoveMobileRoot: View {
       }
     }
     .task(id: auth.email) {
-      // While Cove is open, check Gmail about every two minutes, like the Mac.
+      // While Cove is open, check Gmail about every two minutes, like the Mac. The app state is read
+      // live: `scenePhase` captured by this closure keeps the value it had when the task started, which
+      // at launch can be inactive, and then the loop would never sync. Older mail downloads in its own
+      // task below, so a long history download never holds this check either.
       while !Task.isCancelled, auth.email != nil {
         try? await Task.sleep(for: .seconds(120))
-        if scenePhase == .active {
-          await mailbox.sync()
-          await mailbox.downloadHistory()
-        }
+        if UIApplication.shared.applicationState != .background { await mailbox.sync() }
       }
+    }
+    .task(id: auth.email) {
+      while !Task.isCancelled, auth.email != nil {
+        try? await Task.sleep(for: .seconds(120))
+        if UIApplication.shared.applicationState != .background { await mailbox.downloadHistory() }
+      }
+    }
+    .onChange(of: push.arrivals) { _, _ in
+      // A new-mail notification while Cove is open: that email is read now, not at the next check.
+      Task { await mailbox.sync() }
     }
     // An email chosen from a notification opens over whatever is on screen.
     .sheet(isPresented: Binding(get: { push.openMailID != nil && auth.email != nil }, set: { if !$0 { push.openMailID = nil } })) {
