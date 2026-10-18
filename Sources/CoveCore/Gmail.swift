@@ -255,9 +255,12 @@ public struct GmailClient {
   /// Lists one page. IDs in `cachedIDs` are already stored on this Mac, so only their labels are fetched.
   /// `interactive` pages (the user scrolled to the end or opened a label) spend from the reserve kept for
   /// what the user does instead of waiting behind background spacing, which is slow on battery.
+  /// `onMessages` receives each batch of newly read emails as it arrives, so a page can be shown while
+  /// it loads; the returned page still carries every email.
   public func page(
     token: String, pageToken: String? = nil, labelID: String? = nil,
-    cachedIDs: Set<String> = [], interactive: Bool = false
+    cachedIDs: Set<String> = [], interactive: Bool = false,
+    onMessages: (@Sendable ([Mail]) async -> Void)? = nil
   ) async throws -> Page {
     struct Entry: Decodable { var id: String }
     struct List: Decodable {
@@ -276,10 +279,12 @@ public struct GmailClient {
     let list = try JSONDecoder().decode(
       List.self, from: await request("messages", token: token, query: query))
     var result = Page(messages: [], next: list.nextPageToken)
-    // Small bounded groups avoid both serial latency and Gmail quota bursts.
+    // Small bounded groups avoid both serial latency and Gmail quota bursts; a little wider when the
+    // user is waiting (a read takes about a second).
     let entries = list.messages ?? []
-    for start in stride(from: 0, to: entries.count, by: 5) {
-      let batch = Array(entries[start..<min(start + 5, entries.count)])
+    let width = interactive ? 8 : 5
+    for start in stride(from: 0, to: entries.count, by: width) {
+      let batch = Array(entries[start..<min(start + width, entries.count)])
       let updates = try await withThrowingTaskGroup(of: MessageUpdate?.self) { group in
         for entry in batch {
           group.addTask {
@@ -295,13 +300,15 @@ public struct GmailClient {
         for try await update in group { if let update { values.append(update) } }
         return values
       }
+      var arrived: [Mail] = []
       for update in updates {
         switch update {
-        case .full(let mail): result.messages.append(mail)
+        case .full(let mail): result.messages.append(mail); arrived.append(mail)
         case .labels(let id, let labels): result.labels[id] = labels
         case .deleted(let id): result.deletedIDs.insert(id)
         }
       }
+      if let onMessages, !arrived.isEmpty { await onMessages(arrived) }
     }
     result.messages.sort { $0.date > $1.date }
     return result

@@ -385,6 +385,25 @@ final class GmailSyncTests: XCTestCase {
     XCTAssertEqual(result.historyID, "500")
   }
 
+  func testOlderPageArrivesInBatchesWhileTheUserWaits() async throws {
+    let ids = (1...20).map { String(format: "o%02d", $0) }
+    let transport = SyncFixtureHTTP { request in
+      let name = request.url!.lastPathComponent
+      if name == "messages" { return (200, ["messages": ids.map { ["id": $0] }, "nextPageToken": "p3"]) }
+      return (200, ["id": name, "threadId": "t", "labelIds": ["INBOX"]])
+    }
+    let batches = BatchLog()
+    let page = try await GmailClient(transport: transport).page(
+      token: "t", pageToken: "p2", cachedIDs: ["o01"], interactive: true,
+      onMessages: { await batches.append($0.map(\.id)) })
+    let seen = await batches.values
+    XCTAssertEqual(seen.map(\.count), [7, 8, 4], "eight reads at a time; stored emails need only labels")
+    XCTAssertFalse(seen.flatMap { $0 }.contains("o01"))
+    XCTAssertEqual(page.messages.count, 19)
+    XCTAssertEqual(page.labels.keys.sorted(), ["o01"])
+    XCTAssertEqual(page.next, "p3")
+  }
+
   func testRateLimitPartwayKeepsWhatArrivedAndRemembersTheRest() async throws {
     let ids = (1...9).map { "m\($0)" }
     let limited = SyncFixtureHTTP { request in

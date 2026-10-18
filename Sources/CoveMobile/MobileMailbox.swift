@@ -125,6 +125,9 @@ import UIKit
   /// Quiet progress of the background history download, for Settings and Contacts.
   private(set) var historyStatus: String?
   private(set) var downloadingHistory = false
+  /// The background history download, so a user waiting at the end of the list can stop its slow,
+  /// paced page and load the next one at once.
+  @ObservationIgnored private var historyTask: Task<Void, Never>?
 
   init(auth: MobileAuth) {
     self.auth = auth
@@ -379,9 +382,9 @@ import UIKit
     return true
   }
 
-  /// Emails read so far in a long catch-up go on screen at once (newest first) instead of after the
-  /// last one. The history cursor isn't saved until the whole sync is merged, so an interrupted sync
-  /// reads the rest next time.
+  /// Emails read so far in a long catch-up or an older page go on screen at once instead of after the
+  /// last one. The history cursor and page token aren't saved until the whole step is merged, so an
+  /// interrupted one reads the rest next time.
   private func show(_ arrived: [Mail], generation: Int) {
     guard generation == openGeneration else { return }
     try? apply(GmailSyncResult(messages: arrived, historyID: ""), keepsAll: true)
@@ -414,6 +417,12 @@ import UIKit
   func loadOlder() async {
     // After a failure the list shows a Try again row; scrolling doesn't keep asking.
     guard !loadOlderFailed else { return }
+    // The user goes first: a background page in progress (paced, slow on battery) stops, and its
+    // emails read so far are already on screen. The download resumes at its next turn.
+    if loadingOlder, let historyTask {
+      historyTask.cancel()
+      for _ in 0..<50 where loadingOlder { try? await Task.sleep(for: .milliseconds(100)) }
+    }
     do { try await loadOlderPage(interactive: true) } catch is CancellationError {
     } catch { if self.database != nil { loadOlderFailed = true } }
   }
@@ -424,15 +433,21 @@ import UIKit
   }
 
   /// One page (50) of older mail. Emails already stored come back as labels only, so walking pages
-  /// Cove already has is cheap. Returns false when there was nothing to load.
+  /// Cove already has is cheap. Emails appear as they are read; the page cursor moves only when the
+  /// whole page is in. A page the user asked for runs beside a sync (the background re-check of known
+  /// mail can take a minute); the background download waits for it. Returns false when there was
+  /// nothing to load.
   @discardableResult
   private func loadOlderPage(interactive: Bool = false) async throws -> Bool {
-    guard !loadingOlder, !syncing, hasOlder, let database, let next = nextPage, !next.isEmpty else { return false }
+    guard !loadingOlder, interactive || !syncing, hasOlder, let database, let next = nextPage, !next.isEmpty
+    else { return false }
     loadingOlder = true
     defer { loadingOlder = false }
     let token = try await auth.token()
     let page = try await gmail.page(token: token, pageToken: next, cachedIDs: (try? database.storedMessageIDs()) ?? [],
-                                    interactive: interactive)
+                                    interactive: interactive,
+                                    onMessages: { [weak self, generation = openGeneration] arrived in
+                                      await self?.show(arrived, generation: generation) })
     guard self.database === database else { return false }
     try apply(GmailSyncResult(messages: page.messages, labels: page.labels, deletedIDs: page.deletedIDs,
                               historyID: historyID ?? "", nextPage: page.next, resetsPagination: true),
@@ -446,7 +461,14 @@ import UIKit
   func downloadHistory() async {
     guard !downloadingHistory, !auth.isSample, database != nil else { return }
     downloadingHistory = true
-    defer { downloadingHistory = false }
+    defer { downloadingHistory = false; historyTask = nil }
+    let task = Task { await runHistoryDownload() }
+    historyTask = task
+    // Leaving the account (or the app's task ending) still stops it.
+    await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+  }
+
+  private func runHistoryDownload() async {
     let target = windowStart
     while !Task.isCancelled, hasOlder, mails.count < Self.historyLimit,
           (mails.map(\.date).min() ?? Date()) > target {
