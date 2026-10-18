@@ -207,14 +207,17 @@ extension GmailClient {
   }
   private func fetchUpdates(
     ids: Set<String>, cachedIDs: Set<String>, token: String,
-    into result: GmailSyncResult, interactive: Bool = false
+    into result: GmailSyncResult, interactive: Bool = false,
+    onNewMail: (@Sendable ([Mail]) async -> Void)? = nil
   ) async throws -> GmailSyncResult {
     var result = result
     // Newest first: Gmail ids grow with time, so a long catch-up fills recent mail before old mail.
     let ids = ids.sorted(by: >)
-    // Three at a time, paced: a long catch-up stays under Gmail's per-user limits.
-    for start in stride(from: 0, to: ids.count, by: 3) {
-      let batch = Array(ids[start..<min(start + 3, ids.count)])
+    // Three at a time, paced: a long catch-up stays under Gmail's per-user limits. Six when the user is
+    // waiting: a read takes about a second, so 100 new emails after a day away took 50 s three at a time.
+    let width = interactive ? 6 : 3
+    for start in stride(from: 0, to: ids.count, by: width) {
+      let batch = Array(ids[start..<min(start + width, ids.count)])
       let updates: [MessageUpdate]
       do {
         updates = try await withThrowingTaskGroup(of: MessageUpdate.self) { group in
@@ -234,13 +237,15 @@ extension GmailClient {
         result.pendingIDs = Set(ids[start...])
         return result
       }
+      var arrived: [Mail] = []
       for update in updates {
         switch update {
-        case .full(let mail): result.messages.append(mail)
+        case .full(let mail): result.messages.append(mail); arrived.append(mail)
         case .labels(let id, let labels): result.labels[id] = labels
         case .deleted(let id): result.deletedIDs.insert(id)
         }
       }
+      if let onNewMail, !arrived.isEmpty { await onNewMail(arrived) }
     }
     return result
   }
@@ -250,10 +255,12 @@ extension GmailClient {
   /// `interactive` reads (the user is waiting: pull to refresh, Cove coming to the front) spend from the
   /// reserve kept for what the user does instead of queueing behind background pacing, which on a phone
   /// is shared with the history download; re-checks of known mail should stay paced.
+  /// `onNewMail` receives each batch of emails read from the history as it arrives (newest first), so a
+  /// long catch-up can be shown while it runs. The result still carries every email.
   public func synchronize(
     token: String, cached: [Mail], historyID: String?, refreshContent: Bool = false,
     storedIDs: Set<String> = [], pendingIDs: Set<String> = [], maxVerifications: Int? = nil,
-    interactive: Bool = false
+    interactive: Bool = false, onNewMail: (@Sendable ([Mail]) async -> Void)? = nil
   ) async throws
     -> GmailSyncResult
   {
@@ -274,12 +281,13 @@ extension GmailClient {
         result.labelChanges = delta.labelChanges.filter { known.contains($0.key) && !pendingIDs.contains($0.key) }
         guard let maxVerifications else {
           let reads = delta.added.subtracting(known).union(unknownLabelled).union(pendingIDs).subtracting(delta.deleted)
-          return try await fetchUpdates(ids: reads, cachedIDs: storedIDs, token: token, into: result, interactive: interactive)
+          return try await fetchUpdates(ids: reads, cachedIDs: storedIDs, token: token, into: result, interactive: interactive,
+                                        onNewMail: onNewMail)
         }
         let fresh = delta.added.subtracting(known).union(unknownLabelled).subtracting(delta.deleted)
         let (now, later) = Self.split(pendingIDs.subtracting(fresh).subtracting(delta.deleted), first: maxVerifications)
         result = try await fetchUpdates(ids: fresh.union(now), cachedIDs: storedIDs, token: token, into: result,
-                                        interactive: interactive)
+                                        interactive: interactive, onNewMail: onNewMail)
         result.pendingIDs.formUnion(later)
         return result
       }

@@ -363,6 +363,28 @@ final class GmailSyncTests: XCTestCase {
     XCTAssertTrue(read.isEmpty, "no backlog email is read in the new-mail step")
   }
 
+  func testNewMailArrivesInBatchesNewestFirstWhileTheUserWaits() async throws {
+    // After a day away, 100 new emails must not all be read before the first one is shown.
+    let ids = (1...14).map { String(format: "n%02d", $0) }
+    let transport = SyncFixtureHTTP { request in
+      let name = request.url!.lastPathComponent
+      if name == "history" {
+        return (200, ["historyId": "500", "history": ids.map { ["messagesAdded": [["message": ["id": $0]]]] }])
+      }
+      return (200, ["id": name, "threadId": "t", "labelIds": ["INBOX"]])
+    }
+    let batches = BatchLog()
+    let result = try await GmailClient(transport: transport).synchronize(
+      token: "t", cached: [], historyID: "499", maxVerifications: 0, interactive: true,
+      onNewMail: { await batches.append($0.map(\.id)) })
+    let seen = await batches.values
+    XCTAssertEqual(seen.map(\.count), [6, 6, 2], "six at a time while the user waits")
+    XCTAssertEqual(seen.first.map(Set.init), Set(ids.suffix(6)), "the newest emails come first")
+    XCTAssertEqual(Set(seen.flatMap { $0 }), Set(ids))
+    XCTAssertEqual(result.messages.count, 14, "the result still carries every email")
+    XCTAssertEqual(result.historyID, "500")
+  }
+
   func testRateLimitPartwayKeepsWhatArrivedAndRemembersTheRest() async throws {
     let ids = (1...9).map { "m\($0)" }
     let limited = SyncFixtureHTTP { request in
@@ -516,4 +538,9 @@ extension URLRequest {
     URLComponents(url: url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == name }?
       .value
   }
+}
+
+private actor BatchLog {
+  var values: [[String]] = []
+  func append(_ batch: [String]) { values.append(batch) }
 }

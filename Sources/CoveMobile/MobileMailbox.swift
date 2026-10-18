@@ -357,7 +357,8 @@ import UIKit
     do {
       fresh = try await gmail.synchronize(
         token: token, cached: mails, historyID: historyID, refreshContent: historyID == nil && !mails.isEmpty,
-        storedIDs: storedIDs, pendingIDs: pendingIDs, maxVerifications: 0, interactive: true)
+        storedIDs: storedIDs, pendingIDs: pendingIDs, maxVerifications: 0, interactive: true,
+        onNewMail: { [weak self, generation = openGeneration] arrived in await self?.show(arrived, generation: generation) })
     } catch let failure as HTTPFailure where failure.isRateLimited {
       status = Self.rateLimitStatus
       return false
@@ -376,6 +377,14 @@ import UIKit
       status = Self.rateLimitStatus
     }
     return true
+  }
+
+  /// Emails read so far in a long catch-up go on screen at once (newest first) instead of after the
+  /// last one. The history cursor isn't saved until the whole sync is merged, so an interrupted sync
+  /// reads the rest next time.
+  private func show(_ arrived: [Mail], generation: Int) {
+    guard generation == openGeneration else { return }
+    try? apply(GmailSyncResult(messages: arrived, historyID: ""), keepsAll: true)
   }
 
   private func merge(_ result: GmailSyncResult, into database: Database) throws {
